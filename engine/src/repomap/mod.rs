@@ -777,9 +777,21 @@ mod tests {
         // 500 / 20 = 25
         // 2000 / 20 = 100
         // 10000 / 20 = 500
-        assert!(small_max >= 20 && small_max <= 30, "Small max_symbols should be ~25, got {}", small_max);
-        assert!(medium_max >= 90 && medium_max <= 110, "Medium max_symbols should be ~100, got {}", medium_max);
-        assert!(large_max >= 400 && large_max <= 500, "Large max_symbols should be ~500, got {}", large_max);
+        assert!(
+            small_max >= 20 && small_max <= 30,
+            "Small max_symbols should be ~25, got {}",
+            small_max
+        );
+        assert!(
+            medium_max >= 90 && medium_max <= 110,
+            "Medium max_symbols should be ~100, got {}",
+            medium_max
+        );
+        assert!(
+            large_max >= 400 && large_max <= 500,
+            "Large max_symbols should be ~500, got {}",
+            large_max
+        );
     }
 
     #[test]

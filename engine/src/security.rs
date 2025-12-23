@@ -45,8 +45,10 @@ static RE_PASSWORD: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)password['"]?\s*[:=]\s*['"]?([^'"\s]{8,})"#).unwrap());
 static RE_CONN_STRING: Lazy<Regex> = Lazy::new(|| {
     // Note: postgres and postgresql are both valid (postgresql:// is more common in practice)
-    Regex::new(r#"(?i)(?:mongodb|postgres(?:ql)?|mysql|redis|mariadb|cockroachdb|mssql)://[^\s'"]+"#)
-        .unwrap()
+    Regex::new(
+        r#"(?i)(?:mongodb|postgres(?:ql)?|mysql|redis|mariadb|cockroachdb|mssql)://[^\s'"]+"#,
+    )
+    .unwrap()
 });
 static RE_JWT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*").unwrap());
@@ -55,11 +57,9 @@ static RE_SLACK: Lazy<Regex> =
 static RE_STRIPE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?:sk|pk)_(?:test|live)_[A-Za-z0-9]{24,}").unwrap());
 // OpenAI API keys (sk-... followed by alphanumeric characters)
-static RE_OPENAI: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").unwrap());
+static RE_OPENAI: Lazy<Regex> = Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").unwrap());
 // Anthropic API keys (sk-ant-...)
-static RE_ANTHROPIC: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").unwrap());
+static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").unwrap());
 
 /// A detected secret or sensitive data
 #[derive(Debug, Clone)]
