@@ -125,8 +125,8 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64
-          - os: ubuntu-latest
-            target: aarch64
+          # Note: Linux aarch64 disabled due to C99 compilation issues with tree-sitter-elixir
+          # ARM64 users can build from source (sdist) or use macOS ARM64 wheels
           - os: macos-15
             target: x86_64
           - os: macos-latest
