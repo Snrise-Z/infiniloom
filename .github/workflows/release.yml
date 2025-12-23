@@ -361,7 +361,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================================================
-  # Update Homebrew tap
+  # Update Homebrew tap (Formula and Cask)
   # ============================================================================
   update-homebrew:
     name: Update Homebrew
@@ -378,12 +378,26 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Calculate SHA256
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: infiniloom-darwin-*
+          path: binaries
+          merge-multiple: true
+
+      - name: Calculate SHA256 hashes
         id: sha
         run: |
+          # Formula SHA (source tarball)
           curl -sL "https://github.com/Topos-Labs/infiniloom/archive/refs/tags/${{ steps.tag.outputs.tag }}.tar.gz" -o release.tar.gz
-          SHA=$(shasum -a 256 release.tar.gz | cut -d ' ' -f 1)
-          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+          FORMULA_SHA=$(shasum -a 256 release.tar.gz | cut -d ' ' -f 1)
+          echo "formula=$FORMULA_SHA" >> $GITHUB_OUTPUT
+
+          # Cask SHAs (pre-built binaries)
+          INTEL_SHA=$(shasum -a 256 binaries/infiniloom-darwin-x64.tar.gz | cut -d ' ' -f 1)
+          ARM_SHA=$(shasum -a 256 binaries/infiniloom-darwin-arm64.tar.gz | cut -d ' ' -f 1)
+          echo "intel=$INTEL_SHA" >> $GITHUB_OUTPUT
+          echo "arm=$ARM_SHA" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -392,18 +406,17 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
-      - name: Update formula
+      - name: Update Formula (build from source)
         run: |
           VERSION="${{ steps.tag.outputs.tag }}"
           VERSION="${VERSION#v}"  # Remove 'v' prefix
-          SHA="${{ steps.sha.outputs.sha256 }}"
 
           cat > homebrew-tap/Formula/infiniloom.rb << EOF
           class Infiniloom < Formula
             desc "High-performance repository context generator for LLMs"
             homepage "https://github.com/Topos-Labs/infiniloom"
             url "https://github.com/Topos-Labs/infiniloom/archive/refs/tags/${{ steps.tag.outputs.tag }}.tar.gz"
-            sha256 "$SHA"
+            sha256 "${{ steps.sha.outputs.formula }}"
             license "MIT"
             head "https://github.com/Topos-Labs/infiniloom.git", branch: "main"
 
@@ -419,12 +432,46 @@ jobs:
           end
           EOF
 
+      - name: Update Cask (pre-built binary)
+        run: |
+          VERSION="${{ steps.tag.outputs.tag }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix
+
+          mkdir -p homebrew-tap/Casks
+          cat > homebrew-tap/Casks/infiniloom.rb << EOF
+          cask "infiniloom" do
+            version "$VERSION"
+
+            on_intel do
+              url "https://github.com/Topos-Labs/infiniloom/releases/download/v#{version}/infiniloom-darwin-x64.tar.gz"
+              sha256 "${{ steps.sha.outputs.intel }}"
+            end
+
+            on_arm do
+              url "https://github.com/Topos-Labs/infiniloom/releases/download/v#{version}/infiniloom-darwin-arm64.tar.gz"
+              sha256 "${{ steps.sha.outputs.arm }}"
+            end
+
+            name "Infiniloom"
+            desc "High-performance repository context generator for LLMs"
+            homepage "https://github.com/Topos-Labs/infiniloom"
+            license "MIT"
+
+            binary "infiniloom"
+
+            zap trash: [
+              "~/.infiniloom",
+              "~/.config/infiniloom",
+            ]
+          end
+          EOF
+
       - name: Commit and push
         working-directory: homebrew-tap
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add Formula/infiniloom.rb
+          git add Formula/infiniloom.rb Casks/infiniloom.rb
           git commit -m "Update infiniloom to ${{ steps.tag.outputs.tag }}"
           git push
 
