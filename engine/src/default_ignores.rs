@@ -152,6 +152,8 @@ pub const TEST_IGNORES: &[&str] = &[
     "**/*_test.*",
     "**/*.test.*",
     "**/*.spec.*",
+    "**/*.fixture.*",
+    "**/*_fixture.*",
     "**/test_*.*",
     "**/conftest.py",
     "**/fixtures/**",
@@ -163,6 +165,11 @@ pub const TEST_IGNORES: &[&str] = &[
     "**/*_test/**",
     "**/*.stories.*",
     "**/*.story.*",
+    // E2E and integration test patterns
+    "**/e2e/**",
+    "**/integration/**",
+    "**/cypress/**",
+    "**/playwright/**",
 ];
 
 /// Patterns for documentation (can be optionally excluded)
@@ -256,6 +263,16 @@ mod tests {
         assert!(matches_any("src/__tests__/foo.test.ts", TEST_IGNORES));
         assert!(matches_any("tests/unit/test_foo.py", TEST_IGNORES));
         assert!(matches_any("spec/models/user_spec.rb", TEST_IGNORES));
+
+        // Fixture file patterns (issue: .fixture.go files appearing in results)
+        assert!(matches_any("pkg/tools/ReadFile.fixture.go", TEST_IGNORES));
+        assert!(matches_any("internal/something_fixture.ts", TEST_IGNORES));
+        assert!(matches_any("src/api.fixture.json", TEST_IGNORES));
+
+        // E2E and integration patterns
+        assert!(matches_any("e2e/login.spec.ts", TEST_IGNORES));
+        assert!(matches_any("cypress/integration/app.cy.ts", TEST_IGNORES));
+        assert!(matches_any("playwright/tests/smoke.ts", TEST_IGNORES));
 
         assert!(!matches_any("src/index.ts", TEST_IGNORES));
     }

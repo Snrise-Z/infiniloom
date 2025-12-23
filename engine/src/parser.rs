@@ -1076,7 +1076,7 @@ impl Parser {
         }
     }
 
-    /// Extract function calls from a function/method body
+    /// Extract function calls from a function/method body (Bug #1 fix - improved extraction)
     fn extract_calls(&self, node: Node<'_>, source_code: &str, language: Language) -> Vec<String> {
         let mut calls = HashSet::new();
 
@@ -1084,6 +1084,12 @@ impl Parser {
         let body_node = self.find_body_node(node, language);
         if let Some(body) = body_node {
             self.collect_calls_recursive(body, source_code, language, &mut calls);
+        }
+
+        // Fallback: If no calls found and we have a body, scan the entire node
+        // This handles cases where body detection might miss some patterns
+        if calls.is_empty() {
+            self.collect_calls_recursive(node, source_code, language, &mut calls);
         }
 
         calls.into_iter().collect()
@@ -1109,11 +1115,39 @@ impl Parser {
                 }
             },
             Language::JavaScript | Language::TypeScript => {
-                // JS/TS: various > statement_block
+                // JS/TS: various function forms - statement_block, arrow body, or expression body
                 for child in node.children(&mut node.walk()) {
-                    if child.kind() == "statement_block" {
+                    let kind = child.kind();
+                    if kind == "statement_block" {
                         return Some(child);
                     }
+                    // Arrow functions can have expression bodies
+                    if kind == "arrow_function" {
+                        // Recursively find body in arrow function
+                        if let Some(body) = self.find_body_node(child, language) {
+                            return Some(body);
+                        }
+                        // Or the arrow function itself has the calls
+                        return Some(child);
+                    }
+                }
+                // Fallback: for arrow functions without block body, return the node itself
+                // This handles cases like: const fn = () => doSomething()
+                if node.kind() == "arrow_function" {
+                    for child in node.children(&mut node.walk()) {
+                        // Skip parameter list and arrow
+                        let kind = child.kind();
+                        if kind != "formal_parameters"
+                            && kind != "identifier"
+                            && kind != "=>"
+                            && kind != "("
+                            && kind != ")"
+                            && kind != ","
+                        {
+                            return Some(child);
+                        }
+                    }
+                    return Some(node);
                 }
             },
             Language::Go => {
@@ -2233,6 +2267,12 @@ impl Parser {
 
             (enum_declaration
               name: (identifier) @name) @enum
+
+            ; Arrow functions (named via variable) - Bug #1 fix
+            (lexical_declaration
+              (variable_declarator
+                name: (identifier) @name
+                value: (arrow_function))) @function
         "#;
 
         Query::new(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), query_string)
@@ -2379,8 +2419,28 @@ impl Parser {
             (enum_declaration
               name: (identifier) @name) @enum
 
+            ; Arrow functions (named via variable) - Bug #1 fix
+            (lexical_declaration
+              (variable_declarator
+                name: (identifier) @name
+                value: (arrow_function))) @function
+
+            ; Arrow functions (exported)
+            (export_statement
+              declaration: (lexical_declaration
+                (variable_declarator
+                  name: (identifier) @name
+                  value: (arrow_function)))) @function
+
+            ; Type aliases
+            (type_alias_declaration
+              name: (type_identifier) @name) @struct
+
             ; Imports
             (import_statement) @import
+
+            ; Exports (re-exports)
+            (export_statement) @export
         "#;
 
         Query::new(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), query_string)

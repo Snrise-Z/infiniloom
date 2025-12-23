@@ -2560,6 +2560,19 @@ fn cmd_map(
 
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
+    // Apply default ignores to filter out build outputs, dependencies, etc.
+    // This prevents dist/, node_modules/, etc. from appearing in the map
+    {
+        use infiniloom_engine::default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES};
+        repo.files.retain(|f| {
+            !matches_any(&f.relative_path, DEFAULT_IGNORES)
+                && !matches_any(&f.relative_path, TEST_IGNORES)
+        });
+    }
+
+    // Count cross-file symbol references (populates Symbol.references field)
+    infiniloom_engine::count_symbol_references(&mut repo);
+
     // Rank files by importance
     infiniloom_engine::rank_files(&mut repo);
     infiniloom_engine::sort_files_by_importance(&mut repo);

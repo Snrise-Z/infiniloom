@@ -1,7 +1,10 @@
 #![deny(clippy::all)]
 
 use infiniloom_engine::{
+    count_symbol_references,
+    default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
     git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus},
+    rank_files, sort_files_by_importance,
     CompressionLevel, OutputFormat, OutputFormatter, RepoMapGenerator, Repository, SecurityScanner,
     SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel, Symbol,
     SymbolKind, Visibility, HeuristicCompressor,
@@ -32,6 +35,16 @@ pub struct PackOptions {
     pub redact_secrets: Option<bool>,
     /// Skip symbol extraction for faster scanning
     pub skip_symbols: Option<bool>,
+    /// Glob patterns to include (e.g., ["src/**/*.ts", "lib/**/*.js"])
+    pub include: Option<Vec<String>>,
+    /// Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+    pub exclude: Option<Vec<String>>,
+    /// Include test files (default: false)
+    pub include_tests: Option<bool>,
+    /// Minimum security severity to block on: "critical", "high", "medium", "low" (default: "critical")
+    pub security_threshold: Option<String>,
+    /// Token budget for total output (0 = no limit). Files are included by importance until budget is reached.
+    pub token_budget: Option<u32>,
 }
 
 /// Statistics from scanning a repository
@@ -66,6 +79,21 @@ pub struct LanguageStat {
     pub percentage: f64,
 }
 
+/// Options for scanning a repository
+#[napi(object)]
+pub struct ScanOptions {
+    /// Target model for token counting (default: "claude")
+    pub model: Option<String>,
+    /// Glob patterns to include (e.g., ["src/**/*.ts", "lib/**/*.js"])
+    pub include: Option<Vec<String>>,
+    /// Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+    pub exclude: Option<Vec<String>>,
+    /// Include test files (default: false)
+    pub include_tests: Option<bool>,
+    /// Apply default ignores for dist/, node_modules/, etc. (default: true)
+    pub apply_default_ignores: Option<bool>,
+}
+
 /// Pack a repository into optimized LLM context
 ///
 /// # Arguments
@@ -97,6 +125,11 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
         skip_security: None,
         redact_secrets: None,
         skip_symbols: None,
+        include: None,
+        exclude: None,
+        include_tests: None,
+        security_threshold: None,
+        token_budget: None,
     });
 
     // Parse options
@@ -108,27 +141,53 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
     let skip_security = opts.skip_security.unwrap_or(false);
     let redact_secrets = opts.redact_secrets.unwrap_or(true);
     let skip_symbols = opts.skip_symbols.unwrap_or(false);
+    let include_tests = opts.include_tests.unwrap_or(false);
+    let security_threshold = parse_security_threshold(opts.security_threshold.as_deref())?;
+    let token_budget = opts.token_budget.unwrap_or(0); // 0 = no limit
 
     // Scan repository (with contents for packing)
     let mut repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
+
+    // Apply default ignores to filter out build outputs, dependencies, etc.
+    repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+
+    // Apply test ignores unless include_tests is true
+    if !include_tests {
+        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    }
+
+    // Apply custom include patterns (if specified, only keep matching files)
+    if let Some(ref include_patterns) = opts.include {
+        let patterns: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
+        repo.files.retain(|f| matches_any_pattern(&f.relative_path, &patterns));
+    }
+
+    // Apply custom exclude patterns
+    if let Some(ref exclude_patterns) = opts.exclude {
+        let patterns: Vec<&str> = exclude_patterns.iter().map(|s| s.as_str()).collect();
+        repo.files.retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
+    }
+
+    // Count cross-file symbol references (populates Symbol.references field)
+    count_symbol_references(&mut repo);
+
+    // Rank files by importance
+    rank_files(&mut repo);
+    sort_files_by_importance(&mut repo);
 
     // Security check and redaction
     let scanner = SecurityScanner::new();
     for file in &mut repo.files {
         if let Some(ref content) = file.content {
-            // Check for critical findings
+            // Check for findings at or above threshold
             if !skip_security {
                 let findings = scanner.scan(content, &file.relative_path);
-                if findings.iter().any(|f| {
-                    matches!(
-                        f.severity,
-                        infiniloom_engine::security::Severity::Critical
-                    )
-                }) {
+                if findings.iter().any(|f| severity_at_or_above(&f.severity, &security_threshold)) {
                     return Err(Error::new(
                         Status::GenericFailure,
                         format!(
-                            "Critical security issues found in {}. Use skip_security: true to override.",
+                            "{:?} security issues found in {}. Use skip_security: true or adjust security_threshold to override.",
+                            security_threshold,
                             file.relative_path
                         ),
                     ));
@@ -211,6 +270,37 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
         }
     }
 
+    // Apply token budget to limit output size (Bug #7 fix)
+    // Files are already sorted by importance, so we keep top files until budget is reached
+    if token_budget > 0 {
+        let tokenizer = Tokenizer::new();
+        let mut cumulative_tokens: u32 = 0;
+        let mut files_to_keep = Vec::new();
+
+        for file in repo.files {
+            let file_tokens = file.content.as_ref()
+                .map(|c| tokenizer.count(c, model))
+                .unwrap_or(0);
+
+            // Check if adding this file would exceed budget
+            if cumulative_tokens + file_tokens <= token_budget {
+                cumulative_tokens += file_tokens;
+                files_to_keep.push(file);
+            } else if files_to_keep.is_empty() {
+                // Always include at least one file (the most important)
+                files_to_keep.push(file);
+                break;
+            } else {
+                // Budget exceeded, stop adding files
+                break;
+            }
+        }
+
+        repo.files = files_to_keep;
+        // Update metadata
+        repo.metadata.total_files = repo.files.len() as u32;
+    }
+
     // Generate repository map using builder pattern
     let generator = RepoMapGenerator::builder()
         .token_budget(map_budget)
@@ -230,7 +320,7 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
 ///
 /// # Arguments
 /// * `path` - Path to repository root
-/// * `model` - Optional target model (default: "claude")
+/// * `model` - Optional target model (default: "claude") - for backwards compatibility
 ///
 /// # Returns
 /// Repository statistics
@@ -245,8 +335,108 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
 /// ```
 #[napi]
 pub fn scan(path: String, model: Option<String>) -> Result<ScanStats> {
-    let tokenizer_model = parse_model(model.as_deref())?;
-    let repo = scan_repository(&path, tokenizer_model, false)?;
+    // Call scan_with_options with default options for backwards compatibility
+    scan_with_options(path, Some(ScanOptions {
+        model,
+        include: None,
+        exclude: None,
+        include_tests: None,
+        apply_default_ignores: Some(true),
+    }))
+}
+
+/// Scan a repository with full options
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `options` - Scan options
+///
+/// # Returns
+/// Repository statistics
+///
+/// # Example
+/// ```javascript
+/// const { scanWithOptions } = require('infiniloom-node');
+///
+/// const stats = scanWithOptions('./my-repo', {
+///   model: 'claude',
+///   exclude: ['dist/**', '**/*.test.ts'],
+///   applyDefaultIgnores: true
+/// });
+/// ```
+#[napi]
+pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<ScanStats> {
+    let opts = options.unwrap_or(ScanOptions {
+        model: None,
+        include: None,
+        exclude: None,
+        include_tests: None,
+        apply_default_ignores: Some(true),
+    });
+
+    let tokenizer_model = parse_model(opts.model.as_deref())?;
+    let apply_default_ignores = opts.apply_default_ignores.unwrap_or(true);
+    let include_tests = opts.include_tests.unwrap_or(false);
+
+    let mut repo = scan_repository(&path, tokenizer_model, true)?;
+
+    // Apply default ignores (Bug #2 fix)
+    if apply_default_ignores {
+        repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+    }
+
+    // Apply test ignores unless include_tests is true
+    if !include_tests {
+        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    }
+
+    // Apply custom include patterns
+    if let Some(ref include_patterns) = opts.include {
+        let patterns: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
+        repo.files.retain(|f| matches_any_pattern(&f.relative_path, &patterns));
+    }
+
+    // Apply custom exclude patterns
+    if let Some(ref exclude_patterns) = opts.exclude {
+        let patterns: Vec<&str> = exclude_patterns.iter().map(|s| s.as_str()).collect();
+        repo.files.retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
+    }
+
+    // Recalculate metadata after filtering
+    let total_files = repo.files.len() as u32;
+    let total_lines: u64 = repo.files.iter()
+        .map(|f| f.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0))
+        .sum();
+
+    // Calculate language stats with actual line counts (Bug #9 fix)
+    let mut language_stats: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+    for file in &repo.files {
+        if let Some(ref lang) = file.language {
+            let lines = file.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0);
+            let entry = language_stats.entry(lang.clone()).or_insert((0, 0));
+            entry.0 += 1;  // files
+            entry.1 += lines;  // lines
+        }
+    }
+
+    // Sort languages by percentage (Bug #12 fix)
+    let mut languages: Vec<LanguageStat> = language_stats
+        .into_iter()
+        .map(|(lang, (files, lines))| {
+            let percentage = if total_files > 0 {
+                (files as f64 / total_files as f64) * 100.0
+            } else {
+                0.0
+            };
+            LanguageStat {
+                language: lang,
+                files,
+                lines: lines as u32,
+                percentage,
+            }
+        })
+        .collect();
+    languages.sort_by(|a, b| b.percentage.partial_cmp(&a.percentage).unwrap_or(std::cmp::Ordering::Equal));
 
     // Security scan
     let scanner = SecurityScanner::new();
@@ -260,25 +450,11 @@ pub fn scan(path: String, model: Option<String>) -> Result<ScanStats> {
 
     Ok(ScanStats {
         name: repo.name.clone(),
-        total_files: repo.metadata.total_files,
-        total_lines: repo.metadata.total_lines as u32,
+        total_files,
+        total_lines: total_lines as u32,
         total_tokens: repo.total_tokens(tokenizer_model),
-        primary_language: repo
-            .metadata
-            .languages
-            .first()
-            .map(|l| l.language.clone()),
-        languages: repo
-            .metadata
-            .languages
-            .iter()
-            .map(|l| LanguageStat {
-                language: l.language.clone(),
-                files: l.files,
-                lines: l.lines as u32,
-                percentage: l.percentage as f64,
-            })
-            .collect(),
+        primary_language: languages.first().map(|l| l.language.clone()),
+        languages,
         security_findings: total_findings as u32,
     })
 }
@@ -368,7 +544,20 @@ impl Infiniloom {
     #[napi(constructor)]
     pub fn new(path: String, model: Option<String>) -> Result<Self> {
         let tokenizer_model = parse_model(model.as_deref())?;
-        let repo = scan_repository(&path, tokenizer_model, true)?;
+        let mut repo = scan_repository(&path, tokenizer_model, true)?;
+
+        // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
+        repo.files.retain(|f| {
+            !matches_any(&f.relative_path, DEFAULT_IGNORES)
+                && !matches_any(&f.relative_path, TEST_IGNORES)
+        });
+
+        // Count cross-file symbol references (populates Symbol.references field)
+        count_symbol_references(&mut repo);
+
+        // Rank files by importance
+        rank_files(&mut repo);
+        sort_files_by_importance(&mut repo);
 
         Ok(Self {
             repo,
@@ -376,9 +565,46 @@ impl Infiniloom {
         })
     }
 
-    /// Get repository statistics
+    /// Get repository statistics (Bug #4 fix - consistent with scan() function)
     #[napi]
     pub fn get_stats(&self) -> ScanStats {
+        // Calculate actual file and line counts from filtered files
+        let total_files = self.repo.files.len() as u32;
+        let total_lines: u64 = self.repo.files.iter()
+            .map(|f| f.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0))
+            .sum();
+
+        // Calculate language stats with actual line counts (Bug #9 fix)
+        let mut language_stats: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+        for file in &self.repo.files {
+            if let Some(ref lang) = file.language {
+                let lines = file.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0);
+                let entry = language_stats.entry(lang.clone()).or_insert((0, 0));
+                entry.0 += 1;  // files
+                entry.1 += lines;  // lines
+            }
+        }
+
+        // Sort languages by percentage (Bug #12 fix)
+        let mut languages: Vec<LanguageStat> = language_stats
+            .into_iter()
+            .map(|(lang, (files, lines))| {
+                let percentage = if total_files > 0 {
+                    (files as f64 / total_files as f64) * 100.0
+                } else {
+                    0.0
+                };
+                LanguageStat {
+                    language: lang,
+                    files,
+                    lines: lines as u32,
+                    percentage,
+                }
+            })
+            .collect();
+        languages.sort_by(|a, b| b.percentage.partial_cmp(&a.percentage).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Security scan
         let scanner = SecurityScanner::new();
         let mut total_findings = 0;
         for file in &self.repo.files {
@@ -390,27 +616,11 @@ impl Infiniloom {
 
         ScanStats {
             name: self.repo.name.clone(),
-            total_files: self.repo.metadata.total_files,
-            total_lines: self.repo.metadata.total_lines as u32,
+            total_files,
+            total_lines: total_lines as u32,
             total_tokens: self.repo.total_tokens(self.model),
-            primary_language: self
-                .repo
-                .metadata
-                .languages
-                .first()
-                .map(|l| l.language.clone()),
-            languages: self
-                .repo
-                .metadata
-                .languages
-                .iter()
-                .map(|l| LanguageStat {
-                    language: l.language.clone(),
-                    files: l.files,
-                    lines: l.lines as u32,
-                    percentage: l.percentage as f64,
-                })
-                .collect(),
+            primary_language: languages.first().map(|l| l.language.clone()),
+            languages,
             security_findings: total_findings as u32,
         }
     }
@@ -449,6 +659,11 @@ impl Infiniloom {
             skip_security: None,
             redact_secrets: None,
             skip_symbols: None,
+            include: None,
+            exclude: None,
+            include_tests: None,
+            security_threshold: None,
+            token_budget: None,
         });
 
         let format = parse_format(opts.format.as_deref())?;
@@ -456,6 +671,7 @@ impl Infiniloom {
         let map_budget = opts.map_budget.unwrap_or(2000);
         let max_symbols = opts.max_symbols.unwrap_or(50);
         let redact_secrets = opts.redact_secrets.unwrap_or(true);
+        let token_budget = opts.token_budget.unwrap_or(0); // 0 = no limit
 
         // Clone repo to apply transformations
         let mut repo = self.repo.clone();
@@ -532,6 +748,32 @@ impl Infiniloom {
             }
         }
 
+        // Apply token budget to limit output size (Bug #7 fix)
+        if token_budget > 0 {
+            let tokenizer = Tokenizer::new();
+            let mut cumulative_tokens: u32 = 0;
+            let mut files_to_keep = Vec::new();
+
+            for file in repo.files {
+                let file_tokens = file.content.as_ref()
+                    .map(|c| tokenizer.count(c, self.model))
+                    .unwrap_or(0);
+
+                if cumulative_tokens + file_tokens <= token_budget {
+                    cumulative_tokens += file_tokens;
+                    files_to_keep.push(file);
+                } else if files_to_keep.is_empty() {
+                    files_to_keep.push(file);
+                    break;
+                } else {
+                    break;
+                }
+            }
+
+            repo.files = files_to_keep;
+            repo.metadata.total_files = repo.files.len() as u32;
+        }
+
         let generator = RepoMapGenerator::builder()
             .token_budget(map_budget)
             .max_symbols(max_symbols as usize)
@@ -544,9 +786,33 @@ impl Infiniloom {
         Ok(formatter.format(&repo, &map))
     }
 
-    /// Check for security issues
+    /// Check for security issues (Bug #8 fix - now returns structured findings)
     #[napi]
-    pub fn security_scan(&self) -> Result<Vec<String>> {
+    pub fn security_scan(&self) -> Result<Vec<SecurityFinding>> {
+        let scanner = SecurityScanner::new();
+        let mut findings = Vec::new();
+
+        for file in &self.repo.files {
+            if let Some(content) = &file.content {
+                let file_findings = scanner.scan(content, &file.relative_path);
+                for finding in file_findings {
+                    findings.push(SecurityFinding {
+                        file: finding.file.clone(),
+                        line: finding.line,
+                        severity: format!("{:?}", finding.severity),
+                        kind: finding.kind.name().to_string(),
+                        pattern: finding.pattern.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(findings)
+    }
+
+    /// Check for security issues (legacy format, returns formatted strings)
+    #[napi]
+    pub fn security_scan_formatted(&self) -> Result<Vec<String>> {
         let scanner = SecurityScanner::new();
         let mut findings = Vec::new();
 
@@ -791,6 +1057,71 @@ fn parse_compression(compression: Option<&str>) -> Result<CompressionLevel> {
             ),
         )),
     }
+}
+
+/// Parse security severity threshold (Bug #5 fix)
+fn parse_security_threshold(threshold: Option<&str>) -> Result<infiniloom_engine::security::Severity> {
+    use infiniloom_engine::security::Severity;
+    match threshold.unwrap_or("critical").to_lowercase().as_str() {
+        "critical" => Ok(Severity::Critical),
+        "high" => Ok(Severity::High),
+        "medium" => Ok(Severity::Medium),
+        "low" => Ok(Severity::Low),
+        other => Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "Unknown security threshold: {}. Use 'critical', 'high', 'medium', or 'low'",
+                other
+            ),
+        )),
+    }
+}
+
+/// Check if a severity is at or above a threshold
+fn severity_at_or_above(
+    severity: &infiniloom_engine::security::Severity,
+    threshold: &infiniloom_engine::security::Severity,
+) -> bool {
+    use infiniloom_engine::security::Severity;
+    let severity_level = match severity {
+        Severity::Critical => 4,
+        Severity::High => 3,
+        Severity::Medium => 2,
+        Severity::Low => 1,
+    };
+    let threshold_level = match threshold {
+        Severity::Critical => 4,
+        Severity::High => 3,
+        Severity::Medium => 2,
+        Severity::Low => 1,
+    };
+    severity_level >= threshold_level
+}
+
+/// Check if a path matches any of the given glob patterns (Bug #3 fix)
+fn matches_any_pattern(path: &str, patterns: &[&str]) -> bool {
+    for pattern in patterns {
+        if let Ok(glob) = glob::Pattern::new(pattern) {
+            if glob.matches(path) {
+                return true;
+            }
+        }
+        // Also check if pattern matches any path component
+        if let Some(suffix) = pattern.strip_prefix("**/") {
+            if let Ok(glob) = glob::Pattern::new(suffix) {
+                // Check against each component and suffix of path
+                for (i, _) in path.match_indices('/') {
+                    if glob.matches(&path[i + 1..]) {
+                        return true;
+                    }
+                }
+                if glob.matches(path) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Compress text using semantic compression

@@ -11,7 +11,10 @@ use std::path::PathBuf;
 
 // Import from infiniloom-engine
 use infiniloom_engine::{
+    count_symbol_references,
+    default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
     git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus},
+    rank_files, sort_files_by_importance,
     tokenizer::TokenModel, CompressionLevel, HeuristicCompressor, OutputFormat, OutputFormatter,
     RepoMapGenerator, Repository, SecurityScanner, SemanticCompressor, SemanticConfig, Tokenizer,
     TokenizerModel, Symbol, SymbolKind, Visibility,
@@ -129,6 +132,19 @@ fn pack(
     };
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
+    repo.files.retain(|f| {
+        !matches_any(&f.relative_path, DEFAULT_IGNORES)
+            && !matches_any(&f.relative_path, TEST_IGNORES)
+    });
+
+    // Count cross-file symbol references (populates Symbol.references field)
+    count_symbol_references(&mut repo);
+
+    // Rank files by importance
+    rank_files(&mut repo);
+    sort_files_by_importance(&mut repo);
 
     // Redact secrets from file content if enabled
     if redact_secrets {
@@ -546,6 +562,19 @@ impl Infiniloom {
         // Clone repo so we can modify it for compression
         let mut repo = self.repo.as_ref().unwrap().clone();
 
+        // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
+        repo.files.retain(|f| {
+            !matches_any(&f.relative_path, DEFAULT_IGNORES)
+                && !matches_any(&f.relative_path, TEST_IGNORES)
+        });
+
+        // Count cross-file symbol references (populates Symbol.references field)
+        count_symbol_references(&mut repo);
+
+        // Rank files by importance
+        rank_files(&mut repo);
+        sort_files_by_importance(&mut repo);
+
         // Parse format
         let output_format = match format.to_lowercase().as_str() {
             "xml" => OutputFormat::Xml,
@@ -688,12 +717,25 @@ impl Infiniloom {
             self.load(false, true)?;
         }
 
-        let repo = self.repo.as_ref().unwrap();
+        // Clone and process repo
+        let mut repo = self.repo.as_ref().unwrap().clone();
+
+        // Apply default ignores
+        repo.files.retain(|f| {
+            !matches_any(&f.relative_path, DEFAULT_IGNORES)
+                && !matches_any(&f.relative_path, TEST_IGNORES)
+        });
+
+        // Count references and rank files
+        count_symbol_references(&mut repo);
+        rank_files(&mut repo);
+        sort_files_by_importance(&mut repo);
+
         let generator = RepoMapGenerator::builder()
             .token_budget(map_budget)
             .max_symbols(max_symbols)
             .build();
-        let map = generator.generate(repo);
+        let map = generator.generate(&repo);
 
         // Convert to Python dict
         let dict = PyDict::new(py);

@@ -253,12 +253,12 @@ impl SemanticCompressor {
         }
     }
 
-    /// Split content into semantic chunks
+    /// Split content into semantic chunks (Bug #6 fix - handles content without \n\n)
     fn split_into_chunks(&self, content: &str) -> Vec<CodeChunk> {
         let mut chunks = Vec::new();
         let mut current_start = 0;
 
-        // Split on double newlines (paragraph-like boundaries)
+        // First try: Split on double newlines (paragraph-like boundaries)
         for (i, _) in content.match_indices("\n\n") {
             if i > current_start && i - current_start >= self.config.min_chunk_size {
                 let chunk_content = &content[current_start..i];
@@ -286,6 +286,88 @@ impl SemanticCompressor {
                     embedding: None,
                     cluster_id: None,
                 });
+            }
+        }
+
+        // Fallback: If no chunks found (no \n\n separators), try single newlines
+        if chunks.is_empty() && content.len() >= self.config.min_chunk_size {
+            current_start = 0;
+            for (i, _) in content.match_indices('\n') {
+                if i > current_start && i - current_start >= self.config.min_chunk_size {
+                    let chunk_content = &content[current_start..i];
+                    if chunk_content.len() <= self.config.max_chunk_size {
+                        chunks.push(CodeChunk {
+                            content: chunk_content.to_owned(),
+                            start: current_start,
+                            end: i,
+                            embedding: None,
+                            cluster_id: None,
+                        });
+                    }
+                    current_start = i + 1;
+                }
+            }
+            // Handle remaining after single newline split
+            if current_start < content.len() {
+                let remaining = &content[current_start..];
+                if remaining.len() >= self.config.min_chunk_size {
+                    chunks.push(CodeChunk {
+                        content: remaining.to_owned(),
+                        start: current_start,
+                        end: content.len(),
+                        embedding: None,
+                        cluster_id: None,
+                    });
+                }
+            }
+        }
+
+        // Second fallback: If still no chunks, split by sentence boundaries (. followed by space)
+        if chunks.is_empty() && content.len() >= self.config.min_chunk_size {
+            current_start = 0;
+            for (i, _) in content.match_indices(". ") {
+                if i > current_start && i - current_start >= self.config.min_chunk_size {
+                    let chunk_content = &content[current_start..=i]; // include the period
+                    if chunk_content.len() <= self.config.max_chunk_size {
+                        chunks.push(CodeChunk {
+                            content: chunk_content.to_owned(),
+                            start: current_start,
+                            end: i + 1,
+                            embedding: None,
+                            cluster_id: None,
+                        });
+                    }
+                    current_start = i + 2;
+                }
+            }
+            // Handle remaining
+            if current_start < content.len() {
+                let remaining = &content[current_start..];
+                if remaining.len() >= self.config.min_chunk_size {
+                    chunks.push(CodeChunk {
+                        content: remaining.to_owned(),
+                        start: current_start,
+                        end: content.len(),
+                        embedding: None,
+                        cluster_id: None,
+                    });
+                }
+            }
+        }
+
+        // Final fallback: If content is large but can't be split, force split by max_chunk_size
+        if chunks.is_empty() && content.len() > self.config.max_chunk_size {
+            let mut pos = 0;
+            while pos < content.len() {
+                let end = (pos + self.config.max_chunk_size).min(content.len());
+                chunks.push(CodeChunk {
+                    content: content[pos..end].to_owned(),
+                    start: pos,
+                    end,
+                    embedding: None,
+                    cluster_id: None,
+                });
+                pos = end;
             }
         }
 

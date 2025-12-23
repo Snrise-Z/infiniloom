@@ -47,19 +47,25 @@ const context = pack('./my-repo', {
   format: 'xml',           // Output format: 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'
   model: 'claude',         // Target model: 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'o3', 'gpt-4o', 'claude', 'gemini', 'llama', etc.
   compression: 'balanced', // Compression: 'none', 'minimal', 'balanced', 'aggressive', 'extreme', 'focused', 'semantic'
-  mapBudget: 2000,        // Token budget for repository map
-  maxSymbols: 50,         // Maximum symbols to include in map
-  skipSecurity: false,    // Skip security scanning
-  redactSecrets: true,    // Redact detected secrets in output (default true)
-  skipSymbols: false      // Skip symbol extraction for faster scans
+  mapBudget: 2000,         // Token budget for repository map
+  maxSymbols: 50,          // Maximum symbols to include in map
+  skipSecurity: false,     // Skip security scanning
+  redactSecrets: true,     // Redact detected secrets in output (default true)
+  skipSymbols: false,      // Skip symbol extraction for faster scans
+  include: ['src/**/*.ts'],    // Glob patterns to include
+  exclude: ['**/*.test.ts'],   // Glob patterns to exclude
+  includeTests: false,     // Include test files (default: false)
+  securityThreshold: 'critical', // Minimum severity to block: 'critical', 'high', 'medium', 'low'
+  tokenBudget: 50000       // Limit total output tokens (0 = no limit)
 });
 ```
 
 ### Repository Scanning
 
 ```javascript
-const { scan } = require('infiniloom-node');
+const { scan, scanWithOptions } = require('infiniloom-node');
 
+// Simple scan with model
 const stats = scan('./my-repo', 'claude');
 console.log(`Repository: ${stats.name}`);
 console.log(`Total files: ${stats.totalFiles}`);
@@ -67,6 +73,15 @@ console.log(`Total lines: ${stats.totalLines}`);
 console.log(`Total tokens: ${stats.totalTokens}`);
 console.log(`Primary language: ${stats.primaryLanguage}`);
 console.log(`Languages:`, stats.languages);
+
+// Advanced scan with options
+const detailedStats = scanWithOptions('./my-repo', {
+  model: 'gpt-4o',
+  include: ['src/**/*.ts'],       // Include only TypeScript source files
+  exclude: ['**/*.test.ts'],      // Exclude test files
+  includeTests: false,            // Exclude test directories
+  applyDefaultIgnores: true       // Apply default ignores (node_modules, dist, etc.)
+});
 ```
 
 ### Token Counting
@@ -109,19 +124,28 @@ console.log(stats);
 const map = loom.generateMap(2000, 50);
 console.log(map);
 
-// Pack with options
+// Pack with options (including new features)
 const context = loom.pack({
   format: 'xml',
-  compression: 'balanced'
+  compression: 'balanced',
+  tokenBudget: 50000,       // Limit output size
+  include: ['src/**/*.ts'], // Filter files
+  exclude: ['**/*.test.ts']
 });
 console.log(context);
 
-// Security scan
+// Security scan - returns structured findings
 const findings = loom.securityScan();
 if (findings.length > 0) {
   console.warn('Security issues found:');
-  findings.forEach(finding => console.warn(finding));
+  for (const finding of findings) {
+    console.warn(`${finding.severity}: ${finding.kind} in ${finding.file}:${finding.line}`);
+  }
 }
+
+// Legacy formatted output (if needed)
+const formattedFindings = loom.securityScanFormatted();
+formattedFindings.forEach(f => console.log(f));
 ```
 
 ## API Reference
@@ -140,11 +164,21 @@ Pack a repository into optimized LLM context.
 
 #### `scan(path: string, model?: string): ScanStats`
 
-Scan a repository and return statistics.
+Scan a repository and return statistics. Applies default ignores automatically.
 
 **Parameters:**
 - `path` - Path to repository root
 - `model` - Optional target model (default: "claude")
+
+**Returns:** Repository statistics
+
+#### `scanWithOptions(path: string, options?: ScanOptions): ScanStats`
+
+Scan a repository with full configuration options.
+
+**Parameters:**
+- `path` - Path to repository root
+- `options` - Optional scan options
 
 **Returns:** Repository statistics
 
@@ -210,14 +244,31 @@ if (isGitRepo('./my-project')) {
 
 ```typescript
 interface PackOptions {
-  format?: string;        // "xml", "markdown", "json", "yaml", "toon", or "plain"
-  model?: string;         // "gpt-5.2", "gpt-5.1", "gpt-5", "o3", "gpt-4o", "claude", "gemini", "llama", etc.
-  compression?: string;   // "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic"
-  mapBudget?: number;     // Token budget for repository map
-  maxSymbols?: number;    // Maximum number of symbols in map
-  skipSecurity?: boolean; // Skip security scanning
-  redactSecrets?: boolean;// Redact detected secrets
-  skipSymbols?: boolean;  // Skip symbol extraction
+  format?: string;           // "xml", "markdown", "json", "yaml", "toon", or "plain"
+  model?: string;            // "gpt-5.2", "gpt-5.1", "gpt-5", "o3", "gpt-4o", "claude", "gemini", "llama", etc.
+  compression?: string;      // "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic"
+  mapBudget?: number;        // Token budget for repository map
+  maxSymbols?: number;       // Maximum number of symbols in map
+  skipSecurity?: boolean;    // Skip security scanning
+  redactSecrets?: boolean;   // Redact detected secrets (default: true)
+  skipSymbols?: boolean;     // Skip symbol extraction for faster scanning
+  include?: string[];        // Glob patterns to include (e.g., ["src/**/*.ts"])
+  exclude?: string[];        // Glob patterns to exclude (e.g., ["**/*.test.ts"])
+  includeTests?: boolean;    // Include test files (default: false)
+  securityThreshold?: string;// Minimum severity to block: "critical", "high", "medium", "low"
+  tokenBudget?: number;      // Limit total output tokens (0 = no limit)
+}
+```
+
+#### `ScanOptions`
+
+```typescript
+interface ScanOptions {
+  model?: string;              // Target model for token counting (default: "claude")
+  include?: string[];          // Glob patterns to include
+  exclude?: string[];          // Glob patterns to exclude
+  includeTests?: boolean;      // Include test files (default: false)
+  applyDefaultIgnores?: boolean; // Apply default ignores for dist/, node_modules/, etc. (default: true)
 }
 ```
 
@@ -322,9 +373,13 @@ Generate a repository map.
 
 Pack repository with specific options.
 
-#### `securityScan(): string[]`
+#### `securityScan(): SecurityFinding[]`
 
-Check for security issues and return findings.
+Check for security issues and return structured findings.
+
+#### `securityScanFormatted(): string[]`
+
+Check for security issues and return formatted strings (legacy format).
 
 ### GitRepo Class
 

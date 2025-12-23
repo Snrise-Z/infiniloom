@@ -37,7 +37,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.android-arm64.node')
           } else {
-            nativeBinding = require('@infiniloom/node-android-arm64')
+            nativeBinding = require('infiniloom-node-android-arm64')
           }
         } catch (e) {
           loadError = e
@@ -49,7 +49,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.android-arm-eabi.node')
           } else {
-            nativeBinding = require('@infiniloom/node-android-arm-eabi')
+            nativeBinding = require('infiniloom-node-android-arm-eabi')
           }
         } catch (e) {
           loadError = e
@@ -69,7 +69,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.win32-x64-msvc.node')
           } else {
-            nativeBinding = require('@infiniloom/node-win32-x64-msvc')
+            nativeBinding = require('infiniloom-node-win32-x64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -83,7 +83,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.win32-ia32-msvc.node')
           } else {
-            nativeBinding = require('@infiniloom/node-win32-ia32-msvc')
+            nativeBinding = require('infiniloom-node-win32-ia32-msvc')
           }
         } catch (e) {
           loadError = e
@@ -97,7 +97,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.win32-arm64-msvc.node')
           } else {
-            nativeBinding = require('@infiniloom/node-win32-arm64-msvc')
+            nativeBinding = require('infiniloom-node-win32-arm64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -113,7 +113,7 @@ switch (platform) {
       if (localFileExisted) {
         nativeBinding = require('./infiniloom.darwin-universal.node')
       } else {
-        nativeBinding = require('@infiniloom/node-darwin-universal')
+        nativeBinding = require('infiniloom-node-darwin-universal')
       }
       break
     } catch {}
@@ -124,7 +124,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.darwin-x64.node')
           } else {
-            nativeBinding = require('@infiniloom/node-darwin-x64')
+            nativeBinding = require('infiniloom-node-darwin-x64')
           }
         } catch (e) {
           loadError = e
@@ -138,7 +138,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.darwin-arm64.node')
           } else {
-            nativeBinding = require('@infiniloom/node-darwin-arm64')
+            nativeBinding = require('infiniloom-node-darwin-arm64')
           }
         } catch (e) {
           loadError = e
@@ -157,7 +157,7 @@ switch (platform) {
       if (localFileExisted) {
         nativeBinding = require('./infiniloom.freebsd-x64.node')
       } else {
-        nativeBinding = require('@infiniloom/node-freebsd-x64')
+        nativeBinding = require('infiniloom-node-freebsd-x64')
       }
     } catch (e) {
       loadError = e
@@ -174,7 +174,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-x64-musl.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-x64-musl')
+              nativeBinding = require('infiniloom-node-linux-x64-musl')
             }
           } catch (e) {
             loadError = e
@@ -187,7 +187,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-x64-gnu.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-x64-gnu')
+              nativeBinding = require('infiniloom-node-linux-x64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -203,7 +203,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-arm64-musl.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-arm64-musl')
+              nativeBinding = require('infiniloom-node-linux-arm64-musl')
             }
           } catch (e) {
             loadError = e
@@ -216,7 +216,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-arm64-gnu.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-arm64-gnu')
+              nativeBinding = require('infiniloom-node-linux-arm64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -232,7 +232,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-arm-musleabihf.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-arm-musleabihf')
+              nativeBinding = require('infiniloom-node-linux-arm-musleabihf')
             }
           } catch (e) {
             loadError = e
@@ -245,7 +245,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-arm-gnueabihf.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-arm-gnueabihf')
+              nativeBinding = require('infiniloom-node-linux-arm-gnueabihf')
             }
           } catch (e) {
             loadError = e
@@ -261,7 +261,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-riscv64-musl.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-riscv64-musl')
+              nativeBinding = require('infiniloom-node-linux-riscv64-musl')
             }
           } catch (e) {
             loadError = e
@@ -274,7 +274,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require('./infiniloom.linux-riscv64-gnu.node')
             } else {
-              nativeBinding = require('@infiniloom/node-linux-riscv64-gnu')
+              nativeBinding = require('infiniloom-node-linux-riscv64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -289,7 +289,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./infiniloom.linux-s390x-gnu.node')
           } else {
-            nativeBinding = require('@infiniloom/node-linux-s390x-gnu')
+            nativeBinding = require('infiniloom-node-linux-s390x-gnu')
           }
         } catch (e) {
           loadError = e
@@ -310,10 +310,11 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { pack, scan, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity } = nativeBinding
+const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity } = nativeBinding
 
 module.exports.pack = pack
 module.exports.scan = scan
+module.exports.scanWithOptions = scanWithOptions
 module.exports.countTokens = countTokens
 module.exports.Infiniloom = Infiniloom
 module.exports.semanticCompress = semanticCompress

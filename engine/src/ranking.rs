@@ -266,6 +266,8 @@ pub fn rank_files(repo: &mut Repository) {
         "test_",
         "_test.",
         ".test.",
+        ".fixture.",
+        "_fixture.",
         "spec.",
         "_spec.",
         "/tests/",
@@ -278,8 +280,12 @@ pub fn rank_files(repo: &mut Repository) {
         "testing/",
         "/fixtures/",
         "fixtures/",
+        "/__fixtures__/",
+        "__fixtures__/",
         "/mocks/",
         "mocks/",
+        "/__mocks__/",
+        "__mocks__/",
         "mock_",
         "_mock.",
         "/e2e/",
@@ -294,6 +300,10 @@ pub fn rank_files(repo: &mut Repository) {
         "example/",
         "/benchmark/",
         "benchmark/",
+        "/cypress/",
+        "cypress/",
+        "/playwright/",
+        "playwright/",
     ];
 
     // Vendor/generated patterns (exclude or very low priority)
@@ -457,5 +467,222 @@ mod tests {
         let main_importance = repo.files[0].symbols[0].importance;
         let helper_importance = repo.files[0].symbols[1].importance;
         assert!(main_importance > helper_importance);
+    }
+
+    #[test]
+    fn test_count_symbol_references() {
+        let mut repo = Repository::new("test", "/tmp/test");
+
+        // File 1: defines helper() and calls process()
+        repo.files.push(RepoFile {
+            path: "/tmp/test/utils.py".into(),
+            relative_path: "utils.py".to_string(),
+            language: Some("python".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![Symbol {
+                name: "helper".to_string(),
+                kind: SymbolKind::Function,
+                references: 0, // Not yet counted
+                start_line: 1,
+                end_line: 10,
+                calls: vec!["process".to_string()],
+                ..Symbol::new("helper", SymbolKind::Function)
+            }],
+            importance: 0.5,
+            content: None,
+        });
+
+        // File 2: defines main() and process(), calls helper() twice
+        repo.files.push(RepoFile {
+            path: "/tmp/test/main.py".into(),
+            relative_path: "main.py".to_string(),
+            language: Some("python".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![
+                Symbol {
+                    name: "main".to_string(),
+                    kind: SymbolKind::Function,
+                    references: 0,
+                    start_line: 1,
+                    end_line: 10,
+                    calls: vec!["helper".to_string(), "helper".to_string()],
+                    ..Symbol::new("main", SymbolKind::Function)
+                },
+                Symbol {
+                    name: "process".to_string(),
+                    kind: SymbolKind::Function,
+                    references: 0,
+                    start_line: 15,
+                    end_line: 25,
+                    calls: vec![],
+                    ..Symbol::new("process", SymbolKind::Function)
+                },
+            ],
+            importance: 0.5,
+            content: None,
+        });
+
+        // Count references
+        count_symbol_references(&mut repo);
+
+        // helper is called twice (by main)
+        assert_eq!(repo.files[0].symbols[0].references, 2, "helper should have 2 references");
+
+        // process is called once (by helper)
+        assert_eq!(
+            repo.files[1].symbols[1].references, 1,
+            "process should have 1 reference"
+        );
+
+        // main is not called by anyone
+        assert_eq!(repo.files[1].symbols[0].references, 0, "main should have 0 references");
+    }
+
+    #[test]
+    fn test_fixture_files_low_importance() {
+        let mut repo = Repository::new("test", "/tmp/test");
+
+        // Regular source file
+        repo.files.push(RepoFile {
+            path: "/tmp/test/src/api.go".into(),
+            relative_path: "src/api.go".to_string(),
+            language: Some("go".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        // Fixture file (should get low importance)
+        repo.files.push(RepoFile {
+            path: "/tmp/test/pkg/tools/ReadFile.fixture.go".into(),
+            relative_path: "pkg/tools/ReadFile.fixture.go".to_string(),
+            language: Some("go".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        // Test file (should get low importance)
+        repo.files.push(RepoFile {
+            path: "/tmp/test/src/api_test.go".into(),
+            relative_path: "src/api_test.go".to_string(),
+            language: Some("go".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        rank_files(&mut repo);
+
+        let api_importance = repo.files[0].importance;
+        let fixture_importance = repo.files[1].importance;
+        let test_importance = repo.files[2].importance;
+
+        // Source files should have higher importance than fixture/test files
+        assert!(
+            api_importance > fixture_importance,
+            "api.go ({}) should have higher importance than ReadFile.fixture.go ({})",
+            api_importance,
+            fixture_importance
+        );
+        assert!(
+            api_importance > test_importance,
+            "api.go ({}) should have higher importance than api_test.go ({})",
+            api_importance,
+            test_importance
+        );
+
+        // Fixture and test files should have low importance (0.15 = test pattern match)
+        assert!(
+            fixture_importance <= 0.20,
+            "fixture file importance ({}) should be <= 0.20",
+            fixture_importance
+        );
+        assert!(
+            test_importance <= 0.20,
+            "test file importance ({}) should be <= 0.20",
+            test_importance
+        );
+    }
+
+    #[test]
+    fn test_dist_files_low_importance() {
+        let mut repo = Repository::new("test", "/tmp/test");
+
+        // Regular source file
+        repo.files.push(RepoFile {
+            path: "/tmp/test/src/index.ts".into(),
+            relative_path: "src/index.ts".to_string(),
+            language: Some("typescript".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        // dist file (should get very low importance)
+        repo.files.push(RepoFile {
+            path: "/tmp/test/dist/index.js".into(),
+            relative_path: "dist/index.js".to_string(),
+            language: Some("javascript".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        // node_modules file (should get very low importance)
+        repo.files.push(RepoFile {
+            path: "/tmp/test/node_modules/pkg/index.js".into(),
+            relative_path: "node_modules/pkg/index.js".to_string(),
+            language: Some("javascript".to_string()),
+            size_bytes: 100,
+            token_count: TokenCounts::default(),
+            symbols: vec![],
+            importance: 0.5,
+            content: None,
+        });
+
+        rank_files(&mut repo);
+
+        let src_importance = repo.files[0].importance;
+        let dist_importance = repo.files[1].importance;
+        let node_modules_importance = repo.files[2].importance;
+
+        // Source files should have higher importance than vendor/dist files
+        assert!(
+            src_importance > dist_importance,
+            "src/index.ts ({}) should have higher importance than dist/index.js ({})",
+            src_importance,
+            dist_importance
+        );
+        assert!(
+            src_importance > node_modules_importance,
+            "src/index.ts ({}) should have higher importance than node_modules file ({})",
+            src_importance,
+            node_modules_importance
+        );
+
+        // dist and node_modules should have very low importance (0.05)
+        assert!(
+            dist_importance <= 0.10,
+            "dist file importance ({}) should be <= 0.10",
+            dist_importance
+        );
+        assert!(
+            node_modules_importance <= 0.10,
+            "node_modules file importance ({}) should be <= 0.10",
+            node_modules_importance
+        );
     }
 }
