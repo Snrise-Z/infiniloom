@@ -216,11 +216,11 @@ impl XmlFormatter {
         writeln!(w, "  <llm_context_guide>")?;
         writeln!(w, "    <purpose>This is a comprehensive code context for the {} repository, optimized for AI-assisted code understanding and generation.</purpose>", escape_xml(&repo.name))?;
         writeln!(w, "    <how_to_use>")?;
-        writeln!(w, "      <tip>Start with the <overview> section to understand the project's purpose and structure</tip>")?;
-        writeln!(w, "      <tip>Check <entry_points> to find main application files</tip>")?;
+        writeln!(w, "      <tip>Start with the &lt;overview&gt; section to understand the project's purpose and structure</tip>")?;
+        writeln!(w, "      <tip>Check &lt;entry_points&gt; to find main application files</tip>")?;
         writeln!(
             w,
-            "      <tip>Use <repository_map> to understand relationships between modules</tip>"
+            "      <tip>Use &lt;repository_map&gt; to understand relationships between modules</tip>"
         )?;
         writeln!(
             w,

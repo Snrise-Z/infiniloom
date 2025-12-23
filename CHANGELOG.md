@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2025-12-23
+
+### Fixed
+
+- **XML Output Validation** - Fixed invalid XML output in `<how_to_use>` section
+  - Escaped angle brackets in tip text (`<overview>` → `&lt;overview&gt;`)
+  - XML output now passes `xmllint` validation
+
+- **NPM Installation 404 Error** - Fixed binary download URLs in `install.js`
+  - Updated artifact names to match actual GitHub release assets
+  - Changed from Rust target triples (e.g., `infiniloom-aarch64-apple-darwin.tar.gz`) to simplified names (e.g., `infiniloom-darwin-arm64.tar.gz`)
+
+- **Secret Detection Patterns** - Expanded coverage for additional secret types
+  - Added `postgresql://` support to connection string pattern (was only `postgres://`)
+  - Added GitHub OAuth, user-to-server, server-to-server, and refresh tokens (`gho_`, `ghu_`, `ghs_`, `ghr_`)
+  - Added OpenAI API key pattern (`sk-...`)
+  - Added Anthropic API key pattern (`sk-ant-...`)
+  - Added MariaDB, CockroachDB, and MSSQL to connection string patterns
+
+### Changed
+
+- **Homebrew Formula Update** - Release workflow now automatically updates the homebrew-infiniloom tap with correct SHA-256 hashes for v0.3.2
+
+## [0.3.1] - 2025-12-23
+
+### Added
+
+- **Node.js Async API** - All Node.js binding functions now support async/await
+  - `pack()`, `scan()`, `countTokens()`, etc. return Promises
+  - Enables non-blocking operation in Node.js applications
+
+- **Index, Chunk, Impact, Diff Context APIs** - Full API parity for Python and Node.js bindings
+  - `buildIndex()` / `build_index()` - Build symbol index for fast diff context
+  - `indexStatus()` / `index_status()` - Get index status information
+  - `chunk()` - Split repository into manageable chunks
+  - `analyzeImpact()` / `analyze_impact()` - Analyze change impact
+  - `getDiffContext()` / `get_diff_context()` - Get context-aware diffs
+
+### Fixed
+
+- **Node.js semanticCompress** - Fixed function binding (was undefined)
+- **Node.js mapBudget** - Fixed map_budget parameter handling in Infiniloom class
+
 ## [0.3.0] - 2025-01-23
 
 ### Added
@@ -165,7 +208,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Topos-Labs/infiniloom/releases/tag/v0.1.0

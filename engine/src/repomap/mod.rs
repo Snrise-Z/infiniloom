@@ -21,7 +21,8 @@ const TOKEN_OVERHEAD: u32 = 100;
 
 /// Divisor for computing max symbols from budget (includes safety margin)
 /// Formula: max_symbols = budget / BUDGET_SYMBOL_DIVISOR
-const BUDGET_SYMBOL_DIVISOR: usize = 30;
+/// Bug #7 fix: Reduced from 30 to 20 for more pronounced effect
+const BUDGET_SYMBOL_DIVISOR: usize = 20;
 const SUMMARY_MAX_LEN: usize = 120;
 
 fn summarize_symbol(symbol: &Symbol) -> Option<String> {
@@ -194,10 +195,13 @@ impl RepoMapGenerator {
     }
 
     /// Get effective max symbols (computed from budget if not set)
+    ///
+    /// Bug #7 fix: Increased max cap from 200 to 500 and made formula more responsive
     fn effective_max_symbols(&self) -> usize {
         self.max_symbols.unwrap_or_else(|| {
             // Use constants for token estimation (see module-level documentation)
-            ((self.token_budget as usize) / BUDGET_SYMBOL_DIVISOR).clamp(10, 200)
+            // Bug #7 fix: Increased max from 200 to 500 for larger budgets
+            ((self.token_budget as usize) / BUDGET_SYMBOL_DIVISOR).clamp(5, 500)
         })
     }
 
@@ -734,5 +738,58 @@ mod tests {
 
         assert!(!map.summary.is_empty());
         assert!(!map.file_index.is_empty());
+    }
+
+    // Bug #7 test - verify mapBudget has significant effect
+    #[test]
+    fn test_map_budget_affects_output() {
+        // Test that different budgets produce different effective_max_symbols
+        let small = RepoMapGenerator::new(500);
+        let medium = RepoMapGenerator::new(2000);
+        let large = RepoMapGenerator::new(10000);
+
+        let small_max = small.effective_max_symbols();
+        let medium_max = medium.effective_max_symbols();
+        let large_max = large.effective_max_symbols();
+
+        // Small budget should have fewer max symbols
+        assert!(
+            small_max < medium_max,
+            "Small budget ({}) should have fewer symbols ({}) than medium ({}) with ({})",
+            500,
+            small_max,
+            2000,
+            medium_max
+        );
+
+        // Large budget should have more max symbols
+        assert!(
+            medium_max < large_max,
+            "Medium budget ({}) should have fewer symbols ({}) than large ({}) with ({})",
+            2000,
+            medium_max,
+            10000,
+            large_max
+        );
+
+        // Verify the actual values are reasonable
+        // With BUDGET_SYMBOL_DIVISOR = 20:
+        // 500 / 20 = 25
+        // 2000 / 20 = 100
+        // 10000 / 20 = 500
+        assert!(small_max >= 20 && small_max <= 30, "Small max_symbols should be ~25, got {}", small_max);
+        assert!(medium_max >= 90 && medium_max <= 110, "Medium max_symbols should be ~100, got {}", medium_max);
+        assert!(large_max >= 400 && large_max <= 500, "Large max_symbols should be ~500, got {}", large_max);
+    }
+
+    #[test]
+    fn test_map_budget_min_max_clamped() {
+        // Very small budget should clamp to minimum
+        let tiny = RepoMapGenerator::new(10);
+        assert_eq!(tiny.effective_max_symbols(), 5);
+
+        // Very large budget should clamp to maximum
+        let huge = RepoMapGenerator::new(100_000);
+        assert_eq!(huge.effective_max_symbols(), 500);
     }
 }

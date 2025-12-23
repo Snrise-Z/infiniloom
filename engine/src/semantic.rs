@@ -242,6 +242,11 @@ impl SemanticCompressor {
     ///
     /// Without the feature, falls back to heuristic-based compression.
     pub fn compress(&self, content: &str) -> Result<String> {
+        // First, check for repetitive content (Bug #6 fix)
+        if let Some(compressed) = self.compress_repetitive(content) {
+            return Ok(compressed);
+        }
+
         #[cfg(feature = "embeddings")]
         {
             return self.compress_with_embeddings(content);
@@ -251,6 +256,137 @@ impl SemanticCompressor {
         {
             self.compress_heuristic(content)
         }
+    }
+
+    /// Detect and compress repetitive content (Bug #6 fix)
+    ///
+    /// Handles cases like "sentence ".repeat(500) by detecting the repeated pattern
+    /// and returning a compressed representation.
+    fn compress_repetitive(&self, content: &str) -> Option<String> {
+        // Only process content above a minimum threshold
+        if content.len() < 200 {
+            return None;
+        }
+
+        // Try to find a repeating pattern
+        // Start with small patterns and work up
+        for pattern_len in 1..=100.min(content.len() / 3) {
+            let pattern = &content[..pattern_len];
+
+            // Skip patterns that are just whitespace
+            if pattern.chars().all(|c| c.is_whitespace()) {
+                continue;
+            }
+
+            // Count how many times this pattern repeats consecutively
+            let mut count = 0;
+            let mut pos = 0;
+            while pos + pattern_len <= content.len() {
+                if &content[pos..pos + pattern_len] == pattern {
+                    count += 1;
+                    pos += pattern_len;
+                } else {
+                    break;
+                }
+            }
+
+            // If pattern repeats enough times and covers most of the content
+            let coverage = (count * pattern_len) as f32 / content.len() as f32;
+            if count >= 3 && coverage >= 0.8 {
+                // Calculate how many instances to keep based on budget_ratio
+                let instances_to_show = (count as f32 * self.config.budget_ratio)
+                    .ceil()
+                    .max(1.0)
+                    .min(5.0) as usize;
+
+                let shown_content = pattern.repeat(instances_to_show);
+                let remainder = &content[count * pattern_len..];
+
+                let result = if remainder.is_empty() {
+                    format!(
+                        "{}\n/* ... pattern repeated {} times (showing {}) ... */",
+                        shown_content.trim_end(),
+                        count,
+                        instances_to_show
+                    )
+                } else {
+                    format!(
+                        "{}\n/* ... pattern repeated {} times (showing {}) ... */\n{}",
+                        shown_content.trim_end(),
+                        count,
+                        instances_to_show,
+                        remainder.trim()
+                    )
+                };
+
+                return Some(result);
+            }
+        }
+
+        // Also detect line-based repetition (same line repeated many times)
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.len() >= 3 {
+            let mut line_counts: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
+            for line in &lines {
+                *line_counts.entry(*line).or_insert(0) += 1;
+            }
+
+            // Find the most repeated line
+            if let Some((repeated_line, count)) = line_counts
+                .iter()
+                .filter(|(line, _)| !line.trim().is_empty())
+                .max_by_key(|(_, count)| *count)
+            {
+                let repetition_ratio = *count as f32 / lines.len() as f32;
+                if *count >= 3 && repetition_ratio >= 0.5 {
+                    // Build compressed output preserving unique lines
+                    let mut result = String::new();
+                    let mut consecutive_count = 0;
+                    let mut last_was_repeated = false;
+
+                    for line in &lines {
+                        if *line == *repeated_line {
+                            consecutive_count += 1;
+                            if !last_was_repeated {
+                                if !result.is_empty() {
+                                    result.push('\n');
+                                }
+                                result.push_str(line);
+                            }
+                            last_was_repeated = true;
+                        } else {
+                            if last_was_repeated && consecutive_count > 1 {
+                                result.push_str(&format!(
+                                    "\n/* ... above line repeated {} times ... */",
+                                    consecutive_count
+                                ));
+                            }
+                            consecutive_count = 0;
+                            last_was_repeated = false;
+                            if !result.is_empty() {
+                                result.push('\n');
+                            }
+                            result.push_str(line);
+                        }
+                    }
+
+                    if last_was_repeated && consecutive_count > 1 {
+                        result.push_str(&format!(
+                            "\n/* ... above line repeated {} times ... */",
+                            consecutive_count
+                        ));
+                    }
+
+                    // Only return if we actually compressed significantly
+                    if result.len() < content.len() / 2 {
+                        return Some(result);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Split content into semantic chunks (Bug #6 fix - handles content without \n\n)
@@ -648,5 +784,75 @@ mod tests {
         let a: Vec<f32> = vec![];
         let b: Vec<f32> = vec![];
         assert_eq!(cosine_similarity(&a, &b), 0.0);
+    }
+
+    // Bug #6 tests - repetitive content compression
+    #[test]
+    fn test_repetitive_pattern_compression() {
+        let compressor = SemanticCompressor::new();
+        // Test "sentence ".repeat(500) - exactly the reported bug case
+        let content = "sentence ".repeat(500);
+        let result = compressor.compress(&content).unwrap();
+
+        // Result should be significantly smaller than original
+        assert!(
+            result.len() < content.len() / 2,
+            "Compressed size {} should be less than half of original {}",
+            result.len(),
+            content.len()
+        );
+
+        // Should contain the pattern and a compression marker
+        assert!(result.contains("sentence"));
+        assert!(
+            result.contains("repeated") || result.contains("pattern"),
+            "Should indicate compression occurred"
+        );
+    }
+
+    #[test]
+    fn test_repetitive_line_compression() {
+        let compressor = SemanticCompressor::new();
+        // Test repeated lines
+        let content = "same line\n".repeat(100);
+        let result = compressor.compress(&content).unwrap();
+
+        // Result should be significantly smaller
+        assert!(
+            result.len() < content.len() / 2,
+            "Compressed size {} should be less than half of original {}",
+            result.len(),
+            content.len()
+        );
+    }
+
+    #[test]
+    fn test_non_repetitive_content_unchanged() {
+        let compressor = SemanticCompressor::new();
+        // Non-repetitive content should not trigger repetition compression
+        let content = "This is some unique content that does not repeat.";
+        let result = compressor.compress(content).unwrap();
+
+        // Short non-repetitive content should be returned as-is
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_repetitive_with_variation() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.3,
+            ..Default::default()
+        });
+
+        // Content with some repetition mixed with unique parts
+        let mut content = String::new();
+        for i in 0..50 {
+            content.push_str(&format!("item {} ", i % 5)); // Repeated pattern with variation
+        }
+
+        let result = compressor.compress(&content).unwrap();
+        // This may or may not compress depending on pattern detection
+        // Just verify it doesn't panic
+        assert!(!result.is_empty());
     }
 }

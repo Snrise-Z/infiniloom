@@ -8,6 +8,15 @@ use infiniloom_engine::{
     CompressionLevel, OutputFormat, OutputFormatter, RepoMapGenerator, Repository, SecurityScanner,
     SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel, Symbol,
     SymbolKind, Visibility, HeuristicCompressor,
+    // Index module for new APIs
+    index::{
+        IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
+        DiffChange, ChangeType,
+    },
+    // Git module
+    git::ChangedFile,
+    // Chunking module
+    Chunker, ChunkStrategy,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -1608,4 +1617,882 @@ fn format_file_status(status: EngineFileStatus) -> String {
         EngineFileStatus::Copied => "Copied".to_string(),
         EngineFileStatus::Unknown => "Unknown".to_string(),
     }
+}
+
+/// Format Unix timestamp to ISO 8601 string
+fn format_timestamp(timestamp: u64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
+    // Simple ISO 8601 format
+    format!("{:?}", datetime)
+}
+
+// ============================================================================
+// Index API - Build and query symbol indexes
+// ============================================================================
+
+/// Options for building an index
+#[napi(object)]
+pub struct IndexOptions {
+    /// Force full rebuild even if index exists
+    pub force: Option<bool>,
+    /// Include test files in index
+    pub include_tests: Option<bool>,
+    /// Maximum file size to index (bytes)
+    pub max_file_size: Option<u32>,
+}
+
+/// Index status information
+#[napi(object)]
+pub struct IndexStatus {
+    /// Whether an index exists
+    pub exists: bool,
+    /// Number of files indexed
+    pub file_count: u32,
+    /// Number of symbols indexed
+    pub symbol_count: u32,
+    /// Last build timestamp (ISO 8601)
+    pub last_built: Option<String>,
+    /// Index version
+    pub version: Option<String>,
+}
+
+/// Build or update the symbol index for a repository
+///
+/// The index enables fast diff-to-context lookups and impact analysis.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `options` - Optional index build options
+///
+/// # Returns
+/// Index status after building
+///
+/// # Example
+/// ```javascript
+/// const { buildIndex } = require('infiniloom-node');
+///
+/// const status = buildIndex('./my-repo');
+/// console.log(`Indexed ${status.symbolCount} symbols`);
+///
+/// // Force rebuild
+/// const status2 = buildIndex('./my-repo', { force: true });
+/// ```
+#[napi]
+pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexStatus> {
+    let opts = options.unwrap_or(IndexOptions {
+        force: None,
+        include_tests: None,
+        max_file_size: None,
+    });
+
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    // Check if we need to rebuild
+    let force = opts.force.unwrap_or(false);
+
+    if !force {
+        // Check if index exists and is valid
+        if let Ok(meta) = storage.load_meta() {
+            if let (Ok(index), Ok(_graph)) = (storage.load_index(), storage.load_graph()) {
+                return Ok(IndexStatus {
+                    exists: true,
+                    file_count: index.files.len() as u32,
+                    symbol_count: index.symbols.len() as u32,
+                    last_built: Some(format_timestamp(meta.created_at)),
+                    version: Some(format!("v{}", meta.version)),
+                });
+            }
+        }
+    }
+
+    // Build new index
+    let mut exclude_dirs = vec![
+        "node_modules".to_string(),
+        "target".to_string(),
+        ".git".to_string(),
+        "dist".to_string(),
+        "build".to_string(),
+    ];
+
+    // Exclude test directories if not including tests
+    if !opts.include_tests.unwrap_or(false) {
+        exclude_dirs.extend(vec![
+            "test".to_string(),
+            "tests".to_string(),
+            "__tests__".to_string(),
+            "spec".to_string(),
+        ]);
+    }
+
+    let build_opts = BuildOptions {
+        max_file_size: opts.max_file_size.map(|s| s as u64).unwrap_or(10 * 1024 * 1024),
+        exclude_dirs,
+        ..Default::default()
+    };
+
+    let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+    let (index, graph) = builder.build()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+
+    // Save index
+    storage.save_all(&index, &graph)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to save index: {}", e)))?;
+
+    let meta = storage.load_meta()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load meta: {}", e)))?;
+
+    Ok(IndexStatus {
+        exists: true,
+        file_count: index.files.len() as u32,
+        symbol_count: index.symbols.len() as u32,
+        last_built: Some(format_timestamp(meta.created_at)),
+        version: Some(format!("v{}", meta.version)),
+    })
+}
+
+/// Get the status of an existing index
+///
+/// # Arguments
+/// * `path` - Path to repository root
+///
+/// # Returns
+/// Index status information
+///
+/// # Example
+/// ```javascript
+/// const { indexStatus } = require('infiniloom-node');
+///
+/// const status = indexStatus('./my-repo');
+/// if (status.exists) {
+///   console.log(`Index has ${status.symbolCount} symbols`);
+/// } else {
+///   console.log('No index found, run buildIndex first');
+/// }
+/// ```
+#[napi]
+pub fn index_status(path: String) -> Result<IndexStatus> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    match (storage.load_meta(), storage.load_index()) {
+        (Ok(meta), Ok(index)) => Ok(IndexStatus {
+            exists: true,
+            file_count: index.files.len() as u32,
+            symbol_count: index.symbols.len() as u32,
+            last_built: Some(format_timestamp(meta.created_at)),
+            version: Some(format!("v{}", meta.version)),
+        }),
+        _ => Ok(IndexStatus {
+            exists: false,
+            file_count: 0,
+            symbol_count: 0,
+            last_built: None,
+            version: None,
+        }),
+    }
+}
+
+// ============================================================================
+// Chunk API - Split repositories into manageable pieces
+// ============================================================================
+
+/// Options for chunking a repository
+#[napi(object)]
+pub struct ChunkOptions {
+    /// Chunking strategy: "fixed", "file", "module", "symbol", "semantic", "dependency"
+    pub strategy: Option<String>,
+    /// Maximum tokens per chunk (default: 8000)
+    pub max_tokens: Option<u32>,
+    /// Token overlap between chunks (default: 0)
+    pub overlap: Option<u32>,
+    /// Target model for token counting (default: "claude")
+    pub model: Option<String>,
+    /// Output format: "xml", "markdown", "json" (default: "xml")
+    pub format: Option<String>,
+    /// Sort chunks by priority (core modules first)
+    pub priority_first: Option<bool>,
+}
+
+/// A chunk of repository content
+#[napi(object)]
+pub struct RepoChunk {
+    /// Chunk index (0-based)
+    pub index: u32,
+    /// Total number of chunks
+    pub total: u32,
+    /// Primary focus/topic of this chunk
+    pub focus: String,
+    /// Estimated token count
+    pub tokens: u32,
+    /// Files included in this chunk
+    pub files: Vec<String>,
+    /// Formatted content of the chunk
+    pub content: String,
+}
+
+/// Split a repository into chunks for incremental processing
+///
+/// Useful for processing large repositories that exceed LLM context limits.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `options` - Optional chunking options
+///
+/// # Returns
+/// Array of repository chunks
+///
+/// # Example
+/// ```javascript
+/// const { chunk } = require('infiniloom-node');
+///
+/// const chunks = chunk('./large-repo', {
+///   strategy: 'module',
+///   maxTokens: 50000,
+///   model: 'claude'
+/// });
+///
+/// for (const c of chunks) {
+///   console.log(`Chunk ${c.index}/${c.total}: ${c.focus} (${c.tokens} tokens)`);
+///   // Process c.content with LLM
+/// }
+/// ```
+#[napi]
+pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChunk>> {
+    let opts = options.unwrap_or(ChunkOptions {
+        strategy: None,
+        max_tokens: None,
+        overlap: None,
+        model: None,
+        format: None,
+        priority_first: None,
+    });
+
+    let strategy = match opts.strategy.as_deref().unwrap_or("module") {
+        "fixed" => ChunkStrategy::Fixed { size: opts.max_tokens.unwrap_or(8000) },
+        "file" => ChunkStrategy::File,
+        "module" => ChunkStrategy::Module,
+        "symbol" => ChunkStrategy::Symbol,
+        "semantic" => ChunkStrategy::Semantic,
+        "dependency" => ChunkStrategy::Dependency,
+        other => return Err(Error::new(
+            Status::InvalidArg,
+            format!("Unknown chunk strategy: {}. Use 'fixed', 'file', 'module', 'symbol', 'semantic', or 'dependency'", other),
+        )),
+    };
+
+    let max_tokens = opts.max_tokens.unwrap_or(8000);
+    let overlap = opts.overlap.unwrap_or(0);
+    let model = parse_model(opts.model.as_deref())?;
+    let format = parse_format(opts.format.as_deref())?;
+    let priority_first = opts.priority_first.unwrap_or(false);
+
+    // Scan repository
+    let needs_symbols = matches!(strategy, ChunkStrategy::Dependency | ChunkStrategy::Symbol);
+    let mut repo = scan_repository_with_options(&path, model, true, !needs_symbols)?;
+
+    // Apply default ignores
+    repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+    repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+
+    // Create chunker
+    let chunker = Chunker::new(strategy, max_tokens)
+        .with_model(model)
+        .with_overlap(overlap);
+
+    let mut chunks = chunker.chunk(&repo);
+
+    // Apply priority sorting if requested
+    if priority_first && chunks.len() > 1 {
+        let mut chunk_priorities: Vec<(usize, f64)> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let avg_priority = if chunk.files.is_empty() {
+                    0.0
+                } else {
+                    let total: f64 = chunk
+                        .files
+                        .iter()
+                        .map(|f| file_priority_score(&f.path))
+                        .sum();
+                    total / chunk.files.len() as f64
+                };
+                (i, avg_priority)
+            })
+            .collect();
+
+        chunk_priorities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let original_chunks = std::mem::take(&mut chunks);
+        for (idx, (orig_idx, _)) in chunk_priorities.iter().enumerate() {
+            let mut chunk = original_chunks[*orig_idx].clone();
+            chunk.index = idx;
+            chunks.push(chunk);
+        }
+
+        let total = chunks.len();
+        for chunk in &mut chunks {
+            chunk.total = total;
+        }
+    }
+
+    // Format each chunk
+    // Note: formatter and map_generator are available if we want to format chunks
+    // For now, we return raw content and let the caller format
+    let _ = format; // Mark format as used (could use for chunk formatting later)
+
+    let result: Vec<RepoChunk> = chunks
+        .iter()
+        .map(|c| {
+            // Format chunk content manually since ChunkFile doesn't match RepoFile
+            let content = c.files
+                .iter()
+                .map(|f| format!("// {}\n{}", f.path, f.content))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+
+            RepoChunk {
+                index: c.index as u32,
+                total: c.total as u32,
+                focus: c.focus.clone(),
+                tokens: c.tokens,
+                files: c.files.iter().map(|f| f.path.clone()).collect(),
+                content,
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// Calculate priority score for a file path
+fn file_priority_score(path: &str) -> f64 {
+    let path_lower = path.to_lowercase();
+
+    // Core source files
+    if path_lower.contains("src/") || path_lower.contains("lib/") {
+        if path_lower.contains("main") || path_lower.contains("index") || path_lower.contains("app") {
+            return 1.0;
+        }
+        return 0.8;
+    }
+
+    // Config files
+    if path_lower.ends_with(".json") || path_lower.ends_with(".yaml") || path_lower.ends_with(".toml") {
+        return 0.6;
+    }
+
+    // Test files
+    if path_lower.contains("test") || path_lower.contains("spec") {
+        return 0.3;
+    }
+
+    // Docs
+    if path_lower.contains("doc") || path_lower.ends_with(".md") {
+        return 0.2;
+    }
+
+    0.5
+}
+
+// ============================================================================
+// Impact API - Analyze change impact
+// ============================================================================
+
+/// Options for impact analysis
+#[napi(object)]
+pub struct ImpactOptions {
+    /// Depth of dependency traversal (1-3, default: 2)
+    pub depth: Option<u32>,
+    /// Include test files in analysis
+    pub include_tests: Option<bool>,
+}
+
+/// Symbol affected by a change
+#[napi(object)]
+pub struct AffectedSymbol {
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind (function, class, etc.)
+    pub kind: String,
+    /// File containing the symbol
+    pub file: String,
+    /// Line number
+    pub line: u32,
+    /// How the symbol is affected: "direct", "caller", "callee", "dependent"
+    pub impact_type: String,
+}
+
+/// Impact analysis result
+#[napi(object)]
+pub struct ImpactResult {
+    /// Files directly changed
+    pub changed_files: Vec<String>,
+    /// Files that depend on changed files
+    pub dependent_files: Vec<String>,
+    /// Related test files
+    pub test_files: Vec<String>,
+    /// Symbols affected by the changes
+    pub affected_symbols: Vec<AffectedSymbol>,
+    /// Overall impact level: "low", "medium", "high", "critical"
+    pub impact_level: String,
+    /// Summary of the impact
+    pub summary: String,
+}
+
+/// Analyze the impact of changes to files or symbols
+///
+/// Requires an index to be built first (use buildIndex).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `files` - Files to analyze (can be paths or globs)
+/// * `options` - Optional analysis options
+///
+/// # Returns
+/// Impact analysis result
+///
+/// # Example
+/// ```javascript
+/// const { buildIndex, analyzeImpact } = require('infiniloom-node');
+///
+/// // Build index first
+/// buildIndex('./my-repo');
+///
+/// // Analyze impact of changes
+/// const impact = analyzeImpact('./my-repo', ['src/auth.ts']);
+/// console.log(`Impact level: ${impact.impactLevel}`);
+/// console.log(`Affected files: ${impact.dependentFiles.length}`);
+/// ```
+#[napi]
+pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOptions>) -> Result<ImpactResult> {
+    let opts = options.unwrap_or(ImpactOptions {
+        depth: None,
+        include_tests: None,
+    });
+
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    // Load index
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index (run buildIndex first): {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load dependency graph: {}", e)))?;
+
+    // Create context expander
+    let depth = match opts.depth.unwrap_or(2) {
+        1 => ContextDepth::L1,
+        2 => ContextDepth::L2,
+        _ => ContextDepth::L3,
+    };
+
+    let expander = ContextExpander::new(&index, &graph);
+
+    // Convert files to diff changes
+    let changes: Vec<DiffChange> = files.iter().map(|f| DiffChange {
+        file_path: f.clone(),
+        old_path: None,
+        line_ranges: vec![],
+        change_type: ChangeType::Modified,
+        diff_content: None,
+    }).collect();
+
+    // Expand context (returns directly, not Result)
+    let token_budget = 50000; // Default budget
+    let context = expander.expand(&changes, depth, token_budget);
+
+    // Collect results
+    let changed_files: Vec<String> = changes.iter().map(|c| c.file_path.clone()).collect();
+
+    let dependent_files: Vec<String> = context.dependent_files
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+
+    let test_files: Vec<String> = context.related_tests
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+
+    // Combine changed and dependent symbols
+    let affected_symbols: Vec<AffectedSymbol> = context.changed_symbols
+        .iter()
+        .map(|s| AffectedSymbol {
+            name: s.name.clone(),
+            kind: s.kind.clone(),
+            file: s.file_path.clone(),
+            line: s.start_line,
+            impact_type: s.relevance_reason.clone(),
+        })
+        .chain(context.dependent_symbols.iter().map(|s| AffectedSymbol {
+            name: s.name.clone(),
+            kind: s.kind.clone(),
+            file: s.file_path.clone(),
+            line: s.start_line,
+            impact_type: s.relevance_reason.clone(),
+        }))
+        .collect();
+
+    // Determine impact level
+    let impact_level = if dependent_files.len() > 20 || affected_symbols.len() > 50 {
+        "critical"
+    } else if dependent_files.len() > 10 || affected_symbols.len() > 20 {
+        "high"
+    } else if dependent_files.len() > 5 || affected_symbols.len() > 10 {
+        "medium"
+    } else {
+        "low"
+    }.to_string();
+
+    let summary = format!(
+        "{} files changed, {} dependents affected, {} symbols impacted, {} tests related",
+        changed_files.len(),
+        dependent_files.len(),
+        affected_symbols.len(),
+        test_files.len()
+    );
+
+    Ok(ImpactResult {
+        changed_files,
+        dependent_files,
+        test_files,
+        affected_symbols,
+        impact_level,
+        summary,
+    })
+}
+
+// ============================================================================
+// Diff Context API - Get context-aware diffs
+// ============================================================================
+
+/// Options for diff context
+#[napi(object)]
+pub struct DiffContextOptions {
+    /// Depth of context expansion (1-3, default: 2)
+    pub depth: Option<u32>,
+    /// Token budget for context (default: 50000)
+    pub budget: Option<u32>,
+    /// Include the actual diff content (default: false)
+    pub include_diff: Option<bool>,
+    /// Output format: "xml", "markdown", "json" (default: "xml")
+    pub format: Option<String>,
+}
+
+/// Context-aware diff result
+#[napi(object)]
+pub struct DiffContextResult {
+    /// Changed files with context
+    pub changed_files: Vec<DiffFileContext>,
+    /// Related symbols and their context
+    pub context_symbols: Vec<ContextSymbolInfo>,
+    /// Related test files
+    pub related_tests: Vec<String>,
+    /// Formatted output (if format specified)
+    pub formatted_output: Option<String>,
+    /// Total token count
+    pub total_tokens: u32,
+}
+
+/// A changed file with surrounding context
+#[napi(object)]
+pub struct DiffFileContext {
+    /// File path
+    pub path: String,
+    /// Change type: "Added", "Modified", "Deleted", "Renamed"
+    pub change_type: String,
+    /// Lines added
+    pub additions: u32,
+    /// Lines deleted
+    pub deletions: u32,
+    /// Unified diff content (if include_diff is true)
+    pub diff: Option<String>,
+    /// Relevant code context around changes
+    pub context_snippets: Vec<String>,
+}
+
+/// Symbol context information
+#[napi(object)]
+pub struct ContextSymbolInfo {
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind
+    pub kind: String,
+    /// File containing symbol
+    pub file: String,
+    /// Line number
+    pub line: u32,
+    /// Why this symbol is included: "changed", "caller", "callee", "dependent"
+    pub reason: String,
+    /// Symbol signature/definition
+    pub signature: Option<String>,
+}
+
+/// Get context-aware diff with surrounding symbols and dependencies
+///
+/// Unlike basic diffFiles, this provides semantic context around changes.
+/// Requires an index (will build on-the-fly if not present).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `from_ref` - Starting commit/branch (use "" for unstaged changes)
+/// * `to_ref` - Ending commit/branch (use "HEAD" for staged, "" for working tree)
+/// * `options` - Optional context options
+///
+/// # Returns
+/// Context-aware diff result with related symbols
+///
+/// # Example
+/// ```javascript
+/// const { getDiffContext } = require('infiniloom-node');
+///
+/// // Get context for last commit
+/// const context = getDiffContext('./my-repo', 'HEAD~1', 'HEAD', {
+///   depth: 2,
+///   budget: 50000,
+///   includeDiff: true
+/// });
+///
+/// console.log(`Changed: ${context.changedFiles.length} files`);
+/// console.log(`Related symbols: ${context.contextSymbols.length}`);
+/// console.log(`Related tests: ${context.relatedTests.length}`);
+/// ```
+#[napi]
+pub fn get_diff_context(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+    options: Option<DiffContextOptions>,
+) -> Result<DiffContextResult> {
+    let opts = options.unwrap_or(DiffContextOptions {
+        depth: None,
+        budget: None,
+        include_diff: None,
+        format: None,
+    });
+
+    let path_buf = PathBuf::from(&path);
+
+    // Open git repo
+    let git_repo = EngineGitRepo::open(&path_buf)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+
+    // Get changed files
+    let changed: Vec<ChangedFile> = if from_ref.is_empty() && to_ref.is_empty() {
+        // Uncommitted changes
+        git_repo.status()
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+            .iter()
+            .map(|f| ChangedFile {
+                path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                status: f.status,
+                additions: 0,
+                deletions: 0,
+            })
+            .collect()
+    } else {
+        let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+        let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
+        git_repo.diff_files(from, to)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+    };
+
+    // Try to load existing index, or use lazy context builder
+    let storage = IndexStorage::new(&path_buf);
+    let include_diff = opts.include_diff.unwrap_or(false);
+
+    // Build file contexts
+    let mut changed_files: Vec<DiffFileContext> = Vec::new();
+    for file in &changed {
+        let diff_content = if include_diff {
+            let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+            let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
+            git_repo.diff_content(from, to, &file.path).ok()
+        } else {
+            None
+        };
+
+        changed_files.push(DiffFileContext {
+            path: file.path.clone(),
+            change_type: format_file_status(file.status),
+            additions: file.additions,
+            deletions: file.deletions,
+            diff: diff_content,
+            context_snippets: vec![],
+        });
+    }
+
+    // Try to expand context if index exists
+    let mut context_symbols: Vec<ContextSymbolInfo> = Vec::new();
+    let mut related_tests: Vec<String> = Vec::new();
+
+    if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
+        let depth = match opts.depth.unwrap_or(2) {
+            1 => ContextDepth::L1,
+            2 => ContextDepth::L2,
+            _ => ContextDepth::L3,
+        };
+
+        let expander = ContextExpander::new(&index, &graph);
+        let changes: Vec<DiffChange> = changed.iter().map(|f| DiffChange {
+            file_path: f.path.clone(),
+            old_path: f.old_path.clone(),
+            line_ranges: vec![],
+            change_type: match f.status {
+                EngineFileStatus::Added => ChangeType::Added,
+                EngineFileStatus::Deleted => ChangeType::Deleted,
+                _ => ChangeType::Modified,
+            },
+            diff_content: None,
+        }).collect();
+
+        let token_budget = opts.budget.unwrap_or(50000);
+        let context = expander.expand(&changes, depth, token_budget);
+        {
+            // Combine changed and dependent symbols
+            context_symbols = context.changed_symbols
+                .iter()
+                .chain(context.dependent_symbols.iter())
+                .map(|s| ContextSymbolInfo {
+                    name: s.name.clone(),
+                    kind: s.kind.clone(),
+                    file: s.file_path.clone(),
+                    line: s.start_line,
+                    reason: s.relevance_reason.clone(),
+                    signature: s.signature.clone(),
+                })
+                .collect();
+
+            related_tests = context.related_tests
+                .iter()
+                .map(|f| f.path.clone())
+                .collect();
+        }
+    }
+
+    // Calculate tokens
+    let tokenizer = Tokenizer::new();
+    let total_content: String = changed_files
+        .iter()
+        .filter_map(|f| f.diff.as_ref())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let total_tokens = tokenizer.count(&total_content, TokenModel::Claude);
+
+    Ok(DiffContextResult {
+        changed_files,
+        context_symbols,
+        related_tests,
+        formatted_output: None,
+        total_tokens,
+    })
+}
+
+// ============================================================================
+// Async API - Async versions of key functions
+// ============================================================================
+
+/// Async version of pack
+///
+/// # Example
+/// ```javascript
+/// const { packAsync } = require('infiniloom-node');
+///
+/// const context = await packAsync('./my-repo', { format: 'xml' });
+/// ```
+#[napi]
+pub async fn pack_async(path: String, options: Option<PackOptions>) -> Result<String> {
+    // Run synchronous pack in a blocking task
+    tokio::task::spawn_blocking(move || pack(path, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of scan
+///
+/// # Example
+/// ```javascript
+/// const { scanAsync } = require('infiniloom-node');
+///
+/// const stats = await scanAsync('./my-repo', 'claude');
+/// ```
+#[napi]
+pub async fn scan_async(path: String, model: Option<String>) -> Result<ScanStats> {
+    tokio::task::spawn_blocking(move || scan(path, model))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of buildIndex
+///
+/// # Example
+/// ```javascript
+/// const { buildIndexAsync } = require('infiniloom-node');
+///
+/// const status = await buildIndexAsync('./my-repo', { force: true });
+/// ```
+#[napi]
+pub async fn build_index_async(path: String, options: Option<IndexOptions>) -> Result<IndexStatus> {
+    tokio::task::spawn_blocking(move || build_index(path, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of chunk
+///
+/// # Example
+/// ```javascript
+/// const { chunkAsync } = require('infiniloom-node');
+///
+/// const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
+/// ```
+#[napi]
+pub async fn chunk_async(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChunk>> {
+    tokio::task::spawn_blocking(move || chunk(path, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of analyzeImpact
+///
+/// # Example
+/// ```javascript
+/// const { analyzeImpactAsync } = require('infiniloom-node');
+///
+/// const impact = await analyzeImpactAsync('./my-repo', ['src/auth.ts']);
+/// ```
+#[napi]
+pub async fn analyze_impact_async(
+    path: String,
+    files: Vec<String>,
+    options: Option<ImpactOptions>,
+) -> Result<ImpactResult> {
+    tokio::task::spawn_blocking(move || analyze_impact(path, files, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getDiffContext
+///
+/// # Example
+/// ```javascript
+/// const { getDiffContextAsync } = require('infiniloom-node');
+///
+/// const context = await getDiffContextAsync('./my-repo', 'HEAD~1', 'HEAD');
+/// ```
+#[napi]
+pub async fn get_diff_context_async(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+    options: Option<DiffContextOptions>,
+) -> Result<DiffContextResult> {
+    tokio::task::spawn_blocking(move || get_diff_context(path, from_ref, to_ref, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }

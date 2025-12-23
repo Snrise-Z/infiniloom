@@ -13,13 +13,15 @@ function getArtifactInfo() {
   const platform = process.platform;
   const arch = process.arch;
 
+  // Artifact names must match the release workflow output (release.yml)
   const mapping = {
-    "darwin-x64": { artifact: "infiniloom-x86_64-apple-darwin.tar.gz", binary: "infiniloom" },
-    "darwin-arm64": { artifact: "infiniloom-aarch64-apple-darwin.tar.gz", binary: "infiniloom" },
-    "linux-x64": { artifact: "infiniloom-x86_64-unknown-linux-gnu.tar.gz", binary: "infiniloom" },
-    "linux-arm64": { artifact: "infiniloom-aarch64-unknown-linux-gnu.tar.gz", binary: "infiniloom" },
-    "win32-x64": { artifact: "infiniloom-x86_64-pc-windows-msvc.zip", binary: "infiniloom.exe" },
-    "win32-arm64": { artifact: "infiniloom-aarch64-pc-windows-msvc.zip", binary: "infiniloom.exe" },
+    "darwin-x64": { artifact: "infiniloom-darwin-x64.tar.gz", binary: "infiniloom" },
+    "darwin-arm64": { artifact: "infiniloom-darwin-arm64.tar.gz", binary: "infiniloom" },
+    "linux-x64": { artifact: "infiniloom-linux-x64.tar.gz", binary: "infiniloom" },
+    "linux-arm64": { artifact: "infiniloom-linux-arm64.tar.gz", binary: "infiniloom" },
+    "win32-x64": { artifact: "infiniloom-windows-x64.zip", binary: "infiniloom.exe" },
+    // Note: Windows ARM64 not currently built in release workflow
+    "win32-arm64": { artifact: "infiniloom-windows-x64.zip", binary: "infiniloom.exe" },
   };
 
   const key = `${platform}-${arch}`;

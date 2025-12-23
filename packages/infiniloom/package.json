@@ -1,6 +1,6 @@
 {
   "name": "infiniloom",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "High-performance repository context generator for LLMs",
   "bin": {
     "infiniloom": "bin/infiniloom"

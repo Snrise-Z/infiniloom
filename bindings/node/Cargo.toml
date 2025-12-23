@@ -1,6 +1,6 @@
 [package]
 name = "infiniloom-node"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.91"
 description = "Node.js bindings for infiniloom"
@@ -12,8 +12,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # NAPI-RS for Node.js bindings
-napi = { version = "2.16", features = ["serde-json"] }
+napi = { version = "2.16", features = ["serde-json", "async", "tokio_rt"] }
 napi-derive = "2.16"
+
+# Async runtime for async functions
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread"] }
 
 # Core engine
 infiniloom-engine = { path = "../../engine" }

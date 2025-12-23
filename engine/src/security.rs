@@ -25,9 +25,14 @@ static RE_AWS_SECRET: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)aws[_-]?secret[_-]?access[_-]?key['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})"#)
         .unwrap()
 });
+// GitHub Personal Access Token (classic) - 36 alphanumeric chars after prefix
 static RE_GITHUB_PAT: Lazy<Regex> = Lazy::new(|| Regex::new(r"ghp_[A-Za-z0-9]{36}").unwrap());
+// GitHub fine-grained PAT
 static RE_GITHUB_FINE_PAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}").unwrap());
+// GitHub OAuth, user-to-server, server-to-server, and refresh tokens
+static RE_GITHUB_OTHER_TOKENS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"gh[ours]_[A-Za-z0-9]{36,}").unwrap());
 static RE_PRIVATE_KEY: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap());
 static RE_API_KEY: Lazy<Regex> = Lazy::new(|| {
@@ -38,14 +43,23 @@ static RE_SECRET_TOKEN: Lazy<Regex> = Lazy::new(|| {
 });
 static RE_PASSWORD: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)password['"]?\s*[:=]\s*['"]?([^'"\s]{8,})"#).unwrap());
-static RE_CONN_STRING: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)(?:mongodb|postgres|mysql|redis)://[^\s'"]+"#).unwrap());
+static RE_CONN_STRING: Lazy<Regex> = Lazy::new(|| {
+    // Note: postgres and postgresql are both valid (postgresql:// is more common in practice)
+    Regex::new(r#"(?i)(?:mongodb|postgres(?:ql)?|mysql|redis|mariadb|cockroachdb|mssql)://[^\s'"]+"#)
+        .unwrap()
+});
 static RE_JWT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*").unwrap());
 static RE_SLACK: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}").unwrap());
 static RE_STRIPE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?:sk|pk)_(?:test|live)_[A-Za-z0-9]{24,}").unwrap());
+// OpenAI API keys (sk-... followed by alphanumeric characters)
+static RE_OPENAI: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").unwrap());
+// Anthropic API keys (sk-ant-...)
+static RE_ANTHROPIC: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").unwrap());
 
 /// A detected secret or sensitive data
 #[derive(Debug, Clone)]
@@ -156,7 +170,7 @@ impl SecurityScanner {
                 regex: &RE_AWS_SECRET,
                 severity: Severity::Critical,
             },
-            // GitHub
+            // GitHub tokens (all types: ghp_, gho_, ghu_, ghs_, ghr_, github_pat_)
             SecretPattern {
                 kind: SecretKind::GitHubToken,
                 regex: &RE_GITHUB_PAT,
@@ -167,10 +181,27 @@ impl SecurityScanner {
                 regex: &RE_GITHUB_FINE_PAT,
                 severity: Severity::Critical,
             },
+            SecretPattern {
+                kind: SecretKind::GitHubToken,
+                regex: &RE_GITHUB_OTHER_TOKENS,
+                severity: Severity::Critical,
+            },
             // Private keys
             SecretPattern {
                 kind: SecretKind::PrivateKey,
                 regex: &RE_PRIVATE_KEY,
+                severity: Severity::Critical,
+            },
+            // Anthropic API keys (must come before OpenAI since sk-ant- is more specific)
+            SecretPattern {
+                kind: SecretKind::ApiKey,
+                regex: &RE_ANTHROPIC,
+                severity: Severity::Critical,
+            },
+            // OpenAI API keys (must come before Stripe since sk- is more general)
+            SecretPattern {
+                kind: SecretKind::ApiKey,
+                regex: &RE_OPENAI,
                 severity: Severity::Critical,
             },
             // Stripe keys (specific pattern: sk_live_, pk_test_, etc.)

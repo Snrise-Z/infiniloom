@@ -13,11 +13,18 @@ use std::path::PathBuf;
 use infiniloom_engine::{
     count_symbol_references,
     default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
-    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus},
+    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile},
     rank_files, sort_files_by_importance,
     tokenizer::TokenModel, CompressionLevel, HeuristicCompressor, OutputFormat, OutputFormatter,
     RepoMapGenerator, Repository, SecurityScanner, SemanticCompressor, SemanticConfig, Tokenizer,
     TokenizerModel, Symbol, SymbolKind, Visibility,
+    // Index module
+    index::{
+        IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
+        DiffChange, ChangeType,
+    },
+    // Chunking module
+    Chunker, ChunkStrategy,
 };
 
 mod scanner;
@@ -1294,18 +1301,635 @@ fn format_file_status(status: EngineFileStatus) -> &'static str {
     }
 }
 
+// ============================================================================
+// Index API - Build and query symbol indexes
+// ============================================================================
+
+/// Build or update the symbol index for a repository
+///
+/// The index enables fast diff-to-context lookups and impact analysis.
+///
+/// Args:
+///     path: Path to repository root
+///     force: Force full rebuild even if index exists (default: False)
+///     include_tests: Include test files in index (default: False)
+///     max_file_size: Maximum file size to index in bytes (default: 10MB)
+///
+/// Returns:
+///     Dictionary with index status: exists, file_count, symbol_count, last_built, version
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> status = infiniloom.build_index("/path/to/repo")
+///     >>> print(f"Indexed {status['symbol_count']} symbols")
+#[pyfunction]
+#[pyo3(signature = (path, force=false, include_tests=false, max_file_size=None))]
+fn build_index(
+    py: Python,
+    path: &str,
+    force: bool,
+    include_tests: bool,
+    max_file_size: Option<u64>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    if !force {
+        // Check if index exists and is valid
+        if let Ok(meta) = storage.load_meta() {
+            if let (Ok(index), Ok(_graph)) = (storage.load_index(), storage.load_graph()) {
+                let dict = PyDict::new(py);
+                dict.set_item("exists", true)?;
+                dict.set_item("file_count", index.files.len())?;
+                dict.set_item("symbol_count", index.symbols.len())?;
+                dict.set_item("last_built", meta.created_at)?;
+                dict.set_item("version", format!("v{}", meta.version))?;
+                return Ok(dict.into());
+            }
+        }
+    }
+
+    // Build new index
+    let mut exclude_dirs = vec![
+        "node_modules".to_string(),
+        "target".to_string(),
+        ".git".to_string(),
+        "dist".to_string(),
+        "build".to_string(),
+    ];
+
+    if !include_tests {
+        exclude_dirs.extend(vec![
+            "test".to_string(),
+            "tests".to_string(),
+            "__tests__".to_string(),
+            "spec".to_string(),
+        ]);
+    }
+
+    let build_opts = BuildOptions {
+        max_file_size: max_file_size.unwrap_or(10 * 1024 * 1024),
+        exclude_dirs,
+        ..Default::default()
+    };
+
+    let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+    let (index, graph) = builder.build().map_err(to_py_err)?;
+
+    // Save index
+    storage.save_all(&index, &graph).map_err(to_py_err)?;
+
+    let meta = storage.load_meta().map_err(to_py_err)?;
+
+    let dict = PyDict::new(py);
+    dict.set_item("exists", true)?;
+    dict.set_item("file_count", index.files.len())?;
+    dict.set_item("symbol_count", index.symbols.len())?;
+    dict.set_item("last_built", meta.created_at)?;
+    dict.set_item("version", format!("v{}", meta.version))?;
+
+    Ok(dict.into())
+}
+
+/// Get the status of an existing index
+///
+/// Args:
+///     path: Path to repository root
+///
+/// Returns:
+///     Dictionary with index status information
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> status = infiniloom.index_status("/path/to/repo")
+///     >>> if status["exists"]:
+///     ...     print(f"Index has {status['symbol_count']} symbols")
+#[pyfunction]
+fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let dict = PyDict::new(py);
+
+    match (storage.load_meta(), storage.load_index()) {
+        (Ok(meta), Ok(index)) => {
+            dict.set_item("exists", true)?;
+            dict.set_item("file_count", index.files.len())?;
+            dict.set_item("symbol_count", index.symbols.len())?;
+            dict.set_item("last_built", meta.created_at)?;
+            dict.set_item("version", format!("v{}", meta.version))?;
+        }
+        _ => {
+            dict.set_item("exists", false)?;
+            dict.set_item("file_count", 0)?;
+            dict.set_item("symbol_count", 0)?;
+            dict.set_item("last_built", py.None())?;
+            dict.set_item("version", py.None())?;
+        }
+    }
+
+    Ok(dict.into())
+}
+
+// ============================================================================
+// Chunk API - Split repositories into manageable pieces
+// ============================================================================
+
+/// Split a repository into chunks for incremental processing
+///
+/// Useful for processing large repositories that exceed LLM context limits.
+///
+/// Args:
+///     path: Path to repository root
+///     strategy: Chunking strategy - "fixed", "file", "module", "symbol", "semantic", "dependency" (default: "module")
+///     max_tokens: Maximum tokens per chunk (default: 8000)
+///     overlap: Token overlap between chunks (default: 0)
+///     model: Target model for token counting (default: "claude")
+///     priority_first: Sort chunks by priority, core modules first (default: False)
+///
+/// Returns:
+///     List of chunk dictionaries with: index, total, focus, tokens, files, content
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> chunks = infiniloom.chunk("/path/to/large-repo", strategy="module", max_tokens=50000)
+///     >>> for c in chunks:
+///     ...     print(f"Chunk {c['index']}/{c['total']}: {c['focus']} ({c['tokens']} tokens)")
+#[pyfunction]
+#[pyo3(signature = (path, strategy="module", max_tokens=8000, overlap=0, model="claude", priority_first=false))]
+fn chunk(
+    py: Python,
+    path: &str,
+    strategy: &str,
+    max_tokens: u32,
+    overlap: u32,
+    model: &str,
+    priority_first: bool,
+) -> PyResult<PyObject> {
+    // Parse strategy
+    let chunk_strategy = match strategy.to_lowercase().as_str() {
+        "fixed" => ChunkStrategy::Fixed { size: max_tokens },
+        "file" => ChunkStrategy::File,
+        "module" => ChunkStrategy::Module,
+        "symbol" => ChunkStrategy::Symbol,
+        "semantic" => ChunkStrategy::Semantic,
+        "dependency" => ChunkStrategy::Dependency,
+        _ => return Err(PyValueError::new_err(format!(
+            "Invalid strategy: {}. Use 'fixed', 'file', 'module', 'symbol', 'semantic', or 'dependency'",
+            strategy
+        ))),
+    };
+
+    // Parse model
+    let tokenizer_model = match model.to_lowercase().as_str() {
+        "claude" => TokenizerModel::Claude,
+        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
+        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
+        "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
+        "o4-mini" => TokenizerModel::O4Mini,
+        "o3" => TokenizerModel::O3,
+        "o1" => TokenizerModel::O1,
+        "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
+        "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
+        "gemini" => TokenizerModel::Gemini,
+        "llama" => TokenizerModel::Llama,
+        "mistral" => TokenizerModel::Mistral,
+        "deepseek" => TokenizerModel::DeepSeek,
+        "qwen" => TokenizerModel::Qwen,
+        "cohere" => TokenizerModel::Cohere,
+        "grok" => TokenizerModel::Grok,
+        _ => return Err(PyValueError::new_err(format!("Invalid model: {}", model))),
+    };
+
+    // Scan repository
+    let path_buf = PathBuf::from(path);
+    let needs_symbols = matches!(chunk_strategy, ChunkStrategy::Dependency | ChunkStrategy::Symbol);
+    let config = ScanConfig {
+        include_hidden: false,
+        respect_gitignore: true,
+        read_contents: true,
+        max_file_size: 50 * 1024 * 1024,
+        skip_symbols: !needs_symbols,
+    };
+
+    let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    // Apply default ignores
+    repo.files.retain(|f| {
+        !matches_any(&f.relative_path, DEFAULT_IGNORES)
+            && !matches_any(&f.relative_path, TEST_IGNORES)
+    });
+
+    // Create chunker
+    let chunker = Chunker::new(chunk_strategy, max_tokens)
+        .with_model(tokenizer_model)
+        .with_overlap(overlap);
+
+    let mut chunks = chunker.chunk(&repo);
+
+    // Apply priority sorting if requested
+    if priority_first && chunks.len() > 1 {
+        let mut chunk_priorities: Vec<(usize, f64)> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let avg_priority = if c.files.is_empty() {
+                    0.0
+                } else {
+                    let total: f64 = c.files.iter().map(|f| file_priority_score(&f.path)).sum();
+                    total / c.files.len() as f64
+                };
+                (i, avg_priority)
+            })
+            .collect();
+
+        chunk_priorities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let original_chunks = std::mem::take(&mut chunks);
+        for (idx, (orig_idx, _)) in chunk_priorities.iter().enumerate() {
+            let mut c = original_chunks[*orig_idx].clone();
+            c.index = idx;
+            chunks.push(c);
+        }
+
+        let total = chunks.len();
+        for c in &mut chunks {
+            c.total = total;
+        }
+    }
+
+    // Convert to Python list
+    let results = PyList::new(
+        py,
+        chunks.iter().map(|c| {
+            let dict = PyDict::new(py);
+            dict.set_item("index", c.index).unwrap();
+            dict.set_item("total", c.total).unwrap();
+            dict.set_item("focus", &c.focus).unwrap();
+            dict.set_item("tokens", c.tokens).unwrap();
+            dict.set_item(
+                "files",
+                c.files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+            // Format content
+            let content: String = c
+                .files
+                .iter()
+                .map(|f| format!("// {}\n{}", f.path, f.content))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            dict.set_item("content", content).unwrap();
+            dict
+        }),
+    );
+
+    Ok(results.into())
+}
+
+/// Calculate priority score for a file path
+fn file_priority_score(path: &str) -> f64 {
+    let path_lower = path.to_lowercase();
+
+    if path_lower.contains("src/") || path_lower.contains("lib/") {
+        if path_lower.contains("main") || path_lower.contains("index") || path_lower.contains("app")
+        {
+            return 1.0;
+        }
+        return 0.8;
+    }
+
+    if path_lower.ends_with(".json")
+        || path_lower.ends_with(".yaml")
+        || path_lower.ends_with(".toml")
+    {
+        return 0.6;
+    }
+
+    if path_lower.contains("test") || path_lower.contains("spec") {
+        return 0.3;
+    }
+
+    if path_lower.contains("doc") || path_lower.ends_with(".md") {
+        return 0.2;
+    }
+
+    0.5
+}
+
+// ============================================================================
+// Impact API - Analyze change impact
+// ============================================================================
+
+/// Analyze the impact of changes to files or symbols
+///
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     files: List of files to analyze
+///     depth: Depth of dependency traversal (1-3, default: 2)
+///     include_tests: Include test files in analysis (default: False)
+///
+/// Returns:
+///     Dictionary with: changed_files, dependent_files, test_files, affected_symbols, impact_level, summary
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> impact = infiniloom.analyze_impact("/path/to/repo", ["src/auth.py"])
+///     >>> print(f"Impact level: {impact['impact_level']}")
+#[pyfunction]
+#[pyo3(signature = (path, files, depth=2, include_tests=false))]
+fn analyze_impact(
+    py: Python,
+    path: &str,
+    files: Vec<String>,
+    depth: u32,
+    include_tests: bool,
+) -> PyResult<PyObject> {
+    let _ = include_tests; // Reserved for future use
+
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    // Load index
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index (run build_index first): {}", e))
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load dependency graph: {}", e))
+    })?;
+
+    // Create context expander
+    let context_depth = match depth {
+        1 => ContextDepth::L1,
+        2 => ContextDepth::L2,
+        _ => ContextDepth::L3,
+    };
+
+    let expander = ContextExpander::new(&index, &graph);
+
+    // Convert files to diff changes
+    let changes: Vec<DiffChange> = files
+        .iter()
+        .map(|f| DiffChange {
+            file_path: f.clone(),
+            old_path: None,
+            line_ranges: vec![],
+            change_type: ChangeType::Modified,
+            diff_content: None,
+        })
+        .collect();
+
+    // Expand context
+    let token_budget = 50000;
+    let context = expander.expand(&changes, context_depth, token_budget);
+
+    // Collect results
+    let changed_files: Vec<String> = changes.iter().map(|c| c.file_path.clone()).collect();
+
+    let dependent_files: Vec<String> = context
+        .dependent_files
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+
+    let test_files: Vec<String> = context
+        .related_tests
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+
+    // Combine changed and dependent symbols
+    let affected_symbols: Vec<_> = context
+        .changed_symbols
+        .iter()
+        .chain(context.dependent_symbols.iter())
+        .collect();
+
+    // Determine impact level
+    let impact_level = if dependent_files.len() > 20 || affected_symbols.len() > 50 {
+        "critical"
+    } else if dependent_files.len() > 10 || affected_symbols.len() > 20 {
+        "high"
+    } else if dependent_files.len() > 5 || affected_symbols.len() > 10 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    let summary = format!(
+        "{} files changed, {} dependents affected, {} symbols impacted, {} tests related",
+        changed_files.len(),
+        dependent_files.len(),
+        affected_symbols.len(),
+        test_files.len()
+    );
+
+    // Build result dict
+    let dict = PyDict::new(py);
+    dict.set_item("changed_files", changed_files)?;
+    dict.set_item("dependent_files", dependent_files)?;
+    dict.set_item("test_files", test_files)?;
+
+    // Affected symbols as list of dicts
+    let symbols_list = PyList::new(
+        py,
+        affected_symbols.iter().map(|s| {
+            let sym_dict = PyDict::new(py);
+            sym_dict.set_item("name", &s.name).unwrap();
+            sym_dict.set_item("kind", &s.kind).unwrap();
+            sym_dict.set_item("file", &s.file_path).unwrap();
+            sym_dict.set_item("line", s.start_line).unwrap();
+            sym_dict.set_item("impact_type", &s.relevance_reason).unwrap();
+            sym_dict
+        }),
+    );
+    dict.set_item("affected_symbols", symbols_list)?;
+    dict.set_item("impact_level", impact_level)?;
+    dict.set_item("summary", summary)?;
+
+    Ok(dict.into())
+}
+
+// ============================================================================
+// Diff Context API - Get context-aware diffs
+// ============================================================================
+
+/// Get context-aware diff with surrounding symbols and dependencies
+///
+/// Unlike basic git diff, this provides semantic context around changes.
+/// Requires an index for full functionality (will work with limited context without one).
+///
+/// Args:
+///     path: Path to repository root
+///     from_ref: Starting commit/branch (use "" for unstaged changes)
+///     to_ref: Ending commit/branch (use "HEAD" for staged, "" for working tree)
+///     depth: Depth of context expansion (1-3, default: 2)
+///     budget: Token budget for context (default: 50000)
+///     include_diff: Include the actual diff content (default: False)
+///
+/// Returns:
+///     Dictionary with: changed_files, context_symbols, related_tests, total_tokens
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> # Get context for last commit
+///     >>> context = infiniloom.get_diff_context("/path/to/repo", "HEAD~1", "HEAD")
+///     >>> print(f"Changed: {len(context['changed_files'])} files")
+///     >>> print(f"Related symbols: {len(context['context_symbols'])}")
+#[pyfunction]
+#[pyo3(signature = (path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=false))]
+fn get_diff_context(
+    py: Python,
+    path: &str,
+    from_ref: &str,
+    to_ref: &str,
+    depth: u32,
+    budget: u32,
+    include_diff: bool,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+
+    // Open git repo
+    let git_repo = EngineGitRepo::open(&path_buf).map_err(to_py_err)?;
+
+    // Get changed files
+    let changed: Vec<ChangedFile> = if from_ref.is_empty() && to_ref.is_empty() {
+        // Uncommitted changes
+        git_repo
+            .status()
+            .map_err(to_py_err)?
+            .iter()
+            .map(|f| ChangedFile {
+                path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                status: f.status,
+                additions: 0,
+                deletions: 0,
+            })
+            .collect()
+    } else {
+        let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+        let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
+        git_repo.diff_files(from, to).map_err(to_py_err)?
+    };
+
+    // Try to load existing index
+    let storage = IndexStorage::new(&path_buf);
+
+    // Build file contexts
+    let mut changed_files_result: Vec<_> = Vec::new();
+    for file in &changed {
+        let diff_content = if include_diff {
+            let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+            let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
+            git_repo.diff_content(from, to, &file.path).ok()
+        } else {
+            None
+        };
+
+        let file_dict = PyDict::new(py);
+        file_dict.set_item("path", &file.path)?;
+        file_dict.set_item("change_type", format_file_status(file.status))?;
+        file_dict.set_item("additions", file.additions)?;
+        file_dict.set_item("deletions", file.deletions)?;
+        if let Some(ref diff) = diff_content {
+            file_dict.set_item("diff", diff)?;
+        }
+        changed_files_result.push(file_dict);
+    }
+
+    // Try to expand context if index exists
+    let mut context_symbols: Vec<PyObject> = Vec::new();
+    let mut related_tests: Vec<String> = Vec::new();
+
+    if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
+        let context_depth = match depth {
+            1 => ContextDepth::L1,
+            2 => ContextDepth::L2,
+            _ => ContextDepth::L3,
+        };
+
+        let expander = ContextExpander::new(&index, &graph);
+        let changes: Vec<DiffChange> = changed
+            .iter()
+            .map(|f| DiffChange {
+                file_path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                line_ranges: vec![],
+                change_type: match f.status {
+                    EngineFileStatus::Added => ChangeType::Added,
+                    EngineFileStatus::Deleted => ChangeType::Deleted,
+                    _ => ChangeType::Modified,
+                },
+                diff_content: None,
+            })
+            .collect();
+
+        let context = expander.expand(&changes, context_depth, budget);
+
+        // Combine changed and dependent symbols
+        for s in context.changed_symbols.iter().chain(context.dependent_symbols.iter()) {
+            let sym_dict = PyDict::new(py);
+            sym_dict.set_item("name", &s.name)?;
+            sym_dict.set_item("kind", &s.kind)?;
+            sym_dict.set_item("file", &s.file_path)?;
+            sym_dict.set_item("line", s.start_line)?;
+            sym_dict.set_item("reason", &s.relevance_reason)?;
+            if let Some(ref sig) = s.signature {
+                sym_dict.set_item("signature", sig)?;
+            }
+            context_symbols.push(sym_dict.into());
+        }
+
+        related_tests = context.related_tests.iter().map(|f| f.path.clone()).collect();
+    }
+
+    // Calculate tokens
+    let tokenizer = Tokenizer::new();
+    let total_content: String = changed_files_result
+        .iter()
+        .filter_map(|d| d.get_item("diff").ok().flatten())
+        .filter_map(|item| item.extract::<String>().ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let total_tokens = tokenizer.count(&total_content, TokenModel::Claude);
+
+    // Build result dict
+    let dict = PyDict::new(py);
+    dict.set_item("changed_files", changed_files_result)?;
+    dict.set_item("context_symbols", context_symbols)?;
+    dict.set_item("related_tests", related_tests)?;
+    dict.set_item("total_tokens", total_tokens)?;
+
+    Ok(dict.into())
+}
+
 /// Python module definition
 #[pymodule]
 fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
-    // Functions
+    // Core Functions
     m.add_function(wrap_pyfunction!(pack, m)?)?;
     m.add_function(wrap_pyfunction!(scan, m)?)?;
     m.add_function(wrap_pyfunction!(count_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(scan_security, m)?)?;
     m.add_function(wrap_pyfunction!(semantic_compress, m)?)?;
     m.add_function(wrap_pyfunction!(is_git_repo, m)?)?;
+
+    // Index API
+    m.add_function(wrap_pyfunction!(build_index, m)?)?;
+    m.add_function(wrap_pyfunction!(index_status, m)?)?;
+
+    // Chunk API
+    m.add_function(wrap_pyfunction!(chunk, m)?)?;
+
+    // Impact & Diff Context API
+    m.add_function(wrap_pyfunction!(analyze_impact, m)?)?;
+    m.add_function(wrap_pyfunction!(get_diff_context, m)?)?;
 
     // Classes
     m.add_class::<Infiniloom>()?;
