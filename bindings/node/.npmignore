@@ -1,0 +1,27 @@
+# Source files
+src/
+target/
+Cargo.toml
+Cargo.lock
+build.rs
+
+# Development files
+.gitignore
+*.md
+!README.md
+
+# Tests
+tests/
+test/
+*.test.js
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# IDEs
+.idea/
+.vscode/
+
+# OS
+.DS_Store

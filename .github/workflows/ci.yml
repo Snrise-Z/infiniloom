@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Rust Engine Build & Test
+  rust-build:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace
+
+      - name: Build
+        run: cargo build --workspace --release
+
+      - name: Test
+        run: cargo test --workspace
+
+  # Python Bindings
+  python-bindings:
+    name: Python Bindings
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Maturin and Pytest
+        run: pip install maturin pytest
+
+      - name: Build and Install Bindings
+        run: |
+          cd bindings/python
+          maturin develop --release
+
+      - name: Run Python Tests
+        run: |
+          cd bindings/python
+          pytest -v
+
+  # Node.js Bindings
+  node-bindings:
+    name: Node.js Bindings
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          cd bindings/node
+          npm install
+
+      - name: Build
+        run: |
+          cd bindings/node
+          npm run build
+
+      - name: Test
+        run: |
+          cd bindings/node
+          npm test
+
+  # Security Scan
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL'
+          exit-code: '0'
+
+  # Code Coverage (optional, don't fail build)
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
+  # Benchmark Regression Testing
+  benchmarks:
+    name: Benchmark Regression
+    runs-on: ubuntu-latest
+    # Only run benchmarks on PRs to avoid polluting history
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for comparison
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run benchmarks
+        run: |
+          cargo bench --workspace -- --noplot --save-baseline pr-${{ github.event.pull_request.number }}
+          # Output results in JSON for the action
+          cargo bench --workspace -- --noplot --save-baseline pr-${{ github.event.pull_request.number }} 2>/dev/null | tee benchmark-results.txt || true
+
+      - name: Compare with main branch
+        run: |
+          # Get baseline from main if available
+          git fetch origin main --depth=1 || true
+          if git rev-parse origin/main >/dev/null 2>&1; then
+            git checkout origin/main -- target/criterion 2>/dev/null || echo "No baseline available"
+          fi
+
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion/
+            benchmark-results.txt
+          retention-days: 30
+
+      - name: Comment on PR with results
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+
+            let resultsText = 'Benchmark run completed.';
+            try {
+              if (fs.existsSync('benchmark-results.txt')) {
+                const results = fs.readFileSync('benchmark-results.txt', 'utf8');
+                // Extract key performance metrics
+                const lines = results.split('\n').filter(l =>
+                  l.includes('time:') || l.includes('thrpt:') || l.includes('Performance')
+                ).slice(0, 20);
+
+                if (lines.length > 0) {
+                  resultsText = '### Benchmark Results\n\n```\n' + lines.join('\n') + '\n```';
+                }
+              }
+            } catch (e) {
+              console.log('Could not read benchmark results:', e);
+            }
+
+            // Only comment if there are meaningful results
+            if (resultsText.length > 50) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: resultsText + '\n\n_Benchmarks run on Ubuntu runner. See artifacts for full results._'
+              });
+            }
+
+  # Release (on tags)
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [rust-build]
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Release
+        run: cargo build --workspace --release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          generate_release_notes: true

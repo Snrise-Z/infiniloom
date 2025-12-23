@@ -1,0 +1,63 @@
+{
+  "repo_name": "bat",
+  "description": "A cat(1) clone with wings - syntax highlighting and git integration",
+  "language": "rust",
+  "symbol_locations": {
+    "WrappingMode": {
+      "file": "src/wrapping.rs",
+      "line": 2,
+      "type": "enum",
+      "description": "Controls text wrapping mode (character or no wrapping)"
+    },
+    "to_ansi_color": {
+      "file": "src/terminal.rs",
+      "line": 6,
+      "type": "function",
+      "description": "Converts syntect highlighting color to nu_ansi_term color"
+    },
+    "as_terminal_escaped": {
+      "file": "src/terminal.rs",
+      "line": 49,
+      "type": "function",
+      "description": "Applies terminal escape sequences for styled text output"
+    },
+    "ThemeOptions": {
+      "file": "src/theme.rs",
+      "line": 45,
+      "type": "struct",
+      "description": "Options for configuring syntax highlighting theme"
+    },
+    "ThemePreference": {
+      "file": "src/theme.rs",
+      "line": 67,
+      "type": "enum",
+      "description": "Theme preference (auto, fixed, dark, light)"
+    },
+    "ColorScheme": {
+      "file": "src/theme.rs",
+      "line": 178,
+      "type": "enum",
+      "description": "Terminal color scheme (dark or light)"
+    }
+  },
+  "file_counts": {
+    "rs": 67,
+    "toml": 2,
+    "md": 8
+  },
+  "architecture": {
+    "main_entry": "src/main.rs or src/lib.rs",
+    "key_modules": [
+      "src/theme.rs - Theme detection and selection",
+      "src/terminal.rs - Terminal escape sequence handling",
+      "src/wrapping.rs - Text wrapping modes",
+      "src/printer.rs - Output formatting and printing",
+      "src/config.rs - Configuration management"
+    ],
+    "dependencies": [
+      "syntect for syntax highlighting",
+      "nu_ansi_term for terminal colors",
+      "clap for CLI argument parsing"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+# Ensure consistent line endings across all platforms
+* text=auto eol=lf
+
+# Rust source files
+*.rs text eol=lf
+*.toml text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Config files
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Windows batch files need CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.wasm binary

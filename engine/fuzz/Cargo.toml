@@ -1,0 +1,57 @@
+[package]
+name = "infiniloom-engine-fuzz"
+version = "0.0.0"
+authors = ["Automated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.infiniloom-engine]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_parse_rust"
+path = "fuzz_targets/fuzz_parse_rust.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parse_python"
+path = "fuzz_targets/fuzz_parse_python.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parse_javascript"
+path = "fuzz_targets/fuzz_parse_javascript.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_tokenize"
+path = "fuzz_targets/fuzz_tokenize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_security_scan"
+path = "fuzz_targets/fuzz_security_scan.rs"
+test = false
+doc = false
+bench = false

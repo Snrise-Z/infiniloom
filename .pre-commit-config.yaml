@@ -1,0 +1,78 @@
+# Infiniloom Pre-commit Configuration
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: ['--branch', 'main', '--branch', 'master']
+
+  # Rust formatting
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --workspace --all-targets
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace --lib
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [push]
+
+  # Commit message format
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.13.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  # Security checks
+  - repo: local
+    hooks:
+      - id: cargo-audit
+        name: cargo audit
+        entry: cargo audit
+        language: system
+        pass_filenames: false
+        stages: [push]
+
+  # Documentation check
+  - repo: local
+    hooks:
+      - id: cargo-doc
+        name: cargo doc check
+        entry: cargo doc --workspace --no-deps
+        language: system
+        pass_filenames: false
+        stages: [push]

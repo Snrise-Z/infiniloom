@@ -1,0 +1,42 @@
+{
+  "repo_name": "cobra",
+  "description": "A Commander for modern Go CLI interactions - library for creating CLI applications",
+  "language": "go",
+  "symbol_locations": {
+    "Command": {
+      "file": "command.go",
+      "line": 54,
+      "type": "struct",
+      "description": "Core command structure for CLI commands"
+    },
+    "Group": {
+      "file": "command.go",
+      "line": 45,
+      "type": "struct",
+      "description": "Structure to manage groups for commands"
+    },
+    "FParseErrWhitelist": {
+      "file": "command.go",
+      "line": 42,
+      "type": "type",
+      "description": "Configures flag parse errors to be ignored"
+    }
+  },
+  "file_counts": {
+    "go": 36,
+    "md": 5
+  },
+  "architecture": {
+    "main_entry": "command.go",
+    "key_modules": [
+      "command.go - Core Command struct and CLI logic",
+      "args.go - Argument validation and parsing",
+      "completions.go - Shell completion support",
+      "bash_completions.go - Bash-specific completions",
+      "zsh_completions.go - Zsh-specific completions"
+    ],
+    "dependencies": [
+      "github.com/spf13/pflag for POSIX/GNU style flags"
+    ]
+  }
+}

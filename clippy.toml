@@ -1,0 +1,51 @@
+# Infiniloom Clippy Configuration
+# Strictest settings for maximum code quality
+
+# Cognitive complexity threshold (lower = simpler functions required)
+cognitive-complexity-threshold = 15
+
+# Function size limits
+too-many-arguments-threshold = 7
+too-many-lines-threshold = 100
+
+# Type complexity
+type-complexity-threshold = 250
+
+# String patterns
+disallowed-names = ["foo", "bar", "baz", "quux", "temp", "tmp"]
+
+# Documentation requirements
+missing-docs-in-crate-items = true
+
+# Vector initialization
+vec-box-size-threshold = 4096
+
+# Trivial copy size (bytes)
+trivial-copy-size-limit = 16
+
+# Large error types
+large-error-threshold = 128
+
+# Enum variant size difference
+enum-variant-size-threshold = 200
+
+# Stack size threshold for large types on stack
+stack-size-threshold = 512000
+
+# MSRv for lint suggestions
+msrv = "1.91"
+
+# Allowed wildcard imports (none - we want explicit imports)
+allowed-wildcard-imports = []
+
+# Literal representation
+literal-representation-threshold = 5
+
+# Single char binding names to avoid
+single-char-binding-names-threshold = 4
+
+# Future incompatibility threshold
+future-size-threshold = 16384
+
+# Await holding configuration
+await-holding-invalid-types = []

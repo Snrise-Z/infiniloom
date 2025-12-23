@@ -1,0 +1,66 @@
+{
+  "name": "@infiniloom/node",
+  "version": "0.1.0",
+  "description": "Node.js bindings for infiniloom - Repository context engine for LLMs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "infiniloom",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "armv7-unknown-linux-gnueabihf",
+        "aarch64-apple-darwin",
+        "aarch64-linux-android",
+        "x86_64-unknown-freebsd",
+        "aarch64-unknown-linux-musl",
+        "aarch64-pc-windows-msvc"
+      ]
+    }
+  },
+  "author": "Topos Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Topos-Labs/infiniloom.git",
+    "directory": "bindings/node"
+  },
+  "keywords": [
+    "infiniloom",
+    "llm",
+    "context",
+    "repository",
+    "code-analysis",
+    "napi-rs",
+    "rust"
+  ],
+  "engines": {
+    "node": ">= 16"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "bugs": {
+    "url": "https://github.com/Topos-Labs/infiniloom/issues"
+  },
+  "homepage": "https://github.com/Topos-Labs/infiniloom#readme"
+}

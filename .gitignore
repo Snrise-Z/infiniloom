@@ -1,0 +1,98 @@
+# Rust
+target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Node
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.a
+*.so
+*.dylib
+*.dll
+*.lib
+*.o
+*.obj
+*.wasm
+
+# Test/coverage
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Secrets (never commit these!)
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# Test repositories (cloned for e2e testing)
+tests/e2e/repos/
+tests/e2e/outputs/
+tests/e2e/reports/
+
+# Benchmark results (generated)
+benchmark_results/
+
+# Competitive benchmark cloned repos and caches
+benchmarks/competitive/repos/
+benchmarks/competitive/__pycache__/
+benchmarks/competitive/benchmark_results/
+
+# Large generated files
+digest.txt
+*.xml.gz
+*.md.gz
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Infiniloom index cache (runtime-generated)
+.infiniloom/
+
+# Internal development docs (not for public release)
+docs/RELEASE_PLAN.md
+docs/IMPLEMENTATION_STATUS.md
+
+# Binding-specific dev docs
+bindings/*/SUMMARY.md
+bindings/*/QUICKSTART.md
+bindings/*/DEVELOPMENT.md
+bindings/*/BUILD.md
+bindings/*/QUICK_START.md
+bindings/*/BUILD_INSTRUCTIONS.md
+bindings/*/FILE_MANIFEST.md

@@ -1,0 +1,153 @@
+[workspace]
+resolver = "2"
+members = [
+    "engine",
+    "cli",
+]
+exclude = [
+    "bindings/python",
+    "bindings/node",
+    "tests/e2e/repos",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT"
+repository = "https://github.com/Topos-Labs/infiniloom"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+
+# ============================================================================
+# Strict Linting Configuration
+# ============================================================================
+
+# ============================================================================
+# Rust Lints (based on rust-analyzer and tokio best practices)
+# ============================================================================
+
+[workspace.lints.rust]
+# Lifetime and reference clarity
+elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+unused_lifetimes = "warn"
+
+# Safety
+unsafe_op_in_unsafe_fn = "warn"
+unsafe_code = "warn"
+
+# Visibility and exports
+unreachable_pub = "warn"
+unused_extern_crates = "warn"
+
+# Future compatibility
+future_incompatible = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "warn", priority = -1 }
+rust_2021_compatibility = { level = "warn", priority = -1 }
+
+# Code correctness
+unused = { level = "warn", priority = -1 }
+nonstandard_style = { level = "warn", priority = -1 }
+
+# Explicit
+let_underscore_drop = "warn"
+meta_variable_misuse = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_qualifications = "warn"
+
+# ============================================================================
+# Clippy Lints (based on rust-analyzer configuration)
+# ============================================================================
+
+[workspace.lints.clippy]
+# Lint groups with proper priorities
+correctness = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+restriction = { level = "allow", priority = -1 }
+
+# Specific warnings for debugging/logging hygiene
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+# Memory safety warnings
+rc_buffer = "warn"
+rc_mutex = "warn"
+clone_on_ref_ptr = "warn"
+
+# String handling
+str_to_string = "warn"
+
+# Allowed lints (common in real-world code)
+too_long_first_doc_paragraph = "allow"
+single_match = "allow"
+result_unit_err = "allow"
+len_without_is_empty = "allow"
+enum_variant_names = "allow"
+new_ret_no_self = "allow"
+useless_asref = "allow"
+assigning_clones = "allow"
+vec_init_then_push = "allow"
+literal_string_with_formatting_args = "allow"
+unnecessary_map_or = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+wrong_self_convention = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+multiple_crate_versions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+doc_markdown = "allow"
+items_after_statements = "allow"
+redundant_closure_for_method_calls = "allow"
+significant_drop_tightening = "allow"
+
+# ============================================================================
+# Profile Configuration
+# ============================================================================
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+lto = false
+panic = "unwind"
+incremental = true
+
+[profile.release]
+opt-level = 3
+debug = false
+overflow-checks = false
+lto = "thin"
+panic = "abort"
+codegen-units = 1
+strip = true
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.bench]
+inherits = "release"
+debug = true
+
+# Coverage profile for cargo-llvm-cov
+[profile.coverage]
+inherits = "dev"
+opt-level = 0
+debug = true
+overflow-checks = true

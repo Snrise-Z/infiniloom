@@ -1,0 +1,36 @@
+[package]
+name = "infiniloom-python"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+description = "Python bindings for infiniloom"
+license = "MIT"
+repository = "https://github.com/Topos-Labs/infiniloom"
+
+[lib]
+name = "infiniloom"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core engine
+infiniloom-engine = { path = "../../engine" }
+
+# PyO3 for Python bindings
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File system
+ignore = "0.4"
+rayon = "1.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
