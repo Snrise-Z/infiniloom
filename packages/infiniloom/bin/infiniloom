@@ -1,0 +1,34 @@
+#!/usr/bin/env node
+
+const { spawn } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+
+const binDir = __dirname;
+const platform = process.platform;
+const binName = platform === "win32" ? "infiniloom.exe" : "infiniloom-bin";
+const binPath = path.join(binDir, binName);
+
+if (!fs.existsSync(binPath)) {
+  console.error("Error: infiniloom binary not found.");
+  console.error("The installation may have failed. Try reinstalling:");
+  console.error("  npm uninstall -g infiniloom && npm install -g infiniloom");
+  console.error("");
+  console.error("Or install via cargo:");
+  console.error("  cargo install infiniloom");
+  process.exit(1);
+}
+
+const child = spawn(binPath, process.argv.slice(2), {
+  stdio: "inherit",
+  env: process.env,
+});
+
+child.on("error", (err) => {
+  console.error(`Failed to start infiniloom: ${err.message}`);
+  process.exit(1);
+});
+
+child.on("close", (code) => {
+  process.exit(code || 0);
+});

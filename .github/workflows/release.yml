@@ -338,6 +338,29 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================================================
+  # Publish npm CLI package (for npm install -g infiniloom)
+  # ============================================================================
+  publish-npm-cli:
+    name: Publish npm CLI
+    runs-on: ubuntu-latest
+    needs: [github-release]  # Needs release to exist for binary downloads
+    if: ${{ !inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish CLI package to npm
+        working-directory: packages/infiniloom
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ============================================================================
   # Update Homebrew tap
   # ============================================================================
   update-homebrew:
@@ -455,12 +478,17 @@ jobs:
 
             ### CLI (Recommended)
 
+            **npm (easiest):**
+            ```bash
+            npm install -g infiniloom
+            ```
+
             **Cargo:**
             ```bash
             cargo install infiniloom
             ```
 
-            **Homebrew (macOS):**
+            **Homebrew (macOS/Linux):**
             ```bash
             brew tap Topos-Labs/infiniloom
             brew install infiniloom
@@ -468,13 +496,13 @@ jobs:
 
             **Direct download:** See attached binaries below.
 
-            ### Python
+            ### Python Library
 
             ```bash
             pip install infiniloom
             ```
 
-            ### Node.js
+            ### Node.js Library
 
             ```bash
             npm install infiniloom-node

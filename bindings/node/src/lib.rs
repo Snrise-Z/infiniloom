@@ -16,9 +16,9 @@ use scanner::{scan_repository as do_scan, ScanConfig};
 /// Options for packing a repository
 #[napi(object)]
 pub struct PackOptions {
-    /// Output format: "xml", "markdown", "json", or "yaml"
+    /// Output format: "xml", "markdown", "json", "yaml", "toon", or "plain"
     pub format: Option<String>,
-    /// Target model: "claude", "gpt-4o", "gpt-4", "gemini", or "llama"
+    /// Target model: "claude", "gpt-5.2", "gpt-5.1", "gpt-5", "o4-mini", "o3", "o1", "gpt-4o", "gpt-4", "gemini", "llama", "mistral", "deepseek", "qwen", "cohere", "grok"
     pub model: Option<String>,
     /// Compression level: "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic"
     pub compression: Option<String>,
@@ -77,7 +77,7 @@ pub struct LanguageStat {
 ///
 /// # Example
 /// ```javascript
-/// const { pack } = require('@infiniloom/node');
+/// const { pack } = require('infiniloom-node');
 ///
 /// const context = pack('./my-repo', {
 ///   format: 'xml',
@@ -237,7 +237,7 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
 ///
 /// # Example
 /// ```javascript
-/// const { scan } = require('@infiniloom/node');
+/// const { scan } = require('infiniloom-node');
 ///
 /// const stats = scan('./my-repo', 'claude');
 /// console.log(`Total files: ${stats.totalFiles}`);
@@ -294,7 +294,7 @@ pub fn scan(path: String, model: Option<String>) -> Result<ScanStats> {
 ///
 /// # Example
 /// ```javascript
-/// const { countTokens } = require('@infiniloom/node');
+/// const { countTokens } = require('infiniloom-node');
 ///
 /// const count = countTokens('Hello, world!', 'claude');
 /// console.log(`Tokens: ${count}`);
@@ -305,14 +305,28 @@ pub fn count_tokens(text: String, model: Option<String>) -> Result<u32> {
     let model_str = model.as_deref().unwrap_or("claude");
     let token_model = match model_str.to_lowercase().as_str() {
         "claude" => TokenModel::Claude,
-        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
-        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
-        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
-        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
+        // GPT-5.x series (latest)
+        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenModel::Gpt52,
+        "gpt-5.2-pro" | "gpt52-pro" => TokenModel::Gpt52Pro,
+        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenModel::Gpt51,
+        "gpt-5.1-mini" | "gpt51-mini" => TokenModel::Gpt51Mini,
+        "gpt-5.1-codex" | "gpt51-codex" => TokenModel::Gpt51Codex,
+        "gpt-5" | "gpt5" => TokenModel::Gpt5,
+        "gpt-5-mini" | "gpt5-mini" => TokenModel::Gpt5Mini,
+        "gpt-5-nano" | "gpt5-nano" => TokenModel::Gpt5Nano,
+        // O-series reasoning models
+        "o4-mini" => TokenModel::O4Mini,
+        "o3" => TokenModel::O3,
+        "o3-mini" => TokenModel::O3Mini,
         "o1" => TokenModel::O1,
         "o1-mini" => TokenModel::O1Mini,
-        "o3" => TokenModel::O3,
-        "o4-mini" => TokenModel::O4Mini,
+        "o1-preview" => TokenModel::O1Preview,
+        // GPT-4 series
+        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
+        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
+        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
+        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
+        // Other vendors
         "gemini" => TokenModel::Gemini,
         "llama" => TokenModel::Llama,
         "codellama" => TokenModel::CodeLlama,
@@ -325,7 +339,7 @@ pub fn count_tokens(text: String, model: Option<String>) -> Result<u32> {
             return Err(Error::new(
                 Status::InvalidArg,
                 format!(
-                    "Invalid model: {}. Supported: claude, gpt, gpt-4, gpt-4o, gpt-4o-mini, gpt-3.5-turbo, o1, o1-mini, o3, o4-mini, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok",
+                    "Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok",
                     model_str
                 ),
             ));
@@ -563,24 +577,52 @@ fn parse_format(format: Option<&str>) -> Result<OutputFormat> {
         "markdown" | "md" => Ok(OutputFormat::Markdown),
         "json" => Ok(OutputFormat::Json),
         "yaml" | "yml" => Ok(OutputFormat::Yaml),
+        "toon" => Ok(OutputFormat::Toon),
+        "plain" | "text" | "txt" => Ok(OutputFormat::Plain),
         other => Err(Error::new(
             Status::InvalidArg,
-            format!("Unknown format: {}. Use 'xml', 'markdown', 'json', or 'yaml'", other),
+            format!("Unknown format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", other),
         )),
     }
 }
 
 fn parse_model(model: Option<&str>) -> Result<TokenizerModel> {
-    match model.unwrap_or("claude") {
+    match model.unwrap_or("claude").to_lowercase().as_str() {
         "claude" => Ok(TokenizerModel::Claude),
+        // GPT-5.x series (latest)
+        "gpt-5.2" | "gpt5.2" | "gpt52" => Ok(TokenizerModel::Gpt52),
+        "gpt-5.2-pro" | "gpt52-pro" => Ok(TokenizerModel::Gpt52Pro),
+        "gpt-5.1" | "gpt5.1" | "gpt51" => Ok(TokenizerModel::Gpt51),
+        "gpt-5.1-mini" | "gpt51-mini" => Ok(TokenizerModel::Gpt51Mini),
+        "gpt-5.1-codex" | "gpt51-codex" => Ok(TokenizerModel::Gpt51Codex),
+        "gpt-5" | "gpt5" => Ok(TokenizerModel::Gpt5),
+        "gpt-5-mini" | "gpt5-mini" => Ok(TokenizerModel::Gpt5Mini),
+        "gpt-5-nano" | "gpt5-nano" => Ok(TokenizerModel::Gpt5Nano),
+        // O-series reasoning models
+        "o4-mini" => Ok(TokenizerModel::O4Mini),
+        "o3" => Ok(TokenizerModel::O3),
+        "o3-mini" => Ok(TokenizerModel::O3Mini),
+        "o1" => Ok(TokenizerModel::O1),
+        "o1-mini" => Ok(TokenizerModel::O1Mini),
+        "o1-preview" => Ok(TokenizerModel::O1Preview),
+        // GPT-4 series
         "gpt-4o" | "gpt4o" => Ok(TokenizerModel::Gpt4o),
-        "gpt-4" | "gpt4" => Ok(TokenizerModel::Gpt4),
+        "gpt-4o-mini" | "gpt4o-mini" => Ok(TokenizerModel::Gpt4oMini),
+        "gpt-4" | "gpt4" | "gpt" => Ok(TokenizerModel::Gpt4),
+        "gpt-3.5-turbo" | "gpt35-turbo" => Ok(TokenizerModel::Gpt35Turbo),
+        // Other vendors
         "gemini" => Ok(TokenizerModel::Gemini),
         "llama" => Ok(TokenizerModel::Llama),
+        "codellama" => Ok(TokenizerModel::CodeLlama),
+        "mistral" => Ok(TokenizerModel::Mistral),
+        "deepseek" => Ok(TokenizerModel::DeepSeek),
+        "qwen" => Ok(TokenizerModel::Qwen),
+        "cohere" => Ok(TokenizerModel::Cohere),
+        "grok" => Ok(TokenizerModel::Grok),
         other => Err(Error::new(
             Status::InvalidArg,
             format!(
-                "Unknown model: {}. Use 'claude', 'gpt-4o', 'gpt-4', 'gemini', or 'llama'",
+                "Unknown model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok",
                 other
             ),
         )),
@@ -766,7 +808,7 @@ fn parse_compression(compression: Option<&str>) -> Result<CompressionLevel> {
 ///
 /// # Example
 /// ```javascript
-/// const { semanticCompress } = require('@infiniloom/node');
+/// const { semanticCompress } = require('infiniloom-node');
 ///
 /// const compressed = semanticCompress(longText, 0.7, 0.3);
 /// ```
@@ -833,7 +875,7 @@ fn scan_repository_with_options(
 ///
 /// # Example
 /// ```javascript
-/// const { isGitRepo } = require('@infiniloom/node');
+/// const { isGitRepo } = require('infiniloom-node');
 ///
 /// if (isGitRepo('./my-project')) {
 ///   console.log('This is a git repository');
@@ -907,7 +949,7 @@ pub struct GitBlameLine {
 ///
 /// # Example
 /// ```javascript
-/// const { GitRepo } = require('@infiniloom/node');
+/// const { GitRepo } = require('infiniloom-node');
 ///
 /// const repo = new GitRepo('./my-project');
 /// console.log(`Branch: ${repo.currentBranch()}`);
@@ -1166,6 +1208,63 @@ impl GitRepo {
         self.inner.file_change_frequency(&path, days.unwrap_or(30))
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
+}
+
+/// Security finding information
+#[napi(object)]
+pub struct SecurityFinding {
+    /// File where the finding was detected
+    pub file: String,
+    /// Line number (1-indexed)
+    pub line: u32,
+    /// Severity level: "Critical", "High", "Medium", "Low", "Info"
+    pub severity: String,
+    /// Type of finding
+    pub kind: String,
+    /// Matched pattern
+    pub pattern: String,
+}
+
+/// Scan a repository for security issues
+///
+/// # Arguments
+/// * `path` - Path to repository root
+///
+/// # Returns
+/// Array of security findings
+///
+/// # Example
+/// ```javascript
+/// const { scanSecurity } = require('infiniloom-node');
+///
+/// const findings = scanSecurity('./my-repo');
+/// for (const finding of findings) {
+///   console.log(`${finding.severity}: ${finding.kind} in ${finding.file}:${finding.line}`);
+/// }
+/// ```
+#[napi]
+pub fn scan_security(path: String) -> Result<Vec<SecurityFinding>> {
+    let repo = scan_repository_with_options(&path, TokenizerModel::Claude, true, true)?;
+
+    let scanner = SecurityScanner::new();
+    let mut findings = Vec::new();
+
+    for file in &repo.files {
+        if let Some(content) = &file.content {
+            let file_findings = scanner.scan(content, &file.relative_path);
+            for finding in file_findings {
+                findings.push(SecurityFinding {
+                    file: finding.file.clone(),
+                    line: finding.line,
+                    severity: format!("{:?}", finding.severity),
+                    kind: finding.kind.name().to_string(),
+                    pattern: finding.pattern.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(findings)
 }
 
 /// Format FileStatus as string

@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 use humansize::{format_size, BINARY};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 mod scanner;
@@ -1202,7 +1202,7 @@ fn cmd_pack(
             return true;
         }
         // Also try matching just the filename
-        if let Some(filename) = std::path::Path::new(relative_path).file_name() {
+        if let Some(filename) = Path::new(relative_path).file_name() {
             if let Some(filename_str) = filename.to_str() {
                 if pattern.matches(filename_str) {
                     return true;
@@ -2725,7 +2725,7 @@ fn cmd_init(
     );
     println!();
     println!("Edit this file to customize Infiniloom behavior.");
-    println!("See https://github.com/Topos-Labs/infiniloom#configuration for options.");
+    println!("See https://toposlabs.ai/infiniloom/ for options.");
 
     Ok(())
 }
@@ -2746,7 +2746,7 @@ fn generate_template_config(format: &str, template: ConfigTemplate) -> String {
 fn generate_rust_template(format: &str) -> String {
     match format {
         "yaml" => r#"# Infiniloom Configuration - Rust Project Template
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 output:
   format: xml
@@ -2836,7 +2836,7 @@ allowlist = ["EXAMPLE_", "test_"]
 fn generate_python_template(format: &str) -> String {
     match format {
         "yaml" => r#"# Infiniloom Configuration - Python Project Template
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 output:
   format: markdown
@@ -2934,7 +2934,7 @@ allowlist = ["EXAMPLE_", "test_", "localhost"]
 fn generate_typescript_template(format: &str) -> String {
     match format {
         "yaml" => r#"# Infiniloom Configuration - TypeScript/JavaScript Project Template
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 output:
   format: xml
@@ -3040,7 +3040,7 @@ allowlist = ["EXAMPLE_", "test_", "localhost", "127.0.0.1"]
 fn generate_go_template(format: &str) -> String {
     match format {
         "yaml" => r#"# Infiniloom Configuration - Go Project Template
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 output:
   format: xml
@@ -3132,7 +3132,7 @@ allowlist = ["EXAMPLE_", "test_", "localhost"]
 fn generate_java_template(format: &str) -> String {
     match format {
         "yaml" => r#"# Infiniloom Configuration - Java Project Template
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 output:
   format: xml
@@ -4067,7 +4067,7 @@ struct PartialConfig {
 }
 
 /// Load config file (.infiniloom.yaml, .infiniloom.toml, .infiniloom.json)
-fn load_config_file(config_path: Option<&PathBuf>, repo_path: &std::path::Path) -> LoadedConfig {
+fn load_config_file(config_path: Option<&PathBuf>, repo_path: &Path) -> LoadedConfig {
     let mut config = LoadedConfig::default();
 
     // Try to load specified config file OR look for default config files
@@ -4131,7 +4131,7 @@ fn load_config_file(config_path: Option<&PathBuf>, repo_path: &std::path::Path) 
 
 /// Parse config content using proper serde deserialization
 /// Supports both flat format (legacy) and nested format (from engine's Config)
-fn parse_config_content(content: &str, path: &std::path::Path, config: &mut LoadedConfig) {
+fn parse_config_content(content: &str, path: &Path, config: &mut LoadedConfig) {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     // Try to parse and capture errors for warning
@@ -4295,37 +4295,36 @@ fn cmd_index(
     }
 
     // Helper function to build and save index
-    let build_index =
-        |storage: &IndexStorage, path: &std::path::Path, verbose: bool| -> Result<()> {
-            if verbose {
-                println!("{}", "Building symbol index...".cyan());
-            }
+    let build_index = |storage: &IndexStorage, path: &Path, verbose: bool| -> Result<()> {
+        if verbose {
+            println!("{}", "Building symbol index...".cyan());
+        }
 
-            let start = Instant::now();
+        let start = Instant::now();
 
-            // Build index
-            let builder = IndexBuilder::new(path)
-                .with_options(BuildOptions { respect_gitignore: true, ..Default::default() });
+        // Build index
+        let builder = IndexBuilder::new(path)
+            .with_options(BuildOptions { respect_gitignore: true, ..Default::default() });
 
-            let (index, graph) = builder.build().context("Failed to build index")?;
+        let (index, graph) = builder.build().context("Failed to build index")?;
 
-            // Save index
-            let meta = storage
-                .save_all(&index, &graph)
-                .context("Failed to save index")?;
+        // Save index
+        let meta = storage
+            .save_all(&index, &graph)
+            .context("Failed to save index")?;
 
-            let elapsed = start.elapsed();
+        let elapsed = start.elapsed();
 
-            println!("{} Index built successfully", "✓".green());
-            println!("  Files: {}", meta.file_count);
-            println!("  Symbols: {}", meta.symbol_count);
-            println!("  Size: {}", format_size(meta.index_size_bytes, BINARY));
-            println!("  Time: {:.2}s", elapsed.as_secs_f64());
-            println!();
-            println!("Index saved to {}", storage.index_dir().display());
+        println!("{} Index built successfully", "✓".green());
+        println!("  Files: {}", meta.file_count);
+        println!("  Symbols: {}", meta.symbol_count);
+        println!("  Size: {}", format_size(meta.index_size_bytes, BINARY));
+        println!("  Time: {:.2}s", elapsed.as_secs_f64());
+        println!();
+        println!("Index saved to {}", storage.index_dir().display());
 
-            Ok(())
-        };
+        Ok(())
+    };
 
     // Check if we need to rebuild (skip check in watch mode - always build initially)
     if !watch_mode && !force && storage.exists() {
@@ -4986,11 +4985,8 @@ fn get_changed_lines(
 
 /// Resolve the base git reference from a reference string
 /// For "main..feature" returns "main", for "HEAD~1" returns "HEAD~1"
-fn resolve_base_ref(reference: Option<&str>, repo_path: &std::path::Path) -> Option<String> {
-    let ref_str = match reference {
-        Some(r) => r,
-        None => "HEAD",
-    };
+fn resolve_base_ref(reference: Option<&str>, repo_path: &Path) -> Option<String> {
+    let ref_str = reference.unwrap_or("HEAD");
 
     // Handle range format: "base..head" or "base...head"
     if let Some(base) = ref_str.split("..").next() {
@@ -5017,11 +5013,7 @@ fn resolve_base_ref(reference: Option<&str>, repo_path: &std::path::Path) -> Opt
 
 /// Read file content from a git reference
 /// Uses `git show ref:path` to retrieve file content from a specific commit/ref
-fn read_file_from_git(
-    repo_path: &std::path::Path,
-    git_ref: &str,
-    file_path: &str,
-) -> Option<String> {
+fn read_file_from_git(repo_path: &Path, git_ref: &str, file_path: &str) -> Option<String> {
     use std::process::Command;
 
     // Git show format: ref:path
@@ -5907,7 +5899,7 @@ fn format_diff_context_xml(
     xml
 }
 
-fn is_index_fresh(repo_path: &PathBuf, meta: &infiniloom_engine::index::IndexMeta) -> bool {
+fn is_index_fresh(repo_path: &Path, meta: &infiniloom_engine::index::IndexMeta) -> bool {
     let repo = match GitRepo::open(repo_path) {
         Ok(repo) => repo,
         Err(_) => return true,
@@ -5973,7 +5965,7 @@ fn line_contains_symbol_name(line: &str, name: &str) -> bool {
         let start = offset + pos;
         let end = start + name.len();
 
-        let before = line[..start].chars().rev().next();
+        let before = line[..start].chars().next_back();
         let after = line[end..].chars().next();
 
         let before_ok = before.map(|c| !is_word_char(c)).unwrap_or(true);
@@ -5994,7 +5986,7 @@ fn is_word_char(c: char) -> bool {
 }
 
 fn enrich_diff_context(
-    repo_path: &PathBuf,
+    repo_path: &Path,
     changes: &[DiffChange],
     base_ref: Option<&str>,
     context: &mut infiniloom_engine::index::ExpandedContext,

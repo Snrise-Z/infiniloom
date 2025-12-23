@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "infiniloom"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python bindings for infiniloom - Repository context engine for LLMs"
 authors = [
     { name = "Topos Labs", email = "hello@toposlabs.ai" }
@@ -28,9 +28,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Topos-Labs/infiniloom"
+Homepage = "https://toposlabs.ai/infiniloom/"
 Repository = "https://github.com/Topos-Labs/infiniloom"
-Documentation = "https://github.com/Topos-Labs/infiniloom#readme"
+Documentation = "https://toposlabs.ai/infiniloom/"
 
 [tool.maturin]
 python-source = "python"

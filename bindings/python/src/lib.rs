@@ -32,8 +32,8 @@ fn to_py_err(err: impl std::fmt::Display) -> PyErr {
 ///
 /// Args:
 ///     path: Path to the repository
-///     format: Output format ("xml", "markdown", "json", "yaml")
-///     model: Target LLM model ("claude", "gpt", "gemini")
+///     format: Output format ("xml", "markdown", "json", "yaml", "toon", "plain")
+///     model: Target LLM model ("gpt-5.2", "gpt-5.1", "gpt-5", "o3", "gpt-4o", "claude", "gemini", "llama", etc.)
 ///     compression: Compression level ("none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic")
 ///     map_budget: Token budget for repository map (default: 2000)
 ///     max_symbols: Maximum number of symbols to include (default: 50)
@@ -65,17 +65,45 @@ fn pack(
         "markdown" | "md" => OutputFormat::Markdown,
         "json" => OutputFormat::Json,
         "yaml" | "yml" => OutputFormat::Yaml,
-        _ => return Err(PyValueError::new_err(format!("Invalid format: {}", format))),
+        "toon" => OutputFormat::Toon,
+        "plain" | "text" | "txt" => OutputFormat::Plain,
+        _ => return Err(PyValueError::new_err(format!("Invalid format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", format))),
     };
 
     // Parse model
     let tokenizer_model = match model.to_lowercase().as_str() {
         "claude" => TokenizerModel::Claude,
-        "gpt" | "gpt-4" => TokenizerModel::Gpt4,
+        // GPT-5.x series (latest)
+        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
+        "gpt-5.2-pro" | "gpt52-pro" => TokenizerModel::Gpt52Pro,
+        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
+        "gpt-5.1-mini" | "gpt51-mini" => TokenizerModel::Gpt51Mini,
+        "gpt-5.1-codex" | "gpt51-codex" => TokenizerModel::Gpt51Codex,
+        "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
+        "gpt-5-mini" | "gpt5-mini" => TokenizerModel::Gpt5Mini,
+        "gpt-5-nano" | "gpt5-nano" => TokenizerModel::Gpt5Nano,
+        // O-series reasoning models
+        "o4-mini" => TokenizerModel::O4Mini,
+        "o3" => TokenizerModel::O3,
+        "o3-mini" => TokenizerModel::O3Mini,
+        "o1" => TokenizerModel::O1,
+        "o1-mini" => TokenizerModel::O1Mini,
+        "o1-preview" => TokenizerModel::O1Preview,
+        // GPT-4 series
         "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
+        "gpt-4o-mini" | "gpt4o-mini" => TokenizerModel::Gpt4oMini,
+        "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
+        "gpt-3.5-turbo" | "gpt35-turbo" => TokenizerModel::Gpt35Turbo,
+        // Other vendors
         "gemini" => TokenizerModel::Gemini,
         "llama" => TokenizerModel::Llama,
-        _ => return Err(PyValueError::new_err(format!("Invalid model: {}", model))),
+        "codellama" => TokenizerModel::CodeLlama,
+        "mistral" => TokenizerModel::Mistral,
+        "deepseek" => TokenizerModel::DeepSeek,
+        "qwen" => TokenizerModel::Qwen,
+        "cohere" => TokenizerModel::Cohere,
+        "grok" => TokenizerModel::Grok,
+        _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok", model))),
     };
 
     // Parse compression level
@@ -297,14 +325,28 @@ fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
     // Use the engine's accurate tokenizer (tiktoken for OpenAI, calibrated estimates for others)
     let token_model = match model.to_lowercase().as_str() {
         "claude" => TokenModel::Claude,
-        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
-        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
-        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
-        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
+        // GPT-5.x series (latest)
+        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenModel::Gpt52,
+        "gpt-5.2-pro" | "gpt52-pro" => TokenModel::Gpt52Pro,
+        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenModel::Gpt51,
+        "gpt-5.1-mini" | "gpt51-mini" => TokenModel::Gpt51Mini,
+        "gpt-5.1-codex" | "gpt51-codex" => TokenModel::Gpt51Codex,
+        "gpt-5" | "gpt5" => TokenModel::Gpt5,
+        "gpt-5-mini" | "gpt5-mini" => TokenModel::Gpt5Mini,
+        "gpt-5-nano" | "gpt5-nano" => TokenModel::Gpt5Nano,
+        // O-series reasoning models
+        "o4-mini" => TokenModel::O4Mini,
+        "o3" => TokenModel::O3,
+        "o3-mini" => TokenModel::O3Mini,
         "o1" => TokenModel::O1,
         "o1-mini" => TokenModel::O1Mini,
-        "o3" => TokenModel::O3,
-        "o4-mini" => TokenModel::O4Mini,
+        "o1-preview" => TokenModel::O1Preview,
+        // GPT-4 series
+        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
+        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
+        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
+        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
+        // Other vendors
         "gemini" => TokenModel::Gemini,
         "llama" => TokenModel::Llama,
         "codellama" => TokenModel::CodeLlama,
@@ -313,7 +355,7 @@ fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
         "qwen" => TokenModel::Qwen,
         "cohere" => TokenModel::Cohere,
         "grok" => TokenModel::Grok,
-        _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: claude, gpt, gpt-4, gpt-4o, gpt-4o-mini, gpt-3.5-turbo, o1, o1-mini, o3, o4-mini, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok", model))),
+        _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok", model))),
     };
 
     let tokenizer = Tokenizer::new();
@@ -488,13 +530,14 @@ impl Infiniloom {
     }
 
     /// Pack the repository into an LLM-optimized format
-    #[pyo3(signature = (format="xml", model="claude", compression="balanced", map_budget=2000))]
+    #[pyo3(signature = (format="xml", model="claude", compression="balanced", map_budget=2000, max_symbols=50))]
     fn pack(
         &mut self,
         format: &str,
         model: &str,
         compression: &str,
         map_budget: u32,
+        max_symbols: usize,
     ) -> PyResult<String> {
         if self.repo.is_none() {
             self.load(false, true)?;
@@ -509,17 +552,45 @@ impl Infiniloom {
             "markdown" | "md" => OutputFormat::Markdown,
             "json" => OutputFormat::Json,
             "yaml" | "yml" => OutputFormat::Yaml,
-            _ => return Err(PyValueError::new_err(format!("Invalid format: {}", format))),
+            "toon" => OutputFormat::Toon,
+            "plain" | "text" | "txt" => OutputFormat::Plain,
+            _ => return Err(PyValueError::new_err(format!("Invalid format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", format))),
         };
 
         // Parse model
         let tokenizer_model = match model.to_lowercase().as_str() {
             "claude" => TokenizerModel::Claude,
-            "gpt" | "gpt-4" => TokenizerModel::Gpt4,
+            // GPT-5.x series (latest)
+            "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
+            "gpt-5.2-pro" | "gpt52-pro" => TokenizerModel::Gpt52Pro,
+            "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
+            "gpt-5.1-mini" | "gpt51-mini" => TokenizerModel::Gpt51Mini,
+            "gpt-5.1-codex" | "gpt51-codex" => TokenizerModel::Gpt51Codex,
+            "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
+            "gpt-5-mini" | "gpt5-mini" => TokenizerModel::Gpt5Mini,
+            "gpt-5-nano" | "gpt5-nano" => TokenizerModel::Gpt5Nano,
+            // O-series reasoning models
+            "o4-mini" => TokenizerModel::O4Mini,
+            "o3" => TokenizerModel::O3,
+            "o3-mini" => TokenizerModel::O3Mini,
+            "o1" => TokenizerModel::O1,
+            "o1-mini" => TokenizerModel::O1Mini,
+            "o1-preview" => TokenizerModel::O1Preview,
+            // GPT-4 series
             "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
+            "gpt-4o-mini" | "gpt4o-mini" => TokenizerModel::Gpt4oMini,
+            "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
+            "gpt-3.5-turbo" | "gpt35-turbo" => TokenizerModel::Gpt35Turbo,
+            // Other vendors
             "gemini" => TokenizerModel::Gemini,
             "llama" => TokenizerModel::Llama,
-            _ => return Err(PyValueError::new_err(format!("Invalid model: {}", model))),
+            "codellama" => TokenizerModel::CodeLlama,
+            "mistral" => TokenizerModel::Mistral,
+            "deepseek" => TokenizerModel::DeepSeek,
+            "qwen" => TokenizerModel::Qwen,
+            "cohere" => TokenizerModel::Cohere,
+            "grok" => TokenizerModel::Grok,
+            _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok", model))),
         };
 
         // Parse and apply compression level
@@ -598,6 +669,7 @@ impl Infiniloom {
         // Generate repository map using builder pattern
         let generator = RepoMapGenerator::builder()
             .token_budget(map_budget)
+            .max_symbols(max_symbols)
             .model(tokenizer_model)
             .build();
         let map = generator.generate(&repo);

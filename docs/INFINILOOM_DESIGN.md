@@ -1222,7 +1222,7 @@ nix profile install nixpkgs#infiniloom
 docker run -v $(pwd):/repo ghcr.io/infiniloom/infiniloom /repo
 
 # Direct binary
-curl -fsSL https://infiniloom.dev/install.sh | sh
+curl -fsSL https://toposlabs.ai/infiniloom/install.sh | sh
 ```
 
 ### 6.3 IDE Extensions

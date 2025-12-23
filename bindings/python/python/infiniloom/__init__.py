@@ -53,6 +53,41 @@ Object-Oriented API (more control):
     >>> for file in files:
     ...     print(f"{file['path']} - {file['language']}")
 
+Git Operations:
+
+    >>> from infiniloom import GitRepo, is_git_repo
+    >>>
+    >>> # Check if path is a git repo
+    >>> if is_git_repo("/path/to/repo"):
+    ...     repo = GitRepo("/path/to/repo")
+    ...     print(f"Branch: {repo.current_branch()}")
+    ...     print(f"Commit: {repo.current_commit()}")
+    ...
+    ...     # Get recent commits
+    ...     for commit in repo.log(count=5):
+    ...         print(f"{commit['short_hash']}: {commit['message']}")
+    ...
+    ...     # Get file history
+    ...     for commit in repo.file_log("src/main.py", count=5):
+    ...         print(f"{commit['date']}: {commit['message']}")
+    ...
+    ...     # Get blame info
+    ...     for line in repo.blame("src/main.py"):
+    ...         print(f"Line {line['line_number']}: {line['author']}")
+
+Semantic Compression:
+
+    >>> import infiniloom
+    >>>
+    >>> # Compress long text while preserving meaning
+    >>> long_text = "..." # Your long text
+    >>> compressed = infiniloom.semantic_compress(
+    ...     long_text,
+    ...     similarity_threshold=0.7,  # How similar chunks need to be to group
+    ...     budget_ratio=0.5           # Target 50% of original size
+    ... )
+    >>> print(f"Reduced from {len(long_text)} to {len(compressed)} chars")
+
 Available Formats
 -----------------
 
@@ -153,7 +188,10 @@ from ._infiniloom import (
     scan,
     count_tokens,
     scan_security,
+    semantic_compress,
+    is_git_repo,
     Infiniloom,
+    GitRepo,
     InfiniloomError,
     __version__,
 )
@@ -164,9 +202,12 @@ __all__ = [
     "scan",
     "count_tokens",
     "scan_security",
+    "semantic_compress",
+    "is_git_repo",
 
     # Classes
     "Infiniloom",
+    "GitRepo",
 
     # Exceptions
     "InfiniloomError",

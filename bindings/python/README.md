@@ -80,14 +80,16 @@ Pack a repository into an LLM-optimized format.
 
 **Parameters:**
 - `path` (str): Path to the repository
-- `format` (str): Output format - "xml", "markdown", "json", or "yaml"
+- `format` (str): Output format - "xml", "markdown", "json", "yaml", "toon", or "plain"
 - `model` (str): Target model for token counting. Supports:
-  - OpenAI: "gpt-5.2", "gpt-5.1", "gpt-5", "o4-mini", "o3", "o1", "gpt-4o", "gpt-4"
+  - OpenAI GPT-5.x: "gpt-5.2", "gpt-5.2-pro", "gpt-5.1", "gpt-5.1-mini", "gpt-5.1-codex", "gpt-5", "gpt-5-mini", "gpt-5-nano"
+  - OpenAI O-series: "o4-mini", "o3", "o3-mini", "o1", "o1-mini", "o1-preview"
+  - OpenAI GPT-4: "gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"
   - Anthropic: "claude" (default)
   - Google: "gemini"
-  - Meta: "llama"
+  - Meta: "llama", "codellama"
   - Others: "deepseek", "mistral", "qwen", "cohere", "grok"
-- `compression` (str): Compression level - "none", "minimal", "balanced", "aggressive", "extreme"
+- `compression` (str): Compression level - "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic"
 - `map_budget` (int): Token budget for repository map (default: 2000)
 - `max_symbols` (int): Maximum symbols to include (default: 50)
 
@@ -118,9 +120,9 @@ Count tokens in text for a specific model.
 
 **Parameters:**
 - `text` (str): Text to count tokens for
-- `model` (str): Target model - "claude", "gpt", "gpt-4o", "gemini", or "llama"
+- `model` (str): Target model. Supports all models listed above in `pack()`, including GPT-5.x series
 
-**Returns:** int - Number of tokens
+**Returns:** int - Number of tokens (exact for OpenAI models via tiktoken, calibrated estimates for others)
 
 #### `semantic_compress(text, similarity_threshold=0.7, budget_ratio=0.5)`
 
@@ -151,10 +153,25 @@ Scan repository for security issues.
 **Returns:** list[dict] - List of security findings with:
 - `file`: File path
 - `line`: Line number
-- `severity`: Severity level
-- `category`: Issue category
-- `message`: Description
-- `code`: Code snippet (optional)
+- `severity`: Severity level ("Critical", "High", "Medium", "Low", "Info")
+- `kind`: Type of finding (e.g., "aws_access_key", "github_token")
+- `pattern`: The matched pattern
+
+#### `is_git_repo(path)`
+
+Check if a path is a git repository.
+
+**Parameters:**
+- `path` (str): Path to check
+
+**Returns:** bool - True if path is a git repository, False otherwise
+
+```python
+from infiniloom import is_git_repo
+
+if is_git_repo("/path/to/repo"):
+    print("This is a git repository")
+```
 
 ### Classes
 
@@ -190,6 +207,170 @@ Scan for security issues. Returns list of findings.
 ##### `files()`
 
 Get list of all files. Returns list of dicts with file metadata.
+
+#### `GitRepo(path)`
+
+Git repository wrapper for accessing git operations like status, diff, log, and blame.
+
+**Constructor:**
+- `path` (str): Path to the git repository
+
+**Raises:** `InfiniloomError` if path is not a git repository
+
+**Methods:**
+
+##### `current_branch()`
+
+Get the current branch name.
+
+**Returns:** str - Current branch name (e.g., "main", "feature/xyz")
+
+##### `current_commit()`
+
+Get the current commit hash.
+
+**Returns:** str - Full SHA-1 hash of HEAD commit (40 characters)
+
+##### `status()`
+
+Get working tree status (both staged and unstaged changes).
+
+**Returns:** list[dict] - List of file status objects with:
+- `path`: File path
+- `status`: Status type ("Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown")
+- `old_path`: Old path for renames (optional)
+
+##### `log(count=10)`
+
+Get recent commits.
+
+**Parameters:**
+- `count` (int): Maximum number of commits to return (default: 10)
+
+**Returns:** list[dict] - List of commit objects with:
+- `hash`: Full commit hash
+- `short_hash`: Short commit hash (7 characters)
+- `author`: Author name
+- `email`: Author email
+- `date`: Commit date (ISO 8601 format)
+- `message`: Commit message (first line)
+
+##### `file_log(path, count=10)`
+
+Get commits that modified a specific file.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+- `count` (int): Maximum number of commits to return (default: 10)
+
+**Returns:** list[dict] - List of commits that modified the file
+
+##### `blame(path)`
+
+Get blame information for a file.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+
+**Returns:** list[dict] - List of blame line objects with:
+- `commit`: Commit hash that introduced the line
+- `author`: Author who wrote the line
+- `date`: Date when line was written
+- `line_number`: Line number (1-indexed)
+
+##### `ls_files()`
+
+Get list of files tracked by git.
+
+**Returns:** list[str] - Array of file paths tracked by git
+
+##### `diff_files(from_ref, to_ref)`
+
+Get files changed between two commits.
+
+**Parameters:**
+- `from_ref` (str): Starting commit/branch/tag
+- `to_ref` (str): Ending commit/branch/tag
+
+**Returns:** list[dict] - List of changed files with:
+- `path`: File path
+- `status`: Status ("Added", "Modified", "Deleted", "Renamed", "Copied")
+- `additions`: Number of lines added
+- `deletions`: Number of lines deleted
+
+##### `uncommitted_diff(path)`
+
+Get diff content for uncommitted changes in a file.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+
+**Returns:** str - Unified diff content
+
+##### `all_uncommitted_diffs()`
+
+Get diff for all uncommitted changes.
+
+**Returns:** str - Combined unified diff for all changed files
+
+##### `has_changes(path)`
+
+Check if a file has uncommitted changes.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+
+**Returns:** bool - True if file has changes
+
+##### `last_modified_commit(path)`
+
+Get the last commit that modified a file.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+
+**Returns:** dict - Commit information object
+
+##### `file_change_frequency(path, days=30)`
+
+Get file change frequency in recent days.
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+- `days` (int): Number of days to look back (default: 30)
+
+**Returns:** int - Number of commits that modified the file in the period
+
+**Example:**
+
+```python
+from infiniloom import GitRepo, is_git_repo
+
+# Check if path is a git repo first
+if is_git_repo("/path/to/repo"):
+    repo = GitRepo("/path/to/repo")
+
+    # Get current state
+    print(f"Branch: {repo.current_branch()}")
+    print(f"Commit: {repo.current_commit()}")
+
+    # Get recent commits
+    for commit in repo.log(count=5):
+        print(f"{commit['short_hash']}: {commit['message']}")
+
+    # Get file history
+    for commit in repo.file_log("src/main.py", count=3):
+        print(f"{commit['date']}: {commit['message']}")
+
+    # Get blame information
+    for line in repo.blame("src/main.py")[:10]:
+        print(f"Line {line['line_number']}: {line['author']}")
+
+    # Check for uncommitted changes
+    if repo.has_changes("src/main.py"):
+        diff = repo.uncommitted_diff("src/main.py")
+        print(diff)
+```
 
 ## Formats
 
@@ -378,5 +559,5 @@ MIT License - see [LICENSE](../../LICENSE) for details.
 ## Links
 
 - [GitHub](https://github.com/Topos-Labs/infiniloom)
-- [Documentation](https://infiniloom.dev/docs)
+- [Documentation](https://toposlabs.ai/infiniloom/)
 - [PyPI](https://pypi.org/project/infiniloom)

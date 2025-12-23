@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-01-23
+
+### Added
+
+- **npm CLI Package** for global installation via `npm install -g infiniloom`
+  - Downloads platform-specific binary from GitHub releases during postinstall
+  - Supports darwin-x64, darwin-arm64, linux-x64, linux-arm64, win32-x64, win32-arm64
+  - Falls back to cargo/Homebrew installation instructions if download fails
+
+- **Complete Python Binding Documentation**
+  - Added `GitRepo` class documentation with all 15 methods
+  - Added `is_git_repo()` function documentation
+  - Fixed `scan_security()` return type documentation (kind/pattern fields)
+
+- **Complete Node.js Binding Documentation**
+  - Added `GitRepo` class documentation with all 15 methods
+  - Added `isGitRepo()` function documentation
+  - Added `scanSecurity()` function documentation
+  - Added TypeScript interfaces: `SecurityFinding`, `GitCommit`, `GitFileStatus`, etc.
+
+### Changed
+
+- **Documentation URLs** - All documentation links now point to https://toposlabs.ai/infiniloom/
+  - Updated cli/src/main.rs info command output
+  - Updated Python bindings pyproject.toml and README.md
+  - Updated Node.js bindings package.json and README.md
+  - Updated all doc/*.md files
+
+### Fixed
+
+- **CLI Clippy Warnings** - Fixed all clippy warnings in cli/src/main.rs
+  - Changed redundant `match` to `unwrap_or()`
+  - Changed `&PathBuf` parameters to `&Path`
+  - Changed `.chars().rev().next()` to `.chars().next_back()`
+
+## [0.2.0] - 2025-01-20
+
 ### Added
 
 - **Semantic Compression Module** (`engine/src/semantic.rs`)
@@ -128,5 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Topos-Labs/infiniloom/releases/tag/v0.1.0

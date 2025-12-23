@@ -46,7 +46,7 @@ The `init` command:
 
 ```yaml
 # Infiniloom Configuration
-# Documentation: https://github.com/Topos-Labs/infiniloom#configuration
+# Documentation: https://toposlabs.ai/infiniloom/
 
 # Output settings
 output:

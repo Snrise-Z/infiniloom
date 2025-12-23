@@ -31,7 +31,7 @@ npm run build
 ### Simple Packing
 
 ```javascript
-const { pack } = require('@infiniloom/node');
+const { pack } = require('infiniloom-node');
 
 // Pack a repository with default settings
 const context = pack('./my-repo');
@@ -41,12 +41,12 @@ console.log(context);
 ### With Options
 
 ```javascript
-const { pack } = require('@infiniloom/node');
+const { pack } = require('infiniloom-node');
 
 const context = pack('./my-repo', {
-  format: 'xml',           // Output format: 'xml', 'markdown', 'json', or 'yaml'
-  model: 'claude',         // Target model: 'claude', 'gpt-5.2', 'o3', 'gpt-4o', 'gemini', 'llama', etc.
-  compression: 'balanced', // Compression: 'none', 'minimal', 'balanced', 'aggressive', 'extreme'
+  format: 'xml',           // Output format: 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'
+  model: 'claude',         // Target model: 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'o3', 'gpt-4o', 'claude', 'gemini', 'llama', etc.
+  compression: 'balanced', // Compression: 'none', 'minimal', 'balanced', 'aggressive', 'extreme', 'focused', 'semantic'
   mapBudget: 2000,        // Token budget for repository map
   maxSymbols: 50,         // Maximum symbols to include in map
   skipSecurity: false,    // Skip security scanning
@@ -58,7 +58,7 @@ const context = pack('./my-repo', {
 ### Repository Scanning
 
 ```javascript
-const { scan } = require('@infiniloom/node');
+const { scan } = require('infiniloom-node');
 
 const stats = scan('./my-repo', 'claude');
 console.log(`Repository: ${stats.name}`);
@@ -72,7 +72,7 @@ console.log(`Languages:`, stats.languages);
 ### Token Counting
 
 ```javascript
-const { countTokens } = require('@infiniloom/node');
+const { countTokens } = require('infiniloom-node');
 
 const count = countTokens('Hello, world!', 'claude');
 console.log(`Tokens: ${count}`);
@@ -81,7 +81,7 @@ console.log(`Tokens: ${count}`);
 ### Semantic Compression
 
 ```javascript
-const { semanticCompress } = require('@infiniloom/node');
+const { semanticCompress } = require('infiniloom-node');
 
 // Compress text while preserving important content
 const longText = '... your long text content ...';
@@ -96,7 +96,7 @@ console.log(compressed);
 ### Advanced Usage with Infiniloom Class
 
 ```javascript
-const { Infiniloom } = require('@infiniloom/node');
+const { Infiniloom } = require('infiniloom-node');
 
 // Create an Infiniloom instance
 const loom = new Infiniloom('./my-repo', 'claude');
@@ -169,6 +169,41 @@ Compress text using semantic compression while preserving important content.
 
 **Returns:** Compressed text
 
+#### `scanSecurity(path: string): SecurityFinding[]`
+
+Scan a repository for security issues (hardcoded secrets, API keys, etc.).
+
+**Parameters:**
+- `path` - Path to repository root
+
+**Returns:** Array of security findings
+
+```javascript
+const { scanSecurity } = require('infiniloom-node');
+
+const findings = scanSecurity('./my-repo');
+for (const finding of findings) {
+  console.log(`${finding.severity}: ${finding.kind} in ${finding.file}:${finding.line}`);
+}
+```
+
+#### `isGitRepo(path: string): boolean`
+
+Check if a path is a git repository.
+
+**Parameters:**
+- `path` - Path to check
+
+**Returns:** `true` if path is a git repository, `false` otherwise
+
+```javascript
+const { isGitRepo } = require('infiniloom-node');
+
+if (isGitRepo('./my-project')) {
+  console.log('This is a git repository');
+}
+```
+
 ### Types
 
 #### `PackOptions`
@@ -176,7 +211,7 @@ Compress text using semantic compression while preserving important content.
 ```typescript
 interface PackOptions {
   format?: string;        // "xml", "markdown", "json", "yaml", "toon", or "plain"
-  model?: string;         // "claude", "gpt-4o", "gpt-4", "gemini", "llama", etc.
+  model?: string;         // "gpt-5.2", "gpt-5.1", "gpt-5", "o3", "gpt-4o", "claude", "gemini", "llama", etc.
   compression?: string;   // "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic"
   mapBudget?: number;     // Token budget for repository map
   maxSymbols?: number;    // Maximum number of symbols in map
@@ -211,6 +246,64 @@ interface LanguageStat {
 }
 ```
 
+#### `SecurityFinding`
+
+```typescript
+interface SecurityFinding {
+  file: string;       // File where the finding was detected
+  line: number;       // Line number (1-indexed)
+  severity: string;   // "Critical", "High", "Medium", "Low", "Info"
+  kind: string;       // Type of finding (e.g., "aws_access_key", "github_token")
+  pattern: string;    // The matched pattern
+}
+```
+
+#### `GitCommit`
+
+```typescript
+interface GitCommit {
+  hash: string;       // Full commit hash (40 characters)
+  shortHash: string;  // Short commit hash (7 characters)
+  author: string;     // Author name
+  email: string;      // Author email
+  date: string;       // Commit date (ISO 8601 format)
+  message: string;    // Commit message (first line)
+}
+```
+
+#### `GitFileStatus`
+
+```typescript
+interface GitFileStatus {
+  path: string;       // File path
+  oldPath?: string;   // Old path (for renames)
+  status: string;     // "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown"
+}
+```
+
+#### `GitChangedFile`
+
+```typescript
+interface GitChangedFile {
+  path: string;       // File path
+  oldPath?: string;   // Old path (for renames)
+  status: string;     // "Added", "Modified", "Deleted", "Renamed", "Copied"
+  additions: number;  // Number of lines added
+  deletions: number;  // Number of lines deleted
+}
+```
+
+#### `GitBlameLine`
+
+```typescript
+interface GitBlameLine {
+  commit: string;     // Commit hash that introduced the line
+  author: string;     // Author who wrote the line
+  date: string;       // Date when line was written
+  lineNumber: number; // Line number (1-indexed)
+}
+```
+
 ### Infiniloom Class
 
 #### `new Infiniloom(path: string, model?: string)`
@@ -233,13 +326,192 @@ Pack repository with specific options.
 
 Check for security issues and return findings.
 
+### GitRepo Class
+
+Git repository wrapper for accessing git operations like status, diff, log, and blame.
+
+#### `new GitRepo(path: string)`
+
+Open a git repository.
+
+**Parameters:**
+- `path` - Path to the repository
+
+**Throws:** Error if path is not a git repository
+
+#### `currentBranch(): string`
+
+Get the current branch name.
+
+**Returns:** Current branch name (e.g., "main", "feature/xyz")
+
+#### `currentCommit(): string`
+
+Get the current commit hash.
+
+**Returns:** Full SHA-1 hash of HEAD commit (40 characters)
+
+#### `status(): GitFileStatus[]`
+
+Get working tree status (both staged and unstaged changes).
+
+**Returns:** Array of file status objects
+
+#### `log(count?: number): GitCommit[]`
+
+Get recent commits.
+
+**Parameters:**
+- `count` - Maximum number of commits to return (default: 10)
+
+**Returns:** Array of commit objects
+
+#### `fileLog(path: string, count?: number): GitCommit[]`
+
+Get commits that modified a specific file.
+
+**Parameters:**
+- `path` - File path relative to repo root
+- `count` - Maximum number of commits (default: 10)
+
+**Returns:** Array of commits that modified the file
+
+#### `blame(path: string): GitBlameLine[]`
+
+Get blame information for a file.
+
+**Parameters:**
+- `path` - File path relative to repo root
+
+**Returns:** Array of blame line objects
+
+#### `lsFiles(): string[]`
+
+Get list of files tracked by git.
+
+**Returns:** Array of file paths
+
+#### `diffFiles(fromRef: string, toRef: string): GitChangedFile[]`
+
+Get files changed between two commits.
+
+**Parameters:**
+- `fromRef` - Starting commit/branch/tag
+- `toRef` - Ending commit/branch/tag
+
+**Returns:** Array of changed files with diff stats
+
+#### `uncommittedDiff(path: string): string`
+
+Get diff content for uncommitted changes in a file.
+
+**Parameters:**
+- `path` - File path relative to repo root
+
+**Returns:** Unified diff content
+
+#### `allUncommittedDiffs(): string`
+
+Get diff for all uncommitted changes.
+
+**Returns:** Combined unified diff for all changed files
+
+#### `hasChanges(path: string): boolean`
+
+Check if a file has uncommitted changes.
+
+**Parameters:**
+- `path` - File path relative to repo root
+
+**Returns:** `true` if file has changes
+
+#### `lastModifiedCommit(path: string): GitCommit`
+
+Get the last commit that modified a file.
+
+**Parameters:**
+- `path` - File path relative to repo root
+
+**Returns:** Commit information object
+
+#### `fileChangeFrequency(path: string, days?: number): number`
+
+Get file change frequency in recent days.
+
+**Parameters:**
+- `path` - File path relative to repo root
+- `days` - Number of days to look back (default: 30)
+
+**Returns:** Number of commits that modified the file in the period
+
+**Example:**
+
+```javascript
+const { GitRepo, isGitRepo } = require('infiniloom-node');
+
+// Check if path is a git repo first
+if (isGitRepo('./my-project')) {
+  const repo = new GitRepo('./my-project');
+
+  // Get current state
+  console.log(`Branch: ${repo.currentBranch()}`);
+  console.log(`Commit: ${repo.currentCommit()}`);
+
+  // Get recent commits
+  for (const commit of repo.log(5)) {
+    console.log(`${commit.shortHash}: ${commit.message}`);
+  }
+
+  // Get file history
+  for (const commit of repo.fileLog('src/index.js', 3)) {
+    console.log(`${commit.date}: ${commit.message}`);
+  }
+
+  // Get blame information
+  for (const line of repo.blame('src/index.js').slice(0, 10)) {
+    console.log(`Line ${line.lineNumber}: ${line.author}`);
+  }
+
+  // Check for uncommitted changes
+  if (repo.hasChanges('src/index.js')) {
+    const diff = repo.uncommittedDiff('src/index.js');
+    console.log(diff);
+  }
+
+  // Compare branches
+  const changes = repo.diffFiles('main', 'feature');
+  for (const file of changes) {
+    console.log(`${file.status}: ${file.path} (+${file.additions}/-${file.deletions})`);
+  }
+}
+```
+
 ## Supported Models
 
-- **Claude** - Anthropic's Claude models
-- **GPT-4o** - OpenAI's GPT-4o
-- **GPT-4** - OpenAI's GPT-4
+### OpenAI GPT-5.x Series (Latest)
+- **GPT-5.2** / **GPT-5.2-Pro** - Latest GPT-5.2 models (o200k_base tokenizer)
+- **GPT-5.1** / **GPT-5.1-Mini** / **GPT-5.1-Codex** - GPT-5.1 series
+- **GPT-5** / **GPT-5-Mini** / **GPT-5-Nano** - GPT-5 base series
+
+### OpenAI O-Series (Reasoning Models)
+- **O4-mini** - Latest O4 reasoning model
+- **O3** / **O3-mini** - O3 reasoning models
+- **O1** / **O1-mini** / **O1-preview** - O1 reasoning models
+
+### OpenAI GPT-4 Series
+- **GPT-4o** / **GPT-4o-mini** - GPT-4o models (o200k_base tokenizer)
+- **GPT-4** - GPT-4 (cl100k_base tokenizer)
+- **GPT-3.5-turbo** - GPT-3.5
+
+### Other Providers
+- **Claude** - Anthropic's Claude models (default)
 - **Gemini** - Google's Gemini
-- **Llama** - Meta's Llama
+- **Llama** / **CodeLlama** - Meta's Llama models
+- **Mistral** - Mistral AI
+- **DeepSeek** - DeepSeek
+- **Qwen** - Alibaba Qwen
+- **Cohere** - Cohere Command R+
+- **Grok** - xAI Grok
 
 ## Compression Levels
 
@@ -299,5 +571,5 @@ MIT
 ## Links
 
 - [GitHub Repository](https://github.com/Topos-Labs/infiniloom)
-- [Documentation](https://infiniloom.dev/docs)
+- [Documentation](https://toposlabs.ai/infiniloom/)
 - [npm Package](https://www.npmjs.com/package/infiniloom-node)

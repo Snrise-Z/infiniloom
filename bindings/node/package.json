@@ -1,6 +1,6 @@
 {
   "name": "infiniloom-node",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Node.js bindings for infiniloom - Repository context engine for LLMs",
   "main": "index.js",
   "types": "index.d.ts",
@@ -62,5 +62,5 @@
   "bugs": {
     "url": "https://github.com/Topos-Labs/infiniloom/issues"
   },
-  "homepage": "https://github.com/Topos-Labs/infiniloom#readme"
+  "homepage": "https://toposlabs.ai/infiniloom/"
 }

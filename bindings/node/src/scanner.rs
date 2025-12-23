@@ -304,7 +304,11 @@ fn estimate_tokens(size_bytes: u64, content: Option<&str>) -> TokenCounts {
 /// Estimate lines from file size
 fn estimate_lines(size_bytes: u64) -> u64 {
     // Average ~40 characters per line
-    size_bytes / 40
+    if size_bytes == 0 {
+        0
+    } else {
+        std::cmp::max(1, size_bytes / 40)
+    }
 }
 
 /// Detect programming language from file extension

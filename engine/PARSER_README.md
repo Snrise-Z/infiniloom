@@ -358,7 +358,7 @@ To add support for a new language:
 
 - [Tree-sitter Documentation](https://tree-sitter.github.io/tree-sitter/)
 - [Tree-sitter Playground](https://tree-sitter.github.io/tree-sitter/playground)
-- [Infiniloom Documentation](https://github.com/Topos-Labs/infiniloom)
+- [Infiniloom Documentation](https://toposlabs.ai/infiniloom/)
 
 ## License
 

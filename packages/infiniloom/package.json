@@ -1,0 +1,53 @@
+{
+  "name": "infiniloom",
+  "version": "0.3.0",
+  "description": "High-performance repository context generator for LLMs",
+  "bin": {
+    "infiniloom": "bin/infiniloom"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin",
+    "install.js"
+  ],
+  "keywords": [
+    "infiniloom",
+    "llm",
+    "context",
+    "repository",
+    "code-analysis",
+    "claude",
+    "gpt",
+    "gemini",
+    "cli"
+  ],
+  "author": "Topos Labs <hello@toposlabs.ai>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Topos-Labs/infiniloom.git",
+    "directory": "packages/infiniloom"
+  },
+  "bugs": {
+    "url": "https://github.com/Topos-Labs/infiniloom/issues"
+  },
+  "homepage": "https://toposlabs.ai/infiniloom/",
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
+}
