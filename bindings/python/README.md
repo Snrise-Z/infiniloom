@@ -4,15 +4,18 @@ Python bindings for [Infiniloom](https://github.com/Topos-Labs/infiniloom) - a r
 
 ## Installation
 
-Phase 2 (not implemented intentionally): `pip install infiniloom` (PyPI release).
-For now, build from source:
+```bash
+pip install infiniloom
+```
+
+### Building from Source
 
 ```bash
 git clone https://github.com/Topos-Labs/infiniloom.git
 cd infiniloom/bindings/python
 pip install maturin
 maturin develop  # For development
-maturin build --release  # For production build
+maturin build --release  # For production wheel
 ```
 
 ## Quick Start

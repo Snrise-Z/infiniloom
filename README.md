@@ -56,23 +56,21 @@ cp target/release/infiniloom /usr/local/bin/
 |------|---------|-------------|
 | Rust | 1.91+ | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 
-### Package Managers (Phase 2 - not implemented intentionally)
-
-Planned distribution channels (not yet published in current releases):
+### Package Managers
 
 ```bash
-# Cargo (Rust)
+# Cargo (Rust) - Recommended
 cargo install infiniloom
 
-# npm (Node.js)
-npm install -g infiniloom
+# Homebrew (macOS/Linux)
+brew tap Topos-Labs/infiniloom
+brew install infiniloom
 
-# pip (Python)
+# pip (Python bindings)
 pip install infiniloom
 
-# Homebrew (macOS/Linux)
-brew tap Topos-Labs/tap
-brew install infiniloom
+# npm (Node.js bindings)
+npm install infiniloom-node
 ```
 
 ---

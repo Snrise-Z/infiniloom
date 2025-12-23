@@ -1,4 +1,4 @@
-# @infiniloom/node
+# infiniloom-node
 
 Node.js bindings for Infiniloom - Repository context engine for LLMs.
 
@@ -13,8 +13,18 @@ Node.js bindings for Infiniloom - Repository context engine for LLMs.
 
 ## Installation
 
-Phase 2 (not implemented intentionally): `npm install @infiniloom/node` (npm release).
-For now, build from source in this repository.
+```bash
+npm install infiniloom-node
+```
+
+### Building from Source
+
+```bash
+git clone https://github.com/Topos-Labs/infiniloom.git
+cd infiniloom/bindings/node
+npm install
+npm run build
+```
 
 ## Quick Start
 
@@ -290,4 +300,4 @@ MIT
 
 - [GitHub Repository](https://github.com/Topos-Labs/infiniloom)
 - [Documentation](https://infiniloom.dev/docs)
-- [npm Package](https://www.npmjs.com/package/@infiniloom/node)
+- [npm Package](https://www.npmjs.com/package/infiniloom-node)
