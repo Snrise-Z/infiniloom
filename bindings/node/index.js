@@ -310,10 +310,12 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { pack, scan, countTokens, Infiniloom, semanticCompress } = nativeBinding
+const { pack, scan, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo } = nativeBinding
 
 module.exports.pack = pack
 module.exports.scan = scan
 module.exports.countTokens = countTokens
 module.exports.Infiniloom = Infiniloom
 module.exports.semanticCompress = semanticCompress
+module.exports.isGitRepo = isGitRepo
+module.exports.GitRepo = GitRepo

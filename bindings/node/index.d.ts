@@ -7,15 +7,9 @@
 export interface PackOptions {
   /** Output format: "xml", "markdown", "json", or "yaml" */
   format?: string
-  /** Target model for token counting. Supports:
-   * - OpenAI: "gpt-5.2", "gpt-5.1", "gpt-5", "o4-mini", "o3", "o1", "gpt-4o", "gpt-4"
-   * - Anthropic: "claude" (default)
-   * - Google: "gemini"
-   * - Meta: "llama"
-   * - Others: "deepseek", "mistral", "qwen", "cohere", "grok"
-   */
+  /** Target model: "claude", "gpt-4o", "gpt-4", "gemini", or "llama" */
   model?: string
-  /** Compression level: "none", "minimal", "balanced", "aggressive", "extreme" */
+  /** Compression level: "none", "minimal", "balanced", "aggressive", "extreme", "focused", "semantic" */
   compression?: string
   /** Token budget for repository map */
   mapBudget?: number
@@ -140,6 +134,73 @@ export declare function countTokens(text: string, model?: string | undefined | n
  * ```
  */
 export declare function semanticCompress(text: string, similarityThreshold?: number | undefined | null, budgetRatio?: number | undefined | null): string
+/**
+ * Check if a path is a git repository
+ *
+ * # Arguments
+ * * `path` - Path to check
+ *
+ * # Returns
+ * True if path is a git repository, false otherwise
+ *
+ * # Example
+ * ```javascript
+ * const { isGitRepo } = require('@infiniloom/node');
+ *
+ * if (isGitRepo('./my-project')) {
+ *   console.log('This is a git repository');
+ * }
+ * ```
+ */
+export declare function isGitRepo(path: string): boolean
+/** File status information */
+export interface GitFileStatus {
+  /** File path */
+  path: string
+  /** Old path (for renames) */
+  oldPath?: string
+  /** Status: "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown" */
+  status: string
+}
+/** Changed file with diff stats */
+export interface GitChangedFile {
+  /** File path */
+  path: string
+  /** Old path (for renames) */
+  oldPath?: string
+  /** Status: "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown" */
+  status: string
+  /** Number of lines added */
+  additions: number
+  /** Number of lines deleted */
+  deletions: number
+}
+/** Commit information */
+export interface GitCommit {
+  /** Full commit hash */
+  hash: string
+  /** Short commit hash (7 characters) */
+  shortHash: string
+  /** Author name */
+  author: string
+  /** Author email */
+  email: string
+  /** Commit date (ISO 8601 format) */
+  date: string
+  /** Commit message (first line) */
+  message: string
+}
+/** Blame line information */
+export interface GitBlameLine {
+  /** Commit hash that introduced the line */
+  commit: string
+  /** Author who wrote the line */
+  author: string
+  /** Date when line was written */
+  date: string
+  /** Line number (1-indexed) */
+  lineNumber: number
+}
 /** Infiniloom class for advanced usage */
 export declare class Infiniloom {
   /**
@@ -165,82 +226,12 @@ export declare class Infiniloom {
   /** Check for security issues */
   securityScan(): Array<string>
 }
-
-/**
- * Check if a path is a git repository
- *
- * @param path - Path to check
- * @returns True if path is a git repository, false otherwise
- *
- * @example
- * ```javascript
- * const { isGitRepo } = require('@infiniloom/node');
- *
- * if (isGitRepo('./my-project')) {
- *   console.log('This is a git repository');
- * }
- * ```
- */
-export declare function isGitRepo(path: string): boolean
-
-/** File status information */
-export interface GitFileStatus {
-  /** File path */
-  path: string
-  /** Old path (for renames) */
-  oldPath?: string
-  /** Status: "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown" */
-  status: string
-}
-
-/** Changed file with diff stats */
-export interface GitChangedFile {
-  /** File path */
-  path: string
-  /** Old path (for renames) */
-  oldPath?: string
-  /** Status: "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown" */
-  status: string
-  /** Number of lines added */
-  additions: number
-  /** Number of lines deleted */
-  deletions: number
-}
-
-/** Commit information */
-export interface GitCommit {
-  /** Full commit hash */
-  hash: string
-  /** Short commit hash (7 characters) */
-  shortHash: string
-  /** Author name */
-  author: string
-  /** Author email */
-  email: string
-  /** Commit date (ISO 8601 format) */
-  date: string
-  /** Commit message (first line) */
-  message: string
-}
-
-/** Blame line information */
-export interface GitBlameLine {
-  /** Commit hash that introduced the line */
-  commit: string
-  /** Author who wrote the line */
-  author: string
-  /** Date when line was written */
-  date: string
-  /** Line number (1-indexed) */
-  lineNumber: number
-}
-
 /**
  * Git repository wrapper for Node.js
  *
  * Provides access to git operations like status, diff, log, and blame.
  *
- * @example
+ * # Example
  * ```javascript
  * const { GitRepo } = require('@infiniloom/node');
  *
@@ -257,77 +248,149 @@ export declare class GitRepo {
   /**
    * Open a git repository
    *
-   * @param path - Path to the repository
-   * @throws Error if path is not a git repository
+   * # Arguments
+   * * `path` - Path to the repository
+   *
+   * # Throws
+   * Error if path is not a git repository
    */
   constructor(path: string)
-  /** Get the current branch name */
+  /**
+   * Get the current branch name
+   *
+   * # Returns
+   * Current branch name (e.g., "main", "feature/xyz")
+   */
   currentBranch(): string
-  /** Get the current commit hash (full SHA-1) */
+  /**
+   * Get the current commit hash
+   *
+   * # Returns
+   * Full SHA-1 hash of HEAD commit
+   */
   currentCommit(): string
-  /** Get working tree status (both staged and unstaged changes) */
+  /**
+   * Get working tree status
+   *
+   * Returns both staged and unstaged changes.
+   *
+   * # Returns
+   * Array of file status objects
+   */
   status(): Array<GitFileStatus>
   /**
    * Get files changed between two commits
    *
-   * @param fromRef - Starting commit/branch/tag
-   * @param toRef - Ending commit/branch/tag
+   * # Arguments
+   * * `from_ref` - Starting commit/branch/tag
+   * * `to_ref` - Ending commit/branch/tag
+   *
+   * # Returns
+   * Array of changed files with diff stats
    */
   diffFiles(fromRef: string, toRef: string): Array<GitChangedFile>
   /**
    * Get recent commits
    *
-   * @param count - Maximum number of commits to return (default: 10)
+   * # Arguments
+   * * `count` - Maximum number of commits to return (default: 10)
+   *
+   * # Returns
+   * Array of commit objects
    */
   log(count?: number | undefined | null): Array<GitCommit>
   /**
    * Get commits that modified a specific file
    *
-   * @param path - File path (relative to repo root)
-   * @param count - Maximum number of commits to return (default: 10)
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   * * `count` - Maximum number of commits to return (default: 10)
+   *
+   * # Returns
+   * Array of commits that modified the file
    */
   fileLog(path: string, count?: number | undefined | null): Array<GitCommit>
   /**
    * Get blame information for a file
    *
-   * @param path - File path (relative to repo root)
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   *
+   * # Returns
+   * Array of blame line objects
    */
   blame(path: string): Array<GitBlameLine>
-  /** Get list of files tracked by git */
+  /**
+   * Get list of files tracked by git
+   *
+   * # Returns
+   * Array of file paths tracked by git
+   */
   lsFiles(): Array<string>
   /**
    * Get diff content between two commits for a file
    *
-   * @param fromRef - Starting commit/branch/tag
-   * @param toRef - Ending commit/branch/tag
-   * @param path - File path (relative to repo root)
+   * # Arguments
+   * * `from_ref` - Starting commit/branch/tag
+   * * `to_ref` - Ending commit/branch/tag
+   * * `path` - File path (relative to repo root)
+   *
+   * # Returns
+   * Unified diff content as string
    */
   diffContent(fromRef: string, toRef: string, path: string): string
   /**
    * Get diff content for uncommitted changes in a file
    *
-   * @param path - File path (relative to repo root)
+   * Includes both staged and unstaged changes compared to HEAD.
+   *
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   *
+   * # Returns
+   * Unified diff content as string
    */
   uncommittedDiff(path: string): string
-  /** Get diff for all uncommitted changes */
+  /**
+   * Get diff for all uncommitted changes
+   *
+   * Returns combined diff for all changed files.
+   *
+   * # Returns
+   * Unified diff content as string
+   */
   allUncommittedDiffs(): string
   /**
    * Check if a file has uncommitted changes
    *
-   * @param path - File path (relative to repo root)
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   *
+   * # Returns
+   * True if file has changes, false otherwise
    */
   hasChanges(path: string): boolean
   /**
    * Get the last commit that modified a file
    *
-   * @param path - File path (relative to repo root)
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   *
+   * # Returns
+   * Commit information object
    */
   lastModifiedCommit(path: string): GitCommit
   /**
    * Get file change frequency in recent days
    *
-   * @param path - File path (relative to repo root)
-   * @param days - Number of days to look back (default: 30)
+   * Useful for determining file importance based on recent activity.
+   *
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   * * `days` - Number of days to look back (default: 30)
+   *
+   * # Returns
+   * Number of commits that modified the file in the period
    */
   fileChangeFrequency(path: string, days?: number | undefined | null): number
 }
