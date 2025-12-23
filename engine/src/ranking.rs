@@ -531,10 +531,7 @@ mod tests {
         assert_eq!(repo.files[0].symbols[0].references, 2, "helper should have 2 references");
 
         // process is called once (by helper)
-        assert_eq!(
-            repo.files[1].symbols[1].references, 1,
-            "process should have 1 reference"
-        );
+        assert_eq!(repo.files[1].symbols[1].references, 1, "process should have 1 reference");
 
         // main is not called by anyone
         assert_eq!(repo.files[1].symbols[0].references, 0, "main should have 0 references");
