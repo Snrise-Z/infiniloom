@@ -58,12 +58,16 @@ infiniloom map /path/to/repo --budget 2000
 If npm installation fails, you can install via:
 
 ```bash
-# Cargo (Rust)
-cargo install infiniloom
+# Homebrew Cask (macOS - fast, pre-built binary)
+brew tap Topos-Labs/infiniloom
+brew install --cask infiniloom
 
-# Homebrew (macOS/Linux)
+# Homebrew Formula (builds from source)
 brew tap Topos-Labs/infiniloom
 brew install infiniloom
+
+# Cargo (Rust)
+cargo install infiniloom
 ```
 
 ## Documentation

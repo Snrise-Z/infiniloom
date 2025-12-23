@@ -35,43 +35,43 @@ infiniloom pack . --format xml --output context.xml
 
 ## Installation
 
-### From Source (Recommended)
+### Quick Install (Recommended)
 
 ```bash
-# Clone the repository
+# npm (easiest, works on macOS/Linux/Windows)
+npm install -g infiniloom
+
+# Homebrew Cask (macOS - fast, pre-built binary)
+brew tap Topos-Labs/infiniloom
+brew install --cask infiniloom
+
+# Cargo (if you have Rust installed)
+cargo install infiniloom
+```
+
+### All Installation Options
+
+| Method | Command | Notes |
+|--------|---------|-------|
+| **npm** | `npm install -g infiniloom` | Easiest, cross-platform |
+| **Homebrew Cask** | `brew install --cask infiniloom` | Fast, pre-built binary (macOS) |
+| **Homebrew Formula** | `brew install infiniloom` | Builds from source, needs Rust |
+| **Cargo** | `cargo install infiniloom` | Rust users |
+| **pip** | `pip install infiniloom` | Python library |
+| **npm library** | `npm install infiniloom-node` | Node.js library |
+
+### From Source
+
+```bash
+# Clone and build
 git clone https://github.com/Topos-Labs/infiniloom.git
 cd infiniloom
-
-# Build release binary
 cargo build --release
 
-# Binary is at ./target/release/infiniloom
-# Optionally, copy to your PATH:
-cp target/release/infiniloom /usr/local/bin/
+# Binary at ./target/release/infiniloom
 ```
 
-### Prerequisites
-
-| Tool | Version | Installation |
-|------|---------|-------------|
-| Rust | 1.91+ | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-
-### Package Managers
-
-```bash
-# Cargo (Rust) - Recommended
-cargo install infiniloom
-
-# Homebrew (macOS/Linux)
-brew tap Topos-Labs/infiniloom
-brew install infiniloom
-
-# pip (Python bindings)
-pip install infiniloom
-
-# npm (Node.js bindings)
-npm install infiniloom-node
-```
+Requires Rust 1.91+: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
 ---
 
