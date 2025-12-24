@@ -4,41 +4,64 @@
 
 #![allow(non_local_definitions)]
 
-use pyo3::prelude::*;
 use pyo3::exceptions::{PyIOError, PyValueError};
+use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::path::PathBuf;
 
 // Import from infiniloom-bindings-common
 use infiniloom_bindings_common::{
-    parse_format, parse_model, parse_compression,
-    file_priority_score, format_file_status,
-    // Scanner from common crate
-    scan_repository, ScanConfig,
     // Repository operations
-    apply_compression, apply_default_ignores, prepare_repository,
+    apply_compression,
+    apply_default_ignores,
+    file_priority_score,
+    format_file_status,
+    parse_compression,
+    parse_format,
+    parse_model,
+    prepare_repository,
+    // Scanner from common crate
+    scan_repository,
+    ScanConfig,
 };
 
 // Import from infiniloom-engine
 use infiniloom_engine::{
-    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile, DiffHunk as EngineGitDiffHunk},
-    tokenizer::TokenModel, OutputFormatter,
-    RepoMapGenerator, Repository, SecurityScanner, SemanticCompressor, SemanticConfig, Tokenizer,
+    git::{
+        ChangedFile, DiffHunk as EngineGitDiffHunk, FileStatus as EngineFileStatus,
+        GitRepo as EngineGitRepo,
+    },
     // Index module
     index::{
-        IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
-        DiffChange, ChangeType,
         // Call graph query API
         find_symbol as engine_find_symbol,
-        get_callers_by_name, get_callees_by_name, get_references_by_name,
         get_call_graph as engine_get_call_graph,
         get_call_graph_filtered,
-        SymbolInfo as EngineSymbolInfo,
-        ReferenceInfo as EngineReferenceInfo,
+        get_callees_by_name,
+        get_callers_by_name,
+        get_references_by_name,
+        BuildOptions,
         CallGraph as EngineCallGraph,
+        ChangeType,
+        ContextDepth,
+        ContextExpander,
+        DiffChange,
+        IndexBuilder,
+        IndexStorage,
+        ReferenceInfo as EngineReferenceInfo,
+        SymbolInfo as EngineSymbolInfo,
     },
+    tokenizer::TokenModel,
+    ChunkStrategy,
     // Chunking module
-    Chunker, ChunkStrategy,
+    Chunker,
+    OutputFormatter,
+    RepoMapGenerator,
+    Repository,
+    SecurityScanner,
+    SemanticCompressor,
+    SemanticConfig,
+    Tokenizer,
 };
 
 // Python exception for Infiniloom errors
@@ -81,16 +104,16 @@ fn pack(
     skip_symbols: bool,
 ) -> PyResult<String> {
     // Parse format using common crate
-    let output_format = parse_format(Some(format))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let output_format =
+        parse_format(Some(format)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Parse model using common crate
-    let tokenizer_model = parse_model(Some(model))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let tokenizer_model =
+        parse_model(Some(model)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Parse compression level using common crate
-    let compression_level = parse_compression(Some(compression))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let compression_level =
+        parse_compression(Some(compression)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Scan repository
     let path_buf = PathBuf::from(path);
@@ -159,10 +182,7 @@ fn scan(
 
     // Check if path exists
     if !path_buf.exists() {
-        return Err(InfiniloomError::new_err(format!(
-            "Path does not exist: {}",
-            path
-        )));
+        return Err(InfiniloomError::new_err(format!("Path does not exist: {}", path)));
     }
 
     let config = ScanConfig {
@@ -241,8 +261,7 @@ fn scan(
 #[pyo3(signature = (text, model="claude"))]
 fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
     // Use the engine's accurate tokenizer (tiktoken for OpenAI, calibrated estimates for others)
-    let token_model = parse_model(Some(model))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let token_model = parse_model(Some(model)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     let tokenizer = Tokenizer::new();
     Ok(tokenizer.count(text, token_model))
@@ -269,7 +288,7 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
         respect_gitignore: true,
         read_contents: true,
         max_file_size: 10 * 1024 * 1024, // 10MB for security scan
-        skip_symbols: true, // Fast mode for security scan
+        skip_symbols: true,              // Fast mode for security scan
     };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
@@ -292,7 +311,8 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
             let dict = PyDict::new(py);
             dict.set_item("file", &finding.file).unwrap();
             dict.set_item("line", finding.line).unwrap();
-            dict.set_item("severity", format!("{:?}", finding.severity)).unwrap();
+            dict.set_item("severity", format!("{:?}", finding.severity))
+                .unwrap();
             dict.set_item("kind", finding.kind.name()).unwrap();
             dict.set_item("pattern", &finding.pattern).unwrap();
             dict
@@ -320,11 +340,7 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
 ///     >>> compressed = infiniloom.semantic_compress(long_text, budget_ratio=0.3)
 #[pyfunction]
 #[pyo3(signature = (text, similarity_threshold=0.7, budget_ratio=0.5))]
-fn semantic_compress(
-    text: &str,
-    similarity_threshold: f32,
-    budget_ratio: f32,
-) -> PyResult<String> {
+fn semantic_compress(text: &str, similarity_threshold: f32, budget_ratio: f32) -> PyResult<String> {
     let config = SemanticConfig {
         similarity_threshold,
         budget_ratio,
@@ -333,9 +349,9 @@ fn semantic_compress(
     };
 
     let compressor = SemanticCompressor::with_config(config);
-    compressor.compress(text).map_err(|e| {
-        PyValueError::new_err(format!("Compression failed: {}", e))
-    })
+    compressor
+        .compress(text)
+        .map_err(|e| PyValueError::new_err(format!("Compression failed: {}", e)))
 }
 
 /// Infiniloom class for object-oriented interface
@@ -364,10 +380,7 @@ impl Infiniloom {
             return Err(PyIOError::new_err(format!("Path does not exist: {}", path)));
         }
 
-        Ok(Infiniloom {
-            path: path_buf,
-            repo: None,
-        })
+        Ok(Infiniloom { path: path_buf, repo: None })
     }
 
     /// Scan the repository and load it into memory
@@ -439,10 +452,10 @@ impl Infiniloom {
         prepare_repository(&mut repo);
 
         // Parse format, model, and compression using common crate
-        let output_format = parse_format(Some(format))
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let tokenizer_model = parse_model(Some(model))
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let output_format =
+            parse_format(Some(format)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let tokenizer_model =
+            parse_model(Some(model)).map_err(|e| PyValueError::new_err(e.to_string()))?;
         let compression_level = parse_compression(Some(compression))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -535,7 +548,8 @@ impl Infiniloom {
                 let dict = PyDict::new(py);
                 dict.set_item("file", &finding.file).unwrap();
                 dict.set_item("line", finding.line).unwrap();
-                dict.set_item("severity", format!("{:?}", finding.severity)).unwrap();
+                dict.set_item("severity", format!("{:?}", finding.severity))
+                    .unwrap();
                 dict.set_item("kind", finding.kind.name()).unwrap();
                 dict.set_item("pattern", &finding.pattern).unwrap();
                 dict
@@ -667,7 +681,8 @@ impl GitRepo {
                 if let Some(old) = &f.old_path {
                     dict.set_item("old_path", old).unwrap();
                 }
-                dict.set_item("status", format_file_status(f.status)).unwrap();
+                dict.set_item("status", format_file_status(f.status))
+                    .unwrap();
                 dict
             }),
         );
@@ -695,7 +710,8 @@ impl GitRepo {
                 if let Some(old) = &f.old_path {
                     dict.set_item("old_path", old).unwrap();
                 }
-                dict.set_item("status", format_file_status(f.status)).unwrap();
+                dict.set_item("status", format_file_status(f.status))
+                    .unwrap();
                 dict.set_item("additions", f.additions).unwrap();
                 dict.set_item("deletions", f.deletions).unwrap();
                 dict
@@ -806,7 +822,9 @@ impl GitRepo {
     ///     Unified diff content as string
     #[pyo3(signature = (from_ref, to_ref, path))]
     fn diff_content(&self, from_ref: &str, to_ref: &str, path: &str) -> PyResult<String> {
-        self.inner.diff_content(from_ref, to_ref, path).map_err(to_py_err)
+        self.inner
+            .diff_content(from_ref, to_ref, path)
+            .map_err(to_py_err)
     }
 
     /// Get diff content for uncommitted changes in a file
@@ -876,7 +894,9 @@ impl GitRepo {
     ///     Number of commits that modified the file in the period
     #[pyo3(signature = (path, days=30))]
     fn file_change_frequency(&self, path: &str, days: u32) -> PyResult<u32> {
-        self.inner.file_change_frequency(path, days).map_err(to_py_err)
+        self.inner
+            .file_change_frequency(path, days)
+            .map_err(to_py_err)
     }
 
     /// Get file content at a specific git ref (commit, branch, tag)
@@ -921,13 +941,19 @@ impl GitRepo {
     ///     ...     for line in hunk['lines']:
     ///     ...         print(f"{line['change_type']}: {line['content']}")
     #[pyo3(signature = (from_ref, to_ref, path=None))]
-    fn diff_hunks(&self, py: Python, from_ref: &str, to_ref: &str, path: Option<&str>) -> PyResult<PyObject> {
-        let hunks = self.inner.diff_hunks(from_ref, to_ref, path).map_err(to_py_err)?;
+    fn diff_hunks(
+        &self,
+        py: Python,
+        from_ref: &str,
+        to_ref: &str,
+        path: Option<&str>,
+    ) -> PyResult<PyObject> {
+        let hunks = self
+            .inner
+            .diff_hunks(from_ref, to_ref, path)
+            .map_err(to_py_err)?;
 
-        let result = PyList::new(
-            py,
-            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
-        );
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
 
         Ok(result.into())
     }
@@ -948,10 +974,7 @@ impl GitRepo {
     fn uncommitted_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
         let hunks = self.inner.uncommitted_hunks(path).map_err(to_py_err)?;
 
-        let result = PyList::new(
-            py,
-            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
-        );
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
 
         Ok(result.into())
     }
@@ -972,10 +995,7 @@ impl GitRepo {
     fn staged_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
         let hunks = self.inner.staged_hunks(path).map_err(to_py_err)?;
 
-        let result = PyList::new(
-            py,
-            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
-        );
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
 
         Ok(result.into())
     }
@@ -998,7 +1018,9 @@ fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py py
         py,
         hunk.lines.iter().map(|l| {
             let line_dict = PyDict::new(py);
-            line_dict.set_item("change_type", l.change_type.as_str()).unwrap();
+            line_dict
+                .set_item("change_type", l.change_type.as_str())
+                .unwrap();
             if let Some(old_line) = l.old_line {
                 line_dict.set_item("old_line", old_line).unwrap();
             }
@@ -1131,14 +1153,14 @@ fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
             dict.set_item("symbol_count", index.symbols.len())?;
             dict.set_item("last_built", meta.created_at)?;
             dict.set_item("version", format!("v{}", meta.version))?;
-        }
+        },
         _ => {
             dict.set_item("exists", false)?;
             dict.set_item("file_count", 0)?;
             dict.set_item("symbol_count", 0)?;
             dict.set_item("last_built", py.None())?;
             dict.set_item("version", py.None())?;
-        }
+        },
     }
 
     Ok(dict.into())
@@ -1167,7 +1189,8 @@ fn symbol_info_to_py<'py>(py: Python<'py>, s: &EngineSymbolInfo) -> &'py pyo3::t
 /// Convert an engine ReferenceInfo to a Python dict
 fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> &'py pyo3::types::PyDict {
     let dict = PyDict::new(py);
-    dict.set_item("symbol", symbol_info_to_py(py, &r.symbol)).unwrap();
+    dict.set_item("symbol", symbol_info_to_py(py, &r.symbol))
+        .unwrap();
     dict.set_item("kind", &r.kind).unwrap();
     dict
 }
@@ -1177,10 +1200,7 @@ fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::typ
     let dict = PyDict::new(py);
 
     // Convert nodes
-    let nodes = PyList::new(
-        py,
-        g.nodes.iter().map(|n| symbol_info_to_py(py, n)),
-    );
+    let nodes = PyList::new(py, g.nodes.iter().map(|n| symbol_info_to_py(py, n)));
     dict.set_item("nodes", nodes).unwrap();
 
     // Convert edges
@@ -1201,7 +1221,9 @@ fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::typ
 
     // Convert stats
     let stats = PyDict::new(py);
-    stats.set_item("total_symbols", g.stats.total_symbols).unwrap();
+    stats
+        .set_item("total_symbols", g.stats.total_symbols)
+        .unwrap();
     stats.set_item("total_calls", g.stats.total_calls).unwrap();
     stats.set_item("functions", g.stats.functions).unwrap();
     stats.set_item("classes", g.stats.classes).unwrap();
@@ -1232,16 +1254,13 @@ fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<PyObject> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load index: {}", e))
-    })?;
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
 
     let results = engine_find_symbol(&index, name);
 
-    let list = PyList::new(
-        py,
-        results.iter().map(|s| symbol_info_to_py(py, s)),
-    );
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
 
     Ok(list.into())
 }
@@ -1270,19 +1289,16 @@ fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load index: {}", e))
-    })?;
-    let graph = storage.load_graph().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load graph: {}", e))
-    })?;
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
 
     let results = get_callers_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(
-        py,
-        results.iter().map(|s| symbol_info_to_py(py, s)),
-    );
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
 
     Ok(list.into())
 }
@@ -1311,19 +1327,16 @@ fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load index: {}", e))
-    })?;
-    let graph = storage.load_graph().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load graph: {}", e))
-    })?;
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
 
     let results = get_callees_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(
-        py,
-        results.iter().map(|s| symbol_info_to_py(py, s)),
-    );
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
 
     Ok(list.into())
 }
@@ -1352,19 +1365,16 @@ fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObjec
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load index: {}", e))
-    })?;
-    let graph = storage.load_graph().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load graph: {}", e))
-    })?;
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
 
     let results = get_references_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(
-        py,
-        results.iter().map(|r| reference_info_to_py(py, r)),
-    );
+    let list = PyList::new(py, results.iter().map(|r| reference_info_to_py(py, r)));
 
     Ok(list.into())
 }
@@ -1402,12 +1412,12 @@ fn get_call_graph(
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load index: {}", e))
-    })?;
-    let graph = storage.load_graph().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load graph: {}", e))
-    })?;
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
 
     let result = if max_nodes.is_some() || max_edges.is_some() {
         get_call_graph_filtered(&index, &graph, max_nodes, max_edges)
@@ -1468,8 +1478,8 @@ fn chunk(
     };
 
     // Parse model using common crate
-    let tokenizer_model = parse_model(Some(model))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let tokenizer_model =
+        parse_model(Some(model)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Scan repository
     let path_buf = PathBuf::from(path);
@@ -1534,11 +1544,8 @@ fn chunk(
             dict.set_item("total", c.total).unwrap();
             dict.set_item("focus", &c.focus).unwrap();
             dict.set_item("tokens", c.tokens).unwrap();
-            dict.set_item(
-                "files",
-                c.files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
-            )
-            .unwrap();
+            dict.set_item("files", c.files.iter().map(|f| f.path.clone()).collect::<Vec<_>>())
+                .unwrap();
             // Format content
             let content: String = c
                 .files
@@ -1594,9 +1601,9 @@ fn analyze_impact(
     let index = storage.load_index().map_err(|e| {
         PyIOError::new_err(format!("Failed to load index (run build_index first): {}", e))
     })?;
-    let graph = storage.load_graph().map_err(|e| {
-        PyIOError::new_err(format!("Failed to load dependency graph: {}", e))
-    })?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load dependency graph: {}", e)))?;
 
     // Create context expander
     let context_depth = match depth {
@@ -1679,7 +1686,9 @@ fn analyze_impact(
             sym_dict.set_item("kind", &s.kind).unwrap();
             sym_dict.set_item("file", &s.file_path).unwrap();
             sym_dict.set_item("line", s.start_line).unwrap();
-            sym_dict.set_item("impact_type", &s.relevance_reason).unwrap();
+            sym_dict
+                .set_item("impact_type", &s.relevance_reason)
+                .unwrap();
             sym_dict
         }),
     );
@@ -1748,7 +1757,11 @@ fn get_diff_context(
             })
             .collect()
     } else {
-        let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+        let from = if from_ref.is_empty() {
+            "HEAD"
+        } else {
+            from_ref
+        };
         let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
         git_repo.diff_files(from, to).map_err(to_py_err)?
     };
@@ -1760,7 +1773,11 @@ fn get_diff_context(
     let mut changed_files_result: Vec<_> = Vec::new();
     for file in &changed {
         let diff_content = if include_diff {
-            let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+            let from = if from_ref.is_empty() {
+                "HEAD"
+            } else {
+                from_ref
+            };
             let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
             git_repo.diff_content(from, to, &file.path).ok()
         } else {
@@ -1808,7 +1825,11 @@ fn get_diff_context(
         let context = expander.expand(&changes, context_depth, budget);
 
         // Combine changed and dependent symbols
-        for s in context.changed_symbols.iter().chain(context.dependent_symbols.iter()) {
+        for s in context
+            .changed_symbols
+            .iter()
+            .chain(context.dependent_symbols.iter())
+        {
             let sym_dict = PyDict::new(py);
             sym_dict.set_item("name", &s.name)?;
             sym_dict.set_item("kind", &s.kind)?;
@@ -1821,7 +1842,11 @@ fn get_diff_context(
             context_symbols.push(sym_dict.into());
         }
 
-        related_tests = context.related_tests.iter().map(|f| f.path.clone()).collect();
+        related_tests = context
+            .related_tests
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
     }
 
     // Calculate tokens
