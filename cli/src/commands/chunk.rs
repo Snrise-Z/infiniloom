@@ -66,7 +66,7 @@ pub fn cmd_chunk(
     let effective_strategy = match strategy {
         infiniloom_engine::ChunkStrategy::Fixed { .. } => {
             infiniloom_engine::ChunkStrategy::Fixed { size: max_tokens }
-        }
+        },
         other => other,
     };
 
@@ -178,10 +178,7 @@ pub fn cmd_chunk(
     if let Some(output_dir) = output {
         // Create output directory
         std::fs::create_dir_all(&output_dir).with_context(|| {
-            format!(
-                "Failed to create output directory: {}",
-                output_dir.display()
-            )
+            format!("Failed to create output directory: {}", output_dir.display())
         })?;
 
         // Write each chunk to a separate file
@@ -209,7 +206,7 @@ pub fn cmd_chunk(
                     };
                     serde_json::to_string_pretty(&envelope)
                         .with_context(|| "Failed to serialize JSON chunk output".to_owned())?
-                }
+                },
                 OutputFormat::Yaml => {
                     let content: serde_yaml::Value = serde_yaml::from_str(&chunk_output)
                         .with_context(|| "Failed to parse YAML chunk output".to_owned())?;
@@ -219,18 +216,14 @@ pub fn cmd_chunk(
                     };
                     serde_yaml::to_string(&envelope)
                         .with_context(|| "Failed to serialize YAML chunk output".to_owned())?
-                }
+                },
                 _ => {
                     if no_chunk_summary {
                         chunk_output
                     } else {
-                        format!(
-                            "<!-- {} -->\n\n{}",
-                            generate_chunk_summary(chunk),
-                            chunk_output
-                        )
+                        format!("<!-- {} -->\n\n{}", generate_chunk_summary(chunk), chunk_output)
                     }
-                }
+                },
             };
 
             std::fs::write(&chunk_path, &full_output)
@@ -241,12 +234,7 @@ pub fn cmd_chunk(
             }
         }
 
-        eprintln!(
-            "{} {} chunks written to {}",
-            "✓".green(),
-            chunks.len(),
-            output_dir.display()
-        );
+        eprintln!("{} {} chunks written to {}", "✓".green(), chunks.len(), output_dir.display());
     } else {
         match format {
             OutputFormat::Json => {
@@ -270,7 +258,7 @@ pub fn cmd_chunk(
                 let output = serde_json::to_string_pretty(&sequence)
                     .with_context(|| "Failed to serialize JSON chunk output".to_owned())?;
                 println!("{}", output);
-            }
+            },
             OutputFormat::Yaml => {
                 let mut envelopes = Vec::with_capacity(chunks.len());
                 for chunk in &chunks {
@@ -292,7 +280,7 @@ pub fn cmd_chunk(
                 let output = serde_yaml::to_string(&sequence)
                     .with_context(|| "Failed to serialize YAML chunk output".to_owned())?;
                 println!("{}", output);
-            }
+            },
             _ => {
                 // Output to stdout with separators
                 for chunk in &chunks {
@@ -315,7 +303,7 @@ pub fn cmd_chunk(
                     println!("{}", chunk_output);
                     println!();
                 }
-            }
+            },
         }
     }
 
@@ -325,12 +313,7 @@ pub fn cmd_chunk(
         eprintln!();
         eprintln!("{}", "━".repeat(50).dimmed());
         eprintln!("  {} {} chunks generated", "✓".green(), chunks.len());
-        eprintln!(
-            "  {} ~{} total tokens ({})",
-            "🔢".dimmed(),
-            total_tokens,
-            model.name()
-        );
+        eprintln!("  {} ~{} total tokens ({})", "🔢".dimmed(), total_tokens, model.name());
         eprintln!(
             "  {} ~{} tokens per chunk (avg)",
             "📊".dimmed(),
@@ -447,11 +430,7 @@ fn generate_chunk_summary(chunk: &infiniloom_engine::Chunk) -> String {
     let files_str = if file_names.is_empty() {
         "no files".to_owned()
     } else if chunk.files.len() > 5 {
-        format!(
-            "{}, ... +{} more",
-            file_names.join(", "),
-            chunk.files.len() - 5
-        )
+        format!("{}, ... +{} more", file_names.join(", "), chunk.files.len() - 5)
     } else {
         file_names.join(", ")
     };
@@ -545,12 +524,7 @@ fn create_chunk_repo(
     // Set basic metadata
     chunk_repo.metadata = RepoMetadata {
         total_files: chunk_repo.files.len() as u32,
-        description: Some(format!(
-            "Chunk {}/{}: {}",
-            chunk.index + 1,
-            chunk.total,
-            chunk.focus
-        )),
+        description: Some(format!("Chunk {}/{}: {}", chunk.index + 1, chunk.total, chunk.focus)),
         total_tokens: {
             let mut counts = TokenCounts::default();
             counts.set(model, total_tokens);

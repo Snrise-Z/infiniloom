@@ -284,7 +284,7 @@ impl<'a> GraphBuilder<'a> {
                 "" | "." => continue,
                 ".." => {
                     parts.pop();
-                }
+                },
                 _ => parts.push(part),
             }
         }

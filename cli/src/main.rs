@@ -714,14 +714,14 @@ fn main() -> Result<()> {
         ),
         Commands::Map { path, budget, model, output } => {
             commands::cmd_map(path, budget, model.map(|m| m.into()), output)
-        }
+        },
         Commands::Info { path } => commands::cmd_info(path),
         Commands::Init { path, format, template, output, force } => {
             commands::cmd_init(path, format, template, output, force)
-        }
+        },
         Commands::Index { path, force, status, verbose, watch } => {
             commands::cmd_index(path, force, status, verbose, watch)
-        }
+        },
         Commands::Diff {
             path,
             reference,
@@ -749,7 +749,7 @@ fn main() -> Result<()> {
         ),
         Commands::Impact { path, target, symbol, call_graph, json } => {
             commands::cmd_impact(path, target, symbol, call_graph, json)
-        }
+        },
         Commands::Chunk {
             path,
             strategy,

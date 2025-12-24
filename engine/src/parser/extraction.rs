@@ -624,11 +624,7 @@ pub fn find_body_node(node: Node<'_>, language: Language) -> Option<Node<'_>> {
                 }
             }
         },
-        Language::CSharp
-        | Language::Php
-        | Language::Kotlin
-        | Language::Swift
-        | Language::Scala => {
+        Language::CSharp | Language::Php | Language::Kotlin | Language::Swift | Language::Scala => {
             for child in node.children(&mut node.walk()) {
                 let kind = child.kind();
                 if kind == "block" || kind == "compound_statement" || kind == "function_body" {
@@ -779,16 +775,10 @@ pub fn collect_calls_recursive(
                 None
             }
         },
-        Language::CSharp
-        | Language::Php
-        | Language::Kotlin
-        | Language::Swift
-        | Language::Scala => {
+        Language::CSharp | Language::Php | Language::Kotlin | Language::Swift | Language::Scala => {
             if kind == "invocation_expression" || kind == "call_expression" {
                 node.children(&mut node.walk())
-                    .find(|child| {
-                        child.kind() == "identifier" || child.kind() == "simple_name"
-                    })
+                    .find(|child| child.kind() == "identifier" || child.kind() == "simple_name")
                     .and_then(|child| child.utf8_text(source_code.as_bytes()).ok())
                     .map(|s| s.to_owned())
             } else {
@@ -822,9 +812,7 @@ pub fn collect_calls_recursive(
         | Language::R => {
             if kind == "function_call" || kind == "call" || kind == "application" {
                 node.children(&mut node.walk())
-                    .find(|child| {
-                        child.kind() == "identifier" || child.kind() == "variable"
-                    })
+                    .find(|child| child.kind() == "identifier" || child.kind() == "variable")
                     .and_then(|child| child.utf8_text(source_code.as_bytes()).ok())
                     .map(|s| s.to_owned())
             } else {
@@ -1217,7 +1205,8 @@ pub fn extract_inheritance(
                                     if type_node.kind() == "identifier"
                                         || type_node.kind() == "type_identifier"
                                     {
-                                        if let Ok(name) = type_node.utf8_text(source_code.as_bytes())
+                                        if let Ok(name) =
+                                            type_node.utf8_text(source_code.as_bytes())
                                         {
                                             extends = Some(name.to_owned());
                                         }
@@ -1228,7 +1217,8 @@ pub fn extract_inheritance(
                                     if type_node.kind() == "identifier"
                                         || type_node.kind() == "type_identifier"
                                     {
-                                        if let Ok(name) = type_node.utf8_text(source_code.as_bytes())
+                                        if let Ok(name) =
+                                            type_node.utf8_text(source_code.as_bytes())
                                         {
                                             implements.push(name.to_owned());
                                         }
@@ -1274,7 +1264,8 @@ pub fn extract_inheritance(
                                         // Embedded field (no name, just type)
                                         let has_name = field.child_by_field_name("name").is_some();
                                         if !has_name {
-                                            if let Some(type_node) = field.child_by_field_name("type")
+                                            if let Some(type_node) =
+                                                field.child_by_field_name("type")
                                             {
                                                 if let Ok(name) =
                                                     type_node.utf8_text(source_code.as_bytes())
@@ -1308,7 +1299,8 @@ pub fn extract_inheritance(
                             if type_list.kind() == "type_list" {
                                 for type_node in type_list.children(&mut type_list.walk()) {
                                     if type_node.kind() == "type_identifier" {
-                                        if let Ok(name) = type_node.utf8_text(source_code.as_bytes())
+                                        if let Ok(name) =
+                                            type_node.utf8_text(source_code.as_bytes())
                                         {
                                             implements.push(name.to_owned());
                                         }
@@ -1412,7 +1404,8 @@ pub fn extract_inheritance(
                             if spec.kind() == "delegation_specifier" {
                                 for type_node in spec.children(&mut spec.walk()) {
                                     if type_node.kind() == "user_type" {
-                                        if let Ok(name) = type_node.utf8_text(source_code.as_bytes())
+                                        if let Ok(name) =
+                                            type_node.utf8_text(source_code.as_bytes())
                                         {
                                             if extends.is_none() {
                                                 extends = Some(name.to_owned());

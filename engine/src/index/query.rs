@@ -324,7 +324,8 @@ fn format_symbol_kind(kind: IndexSymbolKind) -> String {
         IndexSymbolKind::Export => "export",
         IndexSymbolKind::TypeAlias => "type_alias",
         IndexSymbolKind::Macro => "macro",
-    }.to_owned()
+    }
+    .to_owned()
 }
 
 fn format_visibility(vis: Visibility) -> String {
@@ -333,7 +334,8 @@ fn format_visibility(vis: Visibility) -> String {
         Visibility::Private => "private",
         Visibility::Protected => "protected",
         Visibility::Internal => "internal",
-    }.to_owned()
+    }
+    .to_owned()
 }
 
 #[cfg(test)]

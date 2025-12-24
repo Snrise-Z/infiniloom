@@ -20,7 +20,9 @@ use std::fmt;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// A count of tokens (for LLM context budgeting)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct TokenCount(u32);
 
@@ -131,7 +133,9 @@ impl std::iter::Sum for TokenCount {
 }
 
 /// A 1-indexed line number in source code
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct LineNumber(u32);
 
@@ -204,7 +208,9 @@ impl fmt::Display for LineNumber {
 }
 
 /// A byte offset in a file or string
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct ByteOffset(usize);
 
@@ -249,7 +255,9 @@ impl fmt::Display for ByteOffset {
 }
 
 /// A unique identifier for a symbol in the index
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct SymbolId(u32);
 
@@ -300,7 +308,9 @@ impl fmt::Display for SymbolId {
 }
 
 /// File size in bytes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct FileSize(u64);
 

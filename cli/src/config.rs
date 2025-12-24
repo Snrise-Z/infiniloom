@@ -137,7 +137,10 @@ struct PartialConfig {
 }
 
 /// Load config file (.infiniloom.yaml, .infiniloom.toml, .infiniloom.json)
-pub fn load_config_file(config_path: Option<&std::path::PathBuf>, repo_path: &Path) -> LoadedConfig {
+pub fn load_config_file(
+    config_path: Option<&std::path::PathBuf>,
+    repo_path: &Path,
+) -> LoadedConfig {
     let mut config = LoadedConfig::default();
 
     // Try to load specified config file OR look for default config files

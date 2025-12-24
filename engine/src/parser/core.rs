@@ -75,26 +75,20 @@ impl Parser {
                     query_builder::rust_query()?,
                     query_builder::rust_super_query()?,
                 ),
-                Language::Go => (
-                    init::go()?,
-                    query_builder::go_query()?,
-                    query_builder::go_super_query()?,
-                ),
+                Language::Go => {
+                    (init::go()?, query_builder::go_query()?, query_builder::go_super_query()?)
+                },
                 Language::Java => (
                     init::java()?,
                     query_builder::java_query()?,
                     query_builder::java_super_query()?,
                 ),
-                Language::C => (
-                    init::c()?,
-                    query_builder::c_query()?,
-                    query_builder::c_super_query()?,
-                ),
-                Language::Cpp => (
-                    init::cpp()?,
-                    query_builder::cpp_query()?,
-                    query_builder::cpp_super_query()?,
-                ),
+                Language::C => {
+                    (init::c()?, query_builder::c_query()?, query_builder::c_super_query()?)
+                },
+                Language::Cpp => {
+                    (init::cpp()?, query_builder::cpp_query()?, query_builder::cpp_super_query()?)
+                },
                 Language::CSharp => (
                     init::csharp()?,
                     query_builder::csharp_query()?,
@@ -110,11 +104,9 @@ impl Parser {
                     query_builder::bash_query()?,
                     query_builder::bash_super_query()?,
                 ),
-                Language::Php => (
-                    init::php()?,
-                    query_builder::php_query()?,
-                    query_builder::php_super_query()?,
-                ),
+                Language::Php => {
+                    (init::php()?, query_builder::php_query()?, query_builder::php_super_query()?)
+                },
                 Language::Kotlin => (
                     init::kotlin()?,
                     query_builder::kotlin_query()?,
@@ -155,16 +147,12 @@ impl Parser {
                         "F# not yet supported (no tree-sitter grammar available)".to_owned(),
                     ));
                 },
-                Language::Lua => (
-                    init::lua()?,
-                    query_builder::lua_query()?,
-                    query_builder::lua_super_query()?,
-                ),
-                Language::R => (
-                    init::r()?,
-                    query_builder::r_query()?,
-                    query_builder::r_super_query()?,
-                ),
+                Language::Lua => {
+                    (init::lua()?, query_builder::lua_query()?, query_builder::lua_super_query()?)
+                },
+                Language::R => {
+                    (init::r()?, query_builder::r_query()?, query_builder::r_super_query()?)
+                },
             };
             parser_entry.insert(parser);
             self.queries.insert(language, query);

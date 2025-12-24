@@ -145,10 +145,9 @@ pub mod error;
 // Re-exports from core modules
 pub use chunking::{Chunk, ChunkStrategy, Chunker};
 pub use constants::{
-    budget as budget_constants, compression as compression_constants,
-    files as file_constants, index as index_constants, pagerank as pagerank_constants,
-    parser as parser_constants, repomap as repomap_constants, security as security_constants,
-    timeouts as timeout_constants,
+    budget as budget_constants, compression as compression_constants, files as file_constants,
+    index as index_constants, pagerank as pagerank_constants, parser as parser_constants,
+    repomap as repomap_constants, security as security_constants, timeouts as timeout_constants,
 };
 pub use newtypes::{ByteOffset, FileSize, ImportanceScore, LineNumber, SymbolId, TokenCount};
 pub use output::{OutputFormat, OutputFormatter};

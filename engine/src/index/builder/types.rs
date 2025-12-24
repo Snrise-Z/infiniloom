@@ -35,9 +35,8 @@ pub enum BuildError {
     Git(String),
 }
 
-pub(super) static IDENT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("IDENT_RE: invalid regex pattern")
-});
+pub(super) static IDENT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("IDENT_RE: invalid regex pattern"));
 
 pub(super) static COMMON_KEYWORDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [

@@ -93,15 +93,13 @@ pub fn cmd_diff(
                 "{} Index is stale; rebuilding in memory for accurate context...",
                 "→".yellow()
             );
-            let builder = IndexBuilder::new(&path).with_options(BuildOptions {
-                respect_gitignore: true,
-                ..Default::default()
-            });
+            let builder = IndexBuilder::new(&path)
+                .with_options(BuildOptions { respect_gitignore: true, ..Default::default() });
             match builder.build() {
                 Ok((index, graph)) => {
                     let expander = ContextExpander::new(&index, &graph);
                     expander.expand(&changes, context_depth, expand_budget)
-                }
+                },
                 Err(e) => {
                     eprintln!(
                         "{} Index rebuild failed ({}). Falling back to lazy indexing...",
@@ -112,15 +110,12 @@ pub fn cmd_diff(
                     builder
                         .generate_context(&changes, context_depth, expand_budget)
                         .map_err(|e| anyhow::anyhow!("Lazy indexing failed: {}", e))?
-                }
+                },
             }
         }
     } else {
         // Lazy path: build minimal index on-the-fly
-        eprintln!(
-            "{} No pre-built index found, using lazy indexing...",
-            "→".yellow()
-        );
+        eprintln!("{} No pre-built index found, using lazy indexing...", "→".yellow());
         let mut builder = LazyContextBuilder::new(&path);
         builder
             .generate_context(&changes, context_depth, expand_budget)
@@ -226,7 +221,9 @@ fn check_git_available() -> Result<()> {
         .context("Git is not installed or not found in PATH. Please install git and ensure it's available in your PATH.")?;
 
     if !output.status.success() {
-        anyhow::bail!("Git is installed but returned an error. Please check your git installation.");
+        anyhow::bail!(
+            "Git is installed but returned an error. Please check your git installation."
+        );
     }
 
     Ok(())
@@ -292,7 +289,7 @@ fn get_diff_changes(
             let line_ranges = match change_type {
                 ChangeType::Modified => {
                     get_changed_lines(repo_path, &file_path, reference, staged)?
-                }
+                },
                 ChangeType::Added | ChangeType::Renamed => {
                     // Get actual line count to avoid iterating 4+ billion lines
                     let full_path = repo_path.join(&file_path);
@@ -301,11 +298,11 @@ fn get_diff_changes(
                         .unwrap_or(1)
                         .max(1);
                     vec![(1, line_count)]
-                }
+                },
                 ChangeType::Deleted => {
                     // Deleted files have no lines to iterate - use empty range
                     vec![]
-                }
+                },
             };
 
             // Optionally get the raw diff content
@@ -686,10 +683,7 @@ fn format_diff_context_markdown(
 
     // Impact summary
     md.push_str("## Impact Summary\n\n");
-    md.push_str(&format!(
-        "**Level:** {}\n\n",
-        context.impact_summary.level.name()
-    ));
+    md.push_str(&format!("**Level:** {}\n\n", context.impact_summary.level.name()));
     md.push_str(&format!("{}\n\n", context.impact_summary.description));
     md.push_str(&format!(
         "- Direct files: {}\n- Transitive files: {}\n- Affected symbols: {}\n- Affected tests: {}\n- Total tokens: {}\n\n",
@@ -704,10 +698,7 @@ fn format_diff_context_markdown(
     md.push_str("## Changed Files\n\n");
     for file in &context.changed_files {
         md.push_str(&format!("### `{}`\n\n", file.path));
-        md.push_str(&format!(
-            "- Language: {}\n- Tokens: {}\n\n",
-            file.language, file.tokens
-        ));
+        md.push_str(&format!("- Language: {}\n- Tokens: {}\n\n", file.language, file.tokens));
 
         // Include file history if available
         if let Some(commits) = history.get(&file.path) {
@@ -861,30 +852,15 @@ fn format_diff_context_yaml(
 
     // Impact
     yaml.push_str("impact:\n");
-    yaml.push_str(&format!(
-        "  level: {}\n",
-        context.impact_summary.level.name()
-    ));
+    yaml.push_str(&format!("  level: {}\n", context.impact_summary.level.name()));
     yaml.push_str(&format!(
         "  description: \"{}\"\n",
         context.impact_summary.description.replace('"', "\\\"")
     ));
-    yaml.push_str(&format!(
-        "  direct_files: {}\n",
-        context.impact_summary.direct_files
-    ));
-    yaml.push_str(&format!(
-        "  transitive_files: {}\n",
-        context.impact_summary.transitive_files
-    ));
-    yaml.push_str(&format!(
-        "  affected_symbols: {}\n",
-        context.impact_summary.affected_symbols
-    ));
-    yaml.push_str(&format!(
-        "  affected_tests: {}\n",
-        context.impact_summary.affected_tests
-    ));
+    yaml.push_str(&format!("  direct_files: {}\n", context.impact_summary.direct_files));
+    yaml.push_str(&format!("  transitive_files: {}\n", context.impact_summary.transitive_files));
+    yaml.push_str(&format!("  affected_symbols: {}\n", context.impact_summary.affected_symbols));
+    yaml.push_str(&format!("  affected_tests: {}\n", context.impact_summary.affected_tests));
     yaml.push_str(&format!("total_tokens: {}\n\n", context.total_tokens));
 
     // Changed files
@@ -1039,10 +1015,7 @@ fn format_diff_context_toon(
     // Changed files
     toon.push_str("FILES:\n");
     for file in &context.changed_files {
-        toon.push_str(&format!(
-            "F|{}|{}|{}\n",
-            file.path, file.language, file.tokens
-        ));
+        toon.push_str(&format!("F|{}|{}|{}\n", file.path, file.language, file.tokens));
 
         // Include file history if available (compact format)
         if let Some(commits) = history.get(&file.path) {
@@ -1166,10 +1139,7 @@ fn format_diff_context_plain(
     // Changed files
     plain.push_str("--- CHANGED FILES ---\n");
     for file in &context.changed_files {
-        plain.push_str(&format!(
-            "\n{} ({}, {} tokens)\n",
-            file.path, file.language, file.tokens
-        ));
+        plain.push_str(&format!("\n{} ({}, {} tokens)\n", file.path, file.language, file.tokens));
 
         // Include file history if available
         if let Some(commits) = history.get(&file.path) {
@@ -1443,10 +1413,7 @@ fn format_diff_context_xml(
     if !context.call_chains.is_empty() {
         xml.push_str("  <call_graph>\n");
         for chain in &context.call_chains {
-            xml.push_str(&format!(
-                "    <chain>{}</chain>\n",
-                chain.symbols.join(" → ")
-            ));
+            xml.push_str(&format!("    <chain>{}</chain>\n", chain.symbols.join(" → ")));
         }
         xml.push_str("  </call_graph>\n");
     }
@@ -1575,7 +1542,7 @@ fn enrich_diff_context(
                     let lines: Vec<String> = content.lines().map(|l| l.to_owned()).collect();
                     file_lines_cache.insert(file.path.clone(), lines.clone());
                     lines
-                }
+                },
                 Err(_) => {
                     let fallback_content = if let Some(change) = change_by_path.get(&file.path) {
                         if let Some(ref_path) = base_ref {
@@ -1607,7 +1574,7 @@ fn enrich_diff_context(
                             .unwrap_or(0);
                         return;
                     }
-                }
+                },
             }
         };
 
@@ -1622,11 +1589,7 @@ fn enrich_diff_context(
             let start = start.saturating_sub(CONTEXT_LINES).max(1);
             let end = end.saturating_add(CONTEXT_LINES).min(total_lines);
             if start <= end {
-                ranges.push(SnippetRange {
-                    start,
-                    end,
-                    reasons: vec!["diff hunk".to_owned()],
-                });
+                ranges.push(SnippetRange { start, end, reasons: vec!["diff hunk".to_owned()] });
             }
         }
 
@@ -1838,9 +1801,7 @@ fn apply_diff_budget(
             file.tokens = tokens;
         }
 
-        context
-            .dependent_files
-            .retain(|f| !f.snippets.is_empty());
+        context.dependent_files.retain(|f| !f.snippets.is_empty());
         context.related_tests.retain(|f| !f.snippets.is_empty());
     }
 

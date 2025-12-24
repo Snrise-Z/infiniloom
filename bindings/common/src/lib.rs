@@ -4,21 +4,21 @@
 //! reducing code duplication and ensuring consistent behavior across bindings.
 
 use infiniloom_engine::{
-    security::Severity,
-    CompressionLevel, OutputFormat, Symbol, SymbolKind, TokenizerModel, Visibility,
+    security::Severity, CompressionLevel, OutputFormat, Symbol, SymbolKind, TokenizerModel,
+    Visibility,
 };
-use thiserror::Error;
 use std::time::{Duration, UNIX_EPOCH};
+use thiserror::Error;
 
 // Re-export scanner module for use by bindings
 pub mod scanner;
-pub use scanner::{scan_repository, ScanConfig, matches_pattern, matches_any_pattern};
+pub use scanner::{matches_any_pattern, matches_pattern, scan_repository, ScanConfig};
 
 // Re-export repository operations module
 pub mod repo_ops;
 pub use repo_ops::{
-    apply_compression, apply_default_ignores, apply_token_budget,
-    prepare_repository, redact_secrets,
+    apply_compression, apply_default_ignores, apply_token_budget, prepare_repository,
+    redact_secrets,
 };
 
 /// Errors that can occur when parsing binding options
@@ -356,9 +356,7 @@ pub fn file_priority_score(path: &str) -> f64 {
 
     // Core source files
     if path_lower.contains("src/") || path_lower.contains("lib/") {
-        if path_lower.contains("main")
-            || path_lower.contains("index")
-            || path_lower.contains("app")
+        if path_lower.contains("main") || path_lower.contains("index") || path_lower.contains("app")
         {
             return 1.0;
         }
@@ -529,10 +527,7 @@ mod tests {
         assert!(matches!(parse_compression(Some("none")), Ok(CompressionLevel::None)));
         assert!(matches!(parse_compression(Some("minimal")), Ok(CompressionLevel::Minimal)));
         assert!(matches!(parse_compression(Some("balanced")), Ok(CompressionLevel::Balanced)));
-        assert!(matches!(
-            parse_compression(Some("aggressive")),
-            Ok(CompressionLevel::Aggressive)
-        ));
+        assert!(matches!(parse_compression(Some("aggressive")), Ok(CompressionLevel::Aggressive)));
         assert!(matches!(parse_compression(Some("extreme")), Ok(CompressionLevel::Extreme)));
         assert!(matches!(parse_compression(Some("focused")), Ok(CompressionLevel::Focused)));
         assert!(matches!(parse_compression(Some("semantic")), Ok(CompressionLevel::Semantic)));

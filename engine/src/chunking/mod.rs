@@ -6,8 +6,8 @@
 mod strategies;
 mod types;
 
-pub use types::{Chunk, ChunkContext, ChunkFile, ChunkStrategy, Chunker, CrossReference};
 use types::SymbolSnippet;
+pub use types::{Chunk, ChunkContext, ChunkFile, ChunkStrategy, Chunker, CrossReference};
 
 use crate::tokenizer::Tokenizer;
 use crate::types::{RepoFile, Repository, SymbolKind, TokenizerModel};
@@ -75,7 +75,12 @@ impl Chunker {
     }
 
     /// Create a chunk from file references (avoids cloning RepoFile)
-    pub(crate) fn create_chunk_from_refs(&self, index: usize, files: &[&RepoFile], tokens: u32) -> Chunk {
+    pub(crate) fn create_chunk_from_refs(
+        &self,
+        index: usize,
+        files: &[&RepoFile],
+        tokens: u32,
+    ) -> Chunk {
         let focus = self.determine_focus_refs(files);
 
         Chunk {

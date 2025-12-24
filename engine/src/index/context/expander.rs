@@ -116,12 +116,12 @@ impl<'a> ContextExpander<'a> {
                 | IndexSymbolKind::Trait
                 | IndexSymbolKind::TypeAlias => {
                     return ChangeClassification::TypeDefinitionChange;
-                }
+                },
                 IndexSymbolKind::Function | IndexSymbolKind::Method => {
                     // If we can't determine more, assume implementation change
                     return ChangeClassification::ImplementationChange;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -130,7 +130,10 @@ impl<'a> ContextExpander<'a> {
     }
 
     /// Get relevance score multiplier based on change classification
-    pub(crate) fn classification_score_multiplier(&self, classification: ChangeClassification) -> f32 {
+    pub(crate) fn classification_score_multiplier(
+        &self,
+        classification: ChangeClassification,
+    ) -> f32 {
         match classification {
             ChangeClassification::Deletion => 1.5, // Highest priority - callers will break
             ChangeClassification::SignatureChange => 1.3, // High priority - callers may need updates
@@ -222,13 +225,13 @@ impl<'a> ContextExpander<'a> {
                             let reason = match classification {
                                 ChangeClassification::SignatureChange => {
                                     format!("signature changed ({} callers)", caller_count)
-                                }
+                                },
                                 ChangeClassification::TypeDefinitionChange => {
                                     format!("type definition changed ({} usages)", caller_count)
-                                }
+                                },
                                 ChangeClassification::Deletion => {
                                     format!("deleted ({} callers will break)", caller_count)
-                                }
+                                },
                                 _ => "directly modified".to_owned(),
                             };
 
@@ -414,7 +417,8 @@ impl<'a> ContextExpander<'a> {
                             id: file.id.as_u32(),
                             path: file.path.clone(),
                             language: file.language.name().to_owned(),
-                            relevance_reason: "test for changed file (naming convention)".to_owned(),
+                            relevance_reason: "test for changed file (naming convention)"
+                                .to_owned(),
                             relevance_score: 0.85,
                             tokens: file.tokens,
                             relevant_sections: vec![],

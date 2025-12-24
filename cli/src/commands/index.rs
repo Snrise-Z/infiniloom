@@ -34,10 +34,10 @@ pub fn cmd_index(
                         println!("  Git commit: {}", &commit[..7.min(commit.len())]);
                     }
                     println!("  Created: {}", chrono_humanize(meta.created_at));
-                }
+                },
                 Err(e) => {
                     eprintln!("{} Failed to read index metadata: {}", "✗".red(), e);
-                }
+                },
             }
         } else {
             println!("{} No index found at {}", "✗".yellow(), path.display());
@@ -115,10 +115,7 @@ fn watch_for_changes(storage: &IndexStorage, path: &Path, verbose: bool) -> Resu
     use std::time::Duration;
 
     println!();
-    eprintln!(
-        "{} Watching for file changes... (Ctrl+C to stop)",
-        "👀".cyan()
-    );
+    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
 
     let (tx, rx) = channel();
 
@@ -146,28 +143,22 @@ fn watch_for_changes(storage: &IndexStorage, path: &Path, verbose: bool) -> Resu
             Ok(()) => {
                 pending_rebuild = true;
                 last_rebuild = Instant::now();
-            }
+            },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Check if we should rebuild (debounce elapsed)
                 if pending_rebuild && last_rebuild.elapsed() >= debounce_duration {
                     pending_rebuild = false;
                     println!();
-                    eprintln!(
-                        "{} File changes detected, rebuilding index...",
-                        "🔄".yellow()
-                    );
+                    eprintln!("{} File changes detected, rebuilding index...", "🔄".yellow());
                     if let Err(e) = build_index(storage, path, verbose) {
                         eprintln!("{} Failed to rebuild index: {}", "✗".red(), e);
                     }
-                    eprintln!(
-                        "{} Watching for file changes... (Ctrl+C to stop)",
-                        "👀".cyan()
-                    );
+                    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
                 }
-            }
+            },
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 break;
-            }
+            },
         }
     }
 

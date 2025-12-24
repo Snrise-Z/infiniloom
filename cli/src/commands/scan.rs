@@ -251,11 +251,7 @@ fn output_human(
     println!();
     println!("{}", "━".repeat(50).dimmed());
     if is_sampled {
-        println!(
-            "  {} {}",
-            "Scan Results".cyan().bold(),
-            "[ESTIMATED]".yellow().bold()
-        );
+        println!("  {} {}", "Scan Results".cyan().bold(), "[ESTIMATED]".yellow().bold());
     } else {
         println!("  {}", "Scan Results".cyan().bold());
     }
@@ -278,10 +274,7 @@ fn output_human(
     let sampled_bytes: u64 = repo.files.iter().map(|f| f.size_bytes).sum();
     let estimated_bytes = (sampled_bytes as f64 * extrapolation_factor) as u64;
     if is_sampled {
-        println!(
-            "  Total Size:   ~{} (estimated)",
-            format_size(estimated_bytes, BINARY)
-        );
+        println!("  Total Size:   ~{} (estimated)", format_size(estimated_bytes, BINARY));
     } else {
         println!("  Total Size:   {}", format_size(sampled_bytes, BINARY));
     }
@@ -304,10 +297,7 @@ fn output_human(
     if !repo.metadata.languages.is_empty() {
         println!("  {}:", "Languages".cyan());
         for lang in &repo.metadata.languages {
-            println!(
-                "    {}: {} files ({:.1}%)",
-                lang.language, lang.files, lang.percentage
-            );
+            println!("    {}: {} files ({:.1}%)", lang.language, lang.files, lang.percentage);
         }
         println!();
     }
@@ -315,12 +305,7 @@ fn output_human(
     // Token counts (accurate, using tiktoken for OpenAI models)
     let estimated_tokens = (repo.total_tokens(model) as f64 * extrapolation_factor) as u32;
     if is_sampled {
-        println!(
-            "  {} ({}) {}:",
-            "Token Counts".cyan(),
-            model.name(),
-            "[ESTIMATED]".yellow()
-        );
+        println!("  {} ({}) {}:", "Token Counts".cyan(), model.name(), "[ESTIMATED]".yellow());
         println!("    Total: ~{}", estimated_tokens);
     } else {
         println!("  {} ({}):", "Token Counts".cyan(), model.name());
@@ -353,11 +338,7 @@ fn output_human(
     // Security scan results
     if let Some(issues) = security_issues {
         if is_sampled {
-            println!(
-                "  {} {}:",
-                "Security Scan".cyan(),
-                "[ESTIMATED]".yellow()
-            );
+            println!("  {} {}:", "Security Scan".cyan(), "[ESTIMATED]".yellow());
         } else {
             println!("  {}:", "Security Scan".cyan());
         }
@@ -373,11 +354,7 @@ fn output_human(
                     issues.len()
                 );
             } else {
-                println!(
-                    "    {} Found {} potential secrets:",
-                    "⚠".yellow(),
-                    issues.len()
-                );
+                println!("    {} Found {} potential secrets:", "⚠".yellow(), issues.len());
             }
             for issue in issues.iter().take(10) {
                 println!(

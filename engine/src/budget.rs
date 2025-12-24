@@ -106,7 +106,10 @@ impl BudgetEnforcer {
     /// Files are processed in importance order (highest first).
     /// Returns the number of files that were truncated.
     pub fn enforce(&self, repo: &mut Repository) -> EnforcementResult {
-        let available_budget = self.config.budget.saturating_sub(self.config.overhead_reserve);
+        let available_budget = self
+            .config
+            .budget
+            .saturating_sub(self.config.overhead_reserve);
         let mut used_tokens = TokenCount::zero();
         let mut truncated_count = 0usize;
         let mut excluded_count = 0usize;

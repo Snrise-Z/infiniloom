@@ -18,7 +18,11 @@ impl Chunker {
             let file_tokens = file.token_count.get(self.model);
 
             if current_tokens + file_tokens > size && !current_files.is_empty() {
-                chunks.push(self.create_chunk_from_refs(chunks.len(), &current_files, current_tokens));
+                chunks.push(self.create_chunk_from_refs(
+                    chunks.len(),
+                    &current_files,
+                    current_tokens,
+                ));
                 current_files.clear();
                 current_tokens = 0;
             }
@@ -349,7 +353,11 @@ impl Chunker {
                 && !depends_on_current; // Try to keep dependent files together
 
             if should_split {
-                chunks.push(self.create_chunk_from_refs(chunks.len(), &current_files, current_tokens));
+                chunks.push(self.create_chunk_from_refs(
+                    chunks.len(),
+                    &current_files,
+                    current_tokens,
+                ));
                 current_files.clear();
                 current_tokens = 0;
                 current_deps.clear();

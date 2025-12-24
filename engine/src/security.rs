@@ -28,9 +28,8 @@ static RE_AWS_SECRET: Lazy<Regex> = Lazy::new(|| {
         .expect("RE_AWS_SECRET: invalid regex pattern")
 });
 // GitHub Personal Access Token (classic) - 36 alphanumeric chars after prefix
-static RE_GITHUB_PAT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"ghp_[A-Za-z0-9]{36}").expect("RE_GITHUB_PAT: invalid regex pattern")
-});
+static RE_GITHUB_PAT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"ghp_[A-Za-z0-9]{36}").expect("RE_GITHUB_PAT: invalid regex pattern"));
 // GitHub fine-grained PAT
 static RE_GITHUB_FINE_PAT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}")
@@ -76,9 +75,8 @@ static RE_STRIPE: Lazy<Regex> = Lazy::new(|| {
         .expect("RE_STRIPE: invalid regex pattern")
 });
 // OpenAI API keys (sk-... followed by alphanumeric characters)
-static RE_OPENAI: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"sk-[A-Za-z0-9]{32,}").expect("RE_OPENAI: invalid regex pattern")
-});
+static RE_OPENAI: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").expect("RE_OPENAI: invalid regex pattern"));
 // Anthropic API keys (sk-ant-...)
 static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").expect("RE_ANTHROPIC: invalid regex pattern")

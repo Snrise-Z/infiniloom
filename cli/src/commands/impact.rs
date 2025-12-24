@@ -23,17 +23,14 @@ pub fn cmd_impact(
                 anyhow::bail!("Target is required. Use: infiniloom impact <target>");
             }
             (PathBuf::from("."), path.to_string_lossy().to_string())
-        }
+        },
     };
 
     let storage = IndexStorage::new(&path);
 
     // Check if index exists
     if !storage.exists() {
-        eprintln!(
-            "{} No index found. Run 'infiniloom index' first.",
-            "Error:".red()
-        );
+        eprintln!("{} No index found. Run 'infiniloom index' first.", "Error:".red());
         std::process::exit(1);
     }
 

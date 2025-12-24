@@ -87,7 +87,11 @@ pub fn cmd_pack(
             .map_while(Result::ok)
             .filter(|l| !l.trim().is_empty())
             .collect();
-        if paths.is_empty() { None } else { Some(paths) }
+        if paths.is_empty() {
+            None
+        } else {
+            Some(paths)
+        }
     } else {
         None
     };
@@ -299,8 +303,9 @@ pub fn cmd_pack(
 
     // Update cache
     if incremental_cache {
-        let cache = repo_cache
-            .get_or_insert_with(|| infiniloom_engine::RepoCache::new(repo_path.to_string_lossy().as_ref()));
+        let cache = repo_cache.get_or_insert_with(|| {
+            infiniloom_engine::RepoCache::new(repo_path.to_string_lossy().as_ref())
+        });
         update_repo_cache(cache, &repo, enable_symbols);
         if let Err(e) = cache.save(&cache_path) {
             if verbose {
@@ -311,7 +316,9 @@ pub fn cmd_pack(
 
     // Apply default ignores
     if use_default_ignores {
-        use infiniloom_engine::default_ignores::{matches_any, DEFAULT_IGNORES, DOC_IGNORES, TEST_IGNORES};
+        use infiniloom_engine::default_ignores::{
+            matches_any, DEFAULT_IGNORES, DOC_IGNORES, TEST_IGNORES,
+        };
 
         repo.files.retain(|f| {
             if matches_any(&f.relative_path, DEFAULT_IGNORES) {
@@ -330,7 +337,9 @@ pub fn cmd_pack(
     // Filter to stdin paths if provided
     if let Some(ref paths) = stdin_paths {
         repo.files.retain(|f| {
-            paths.iter().any(|p| f.relative_path == *p || f.relative_path.ends_with(p))
+            paths
+                .iter()
+                .any(|p| f.relative_path == *p || f.relative_path.ends_with(p))
         });
     }
 
@@ -390,7 +399,9 @@ pub fn cmd_pack(
                 .files
                 .iter()
                 .map(|f| {
-                    let freq = git_repo.file_change_frequency(&f.relative_path, 90).unwrap_or(0);
+                    let freq = git_repo
+                        .file_change_frequency(&f.relative_path, 90)
+                        .unwrap_or(0);
                     (f.relative_path.clone(), freq)
                 })
                 .collect();
@@ -403,7 +414,12 @@ pub fn cmd_pack(
                 .map(|(i, (path, _))| (path.clone(), i))
                 .collect();
 
-            repo.files.sort_by_key(|f| order_map.get(&f.relative_path).copied().unwrap_or(usize::MAX));
+            repo.files.sort_by_key(|f| {
+                order_map
+                    .get(&f.relative_path)
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
         }
     } else if full_mode {
         infiniloom_engine::rank_files(&mut repo);
@@ -446,34 +462,35 @@ pub fn cmd_pack(
                     if let Some(lang) = &file.language {
                         *content = extract_signatures_only(content, lang, &file.symbols);
                     }
-                }
+                },
                 CompressionLevel::Extreme => {
                     if let Some(lang) = &file.language {
                         *content = extract_key_symbols_only(content, lang, &file.symbols);
                     }
-                }
+                },
                 CompressionLevel::Focused => {
                     if let Some(lang) = &file.language {
                         *content = extract_key_symbols_focused(content, lang, &file.symbols);
                     }
-                }
+                },
                 CompressionLevel::Semantic => {
                     if let Some(ref compressor) = semantic_compressor {
                         if let Ok(compressed) = compressor.compress(content) {
                             *content = compressed;
                         }
                     }
-                }
+                },
                 _ => {
                     if should_remove_empty {
                         *content = remove_empty_lines_from_content(content, show_line_numbers);
                     }
                     if should_remove_comments {
                         if let Some(lang) = &file.language {
-                            *content = remove_comments_from_content(content, lang, show_line_numbers);
+                            *content =
+                                remove_comments_from_content(content, lang, show_line_numbers);
                         }
                     }
-                }
+                },
             }
             if truncate_base64 {
                 *content = truncate_base64_content(content);
@@ -502,7 +519,11 @@ pub fn cmd_pack(
                     let (redacted_content, file_issues) =
                         scanner.scan_and_redact(content, &file.relative_path);
                     file.content = Some(redacted_content);
-                    if file_issues.is_empty() { None } else { Some(file_issues) }
+                    if file_issues.is_empty() {
+                        None
+                    } else {
+                        Some(file_issues)
+                    }
                 } else {
                     None
                 }
@@ -524,7 +545,8 @@ pub fn cmd_pack(
                 }
                 eprintln!(
                     "{}",
-                    format!("❌ Security check failed: found {} potential secrets", issues.len()).red()
+                    format!("❌ Security check failed: found {} potential secrets", issues.len())
+                        .red()
                 );
                 for issue in issues.iter().take(10) {
                     eprintln!(
@@ -663,7 +685,11 @@ pub fn cmd_pack(
         header_text.as_deref(),
         instructions_text.as_deref(),
         token_tree,
-        if security_check { security_issues.as_deref() } else { None },
+        if security_check {
+            security_issues.as_deref()
+        } else {
+            None
+        },
         include_logs || include_diffs,
     )?;
 
@@ -720,7 +746,12 @@ pub fn cmd_pack(
             eprintln!("  {} {} files", "📁".dimmed(), repo.files.len());
             eprintln!("  {} {} lines", "📄".dimmed(), total_lines);
             eprintln!("  {} {}", "📦".dimmed(), format_size(output_text.len() as u64, BINARY));
-            eprintln!("  {} ~{} tokens ({})", "🔢".dimmed(), repo.total_tokens(model), model.name());
+            eprintln!(
+                "  {} ~{} tokens ({})",
+                "🔢".dimmed(),
+                repo.total_tokens(model),
+                model.name()
+            );
             eprintln!("  {} {:?}", "⏱️ ".dimmed(), elapsed);
             eprintln!();
         }
@@ -847,7 +878,11 @@ fn remove_empty_lines_from_content(content: &str, preserve_line_numbers: bool) -
                 .lines()
                 .filter_map(|line| {
                     if let Some((_num, rest)) = line.split_once(':') {
-                        if !rest.trim().is_empty() { Some(rest.to_owned()) } else { None }
+                        if !rest.trim().is_empty() {
+                            Some(rest.to_owned())
+                        } else {
+                            None
+                        }
                     } else if !line.trim().is_empty() {
                         Some(line.to_owned())
                     } else {
@@ -888,14 +923,18 @@ fn is_inside_string(text: &str) -> bool {
             '\\' => prev_backslash = true,
             '"' if !in_single => in_double = !in_double,
             '\'' if !in_double => in_single = !in_single,
-            _ => {}
+            _ => {},
         }
     }
 
     in_double || in_single
 }
 
-fn remove_comments_from_content(content: &str, language: &str, preserve_line_numbers: bool) -> String {
+fn remove_comments_from_content(
+    content: &str,
+    language: &str,
+    preserve_line_numbers: bool,
+) -> String {
     let (line_comment, block_start, block_end) = match language.to_lowercase().as_str() {
         "python" | "ruby" | "shell" | "bash" | "sh" | "yaml" | "yml" => ("#", "", ""),
         "javascript" | "typescript" | "java" | "c" | "cpp" | "c++" | "rust" | "go" | "swift"
@@ -1046,10 +1085,12 @@ fn extract_signatures_heuristic(content: &str, language: &str) -> String {
         "python" => &["def ", "class ", "async def "],
         "javascript" | "typescript" | "jsx" | "tsx" => {
             &["function ", "class ", "const ", "let ", "export ", "async "]
-        }
+        },
         "rust" => &["fn ", "pub fn ", "struct ", "enum ", "trait ", "impl ", "type ", "const "],
         "go" => &["func ", "type ", "const ", "var "],
-        "java" | "kotlin" => &["public ", "private ", "protected ", "class ", "interface ", "enum "],
+        "java" | "kotlin" => {
+            &["public ", "private ", "protected ", "class ", "interface ", "enum "]
+        },
         "c" | "cpp" | "c++" => &["void ", "int ", "char ", "bool ", "class ", "struct ", "enum "],
         _ => &["def ", "fn ", "func ", "function ", "class ", "struct "],
     };
@@ -1184,7 +1225,10 @@ fn extract_key_symbols_focused(
 
     for symbol in symbols_to_use {
         let label = format!("{}: {}", symbol.kind.name(), symbol.name);
-        if symbol.start_line > 0 && symbol.end_line >= symbol.start_line && symbol.start_line <= total_lines {
+        if symbol.start_line > 0
+            && symbol.end_line >= symbol.start_line
+            && symbol.start_line <= total_lines
+        {
             let start = symbol.start_line.saturating_sub(CONTEXT_LINES).max(1);
             let end = symbol
                 .end_line
@@ -1319,21 +1363,57 @@ fn rank_files_fast(repo: &mut infiniloom_engine::Repository) {
         let mut score: i32 = 1000;
 
         let entry_point_patterns = [
-            "main.rs", "main.go", "main.py", "main.ts", "main.js", "main.c", "main.cpp",
-            "index.ts", "index.js", "index.tsx", "index.jsx", "index.py",
-            "app.py", "app.ts", "app.js", "app.tsx", "app.jsx", "app.go",
-            "server.py", "server.ts", "server.js", "server.go",
-            "mod.rs", "lib.rs", "lib.py", "__main__.py", "__init__.py",
+            "main.rs",
+            "main.go",
+            "main.py",
+            "main.ts",
+            "main.js",
+            "main.c",
+            "main.cpp",
+            "index.ts",
+            "index.js",
+            "index.tsx",
+            "index.jsx",
+            "index.py",
+            "app.py",
+            "app.ts",
+            "app.js",
+            "app.tsx",
+            "app.jsx",
+            "app.go",
+            "server.py",
+            "server.ts",
+            "server.js",
+            "server.go",
+            "mod.rs",
+            "lib.rs",
+            "lib.py",
+            "__main__.py",
+            "__init__.py",
         ];
         if entry_point_patterns.iter().any(|p| path.ends_with(p)) {
             score -= 5000;
         }
 
         let config_patterns = [
-            "Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml",
-            "build.gradle", "Gemfile", "requirements.txt", "setup.py", "setup.cfg",
-            "tsconfig.json", "webpack.config.js", "vite.config.ts", ".eslintrc",
-            "Makefile", "CMakeLists.txt", "docker-compose.yml", "Dockerfile",
+            "Cargo.toml",
+            "package.json",
+            "pyproject.toml",
+            "go.mod",
+            "pom.xml",
+            "build.gradle",
+            "Gemfile",
+            "requirements.txt",
+            "setup.py",
+            "setup.cfg",
+            "tsconfig.json",
+            "webpack.config.js",
+            "vite.config.ts",
+            ".eslintrc",
+            "Makefile",
+            "CMakeLists.txt",
+            "docker-compose.yml",
+            "Dockerfile",
         ];
         if config_patterns.iter().any(|p| path.ends_with(p)) {
             score -= 3000;
@@ -1425,7 +1505,11 @@ fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
     languages.sort_by(|a, b| b.files.cmp(&a.files));
     repo.metadata.languages = languages;
 
-    let mut paths: Vec<&str> = repo.files.iter().map(|f| f.relative_path.as_str()).collect();
+    let mut paths: Vec<&str> = repo
+        .files
+        .iter()
+        .map(|f| f.relative_path.as_str())
+        .collect();
     paths.sort();
     repo.metadata.directory_structure = Some(paths.join("\n"));
 }
@@ -1440,15 +1524,28 @@ fn update_repo_cache(
     for file in &repo.files {
         let mtime = std::fs::metadata(&file.path)
             .and_then(|m| m.modified())
-            .map(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
 
-        let content_hash = file.content.as_ref().map(|c| hash_content(c.as_bytes())).unwrap_or(0);
+        let content_hash = file
+            .content
+            .as_ref()
+            .map(|c| hash_content(c.as_bytes()))
+            .unwrap_or(0);
 
         let cached = cache.get(&file.relative_path);
         let changed = cached.map_or(true, |_| {
             if content_hash != 0 {
-                cache.needs_rescan_with_hash(&file.relative_path, mtime, file.size_bytes, content_hash)
+                cache.needs_rescan_with_hash(
+                    &file.relative_path,
+                    mtime,
+                    file.size_bytes,
+                    content_hash,
+                )
             } else {
                 cache.needs_rescan(&file.relative_path, mtime, file.size_bytes)
             }
@@ -1479,14 +1576,26 @@ fn update_repo_cache(
                 cohere: file.token_count.cohere,
                 grok: file.token_count.grok,
             },
-            symbols: file.symbols.iter().map(infiniloom_engine::CachedSymbol::from).collect(),
+            symbols: file
+                .symbols
+                .iter()
+                .map(infiniloom_engine::CachedSymbol::from)
+                .collect(),
             symbols_extracted: symbols_extracted_for_file,
             language: file.language.clone(),
-            lines: file.content.as_ref().map(|c| c.lines().count()).unwrap_or(0),
+            lines: file
+                .content
+                .as_ref()
+                .map(|c| c.lines().count())
+                .unwrap_or(0),
         });
     }
 
-    let current_files: Vec<&str> = repo.files.iter().map(|f| f.relative_path.as_str()).collect();
+    let current_files: Vec<&str> = repo
+        .files
+        .iter()
+        .map(|f| f.relative_path.as_str())
+        .collect();
     for deleted in cache.find_deleted_files(&current_files) {
         cache.remove_file(&deleted);
     }
@@ -1578,7 +1687,10 @@ struct SecurityIssueEntry {
     severity: String,
 }
 
-fn token_tree_entries(repo: &infiniloom_engine::Repository, model: TokenizerModel) -> Vec<TokenTreeEntry> {
+fn token_tree_entries(
+    repo: &infiniloom_engine::Repository,
+    model: TokenizerModel,
+) -> Vec<TokenTreeEntry> {
     repo.files
         .iter()
         .map(|file| TokenTreeEntry {
@@ -1588,7 +1700,9 @@ fn token_tree_entries(repo: &infiniloom_engine::Repository, model: TokenizerMode
         .collect()
 }
 
-fn security_issue_entries(issues: &[infiniloom_engine::security::SecretFinding]) -> Vec<SecurityIssueEntry> {
+fn security_issue_entries(
+    issues: &[infiniloom_engine::security::SecretFinding],
+) -> Vec<SecurityIssueEntry> {
     issues
         .iter()
         .map(|issue| SecurityIssueEntry {
@@ -1627,7 +1741,10 @@ fn append_yaml_block(output: &mut String, key: &str, value: &str) {
     }
 }
 
-fn append_git_context_markdown(output: &mut String, history: &infiniloom_engine::types::GitHistory) {
+fn append_git_context_markdown(
+    output: &mut String,
+    history: &infiniloom_engine::types::GitHistory,
+) {
     if !history.commits.is_empty() {
         output.push_str("\n\n## Recent Commits\n\n");
         for commit in &history.commits {
@@ -1650,7 +1767,10 @@ fn append_git_context_plain(output: &mut String, history: &infiniloom_engine::ty
         output.push_str("\n\nRECENT COMMITS\n");
         output.push_str("--------------\n");
         for commit in &history.commits {
-            output.push_str(&format!("{} {} - {}\n", commit.short_hash, commit.message, commit.author));
+            output.push_str(&format!(
+                "{} {} - {}\n",
+                commit.short_hash, commit.message, commit.author
+            ));
         }
     }
     if !history.changed_files.is_empty() {
@@ -1664,9 +1784,15 @@ fn append_git_context_plain(output: &mut String, history: &infiniloom_engine::ty
 
 fn append_git_context_toon(output: &mut String, history: &infiniloom_engine::types::GitHistory) {
     if !history.commits.is_empty() {
-        output.push_str(&format!("\n\nrecent_commits[{}]{{hash,message,author}}:\n", history.commits.len()));
+        output.push_str(&format!(
+            "\n\nrecent_commits[{}]{{hash,message,author}}:\n",
+            history.commits.len()
+        ));
         for commit in &history.commits {
-            output.push_str(&format!("  {},{},{}\n", commit.short_hash, commit.message, commit.author));
+            output.push_str(&format!(
+                "  {},{},{}\n",
+                commit.short_hash, commit.message, commit.author
+            ));
         }
     }
     if !history.changed_files.is_empty() {
@@ -1715,21 +1841,34 @@ fn apply_pack_extras(
     security_issues: Option<&[infiniloom_engine::security::SecretFinding]>,
     include_git_context: bool,
 ) -> Result<String> {
-    let token_tree_entries = if token_tree { Some(token_tree_entries(repo, model)) } else { None };
+    let token_tree_entries = if token_tree {
+        Some(token_tree_entries(repo, model))
+    } else {
+        None
+    };
     let security_entries = security_issues.map(security_issue_entries);
-    let git_history = if include_git_context { repo.metadata.git_history.as_ref() } else { None };
+    let git_history = if include_git_context {
+        repo.metadata.git_history.as_ref()
+    } else {
+        None
+    };
 
     match format {
         OutputFormat::Json => {
             let mut root: serde_json::Value =
                 serde_json::from_str(&output_text).context("Failed to parse JSON output")?;
-            let obj = root.as_object_mut().context("JSON output is not an object")?;
+            let obj = root
+                .as_object_mut()
+                .context("JSON output is not an object")?;
 
             if let Some(header) = header_text {
                 obj.insert("header_text".to_owned(), serde_json::Value::String(header.to_owned()));
             }
             if let Some(instructions) = instructions {
-                obj.insert("instructions".to_owned(), serde_json::Value::String(instructions.to_owned()));
+                obj.insert(
+                    "instructions".to_owned(),
+                    serde_json::Value::String(instructions.to_owned()),
+                );
             }
             if let Some(entries) = token_tree_entries {
                 obj.insert(
@@ -1744,8 +1883,9 @@ fn apply_pack_extras(
                 );
             }
 
-            serde_json::to_string_pretty(&root).context("Failed to serialize JSON output with extras")
-        }
+            serde_json::to_string_pretty(&root)
+                .context("Failed to serialize JSON output with extras")
+        },
         OutputFormat::Yaml => {
             let mut output = output_text;
             if !output.ends_with('\n') {
@@ -1789,7 +1929,7 @@ fn apply_pack_extras(
             }
 
             Ok(output)
-        }
+        },
         OutputFormat::Xml => {
             let mut extras = String::new();
             if header_text.is_some()
@@ -1799,7 +1939,10 @@ fn apply_pack_extras(
             {
                 extras.push_str("  <extras>\n");
                 if let Some(header) = header_text {
-                    extras.push_str(&format!("    <header_text>{}</header_text>\n", escape_xml_text(header)));
+                    extras.push_str(&format!(
+                        "    <header_text>{}</header_text>\n",
+                        escape_xml_text(header)
+                    ));
                 }
                 if let Some(instructions) = instructions {
                     extras.push_str(&format!(
@@ -1808,7 +1951,10 @@ fn apply_pack_extras(
                     ));
                 }
                 if let Some(entries) = token_tree_entries {
-                    extras.push_str(&format!("    <token_tree model=\"{}\">\n", escape_xml_text(model.name())));
+                    extras.push_str(&format!(
+                        "    <token_tree model=\"{}\">\n",
+                        escape_xml_text(model.name())
+                    ));
                     for entry in entries {
                         extras.push_str(&format!(
                             "      <file path=\"{}\" tokens=\"{}\"/>\n",
@@ -1848,7 +1994,7 @@ fn apply_pack_extras(
             } else {
                 Ok(format!("{}\n{}", output_text, extras))
             }
-        }
+        },
         OutputFormat::Markdown => {
             let mut output = String::new();
             if let Some(header) = header_text {
@@ -1885,7 +2031,7 @@ fn apply_pack_extras(
             }
 
             Ok(output)
-        }
+        },
         OutputFormat::Plain => {
             let mut output = String::new();
             if let Some(header) = header_text {
@@ -1922,7 +2068,7 @@ fn apply_pack_extras(
             }
 
             Ok(output)
-        }
+        },
         OutputFormat::Toon => {
             let mut output = String::new();
             if let Some(header) = header_text {
@@ -1938,9 +2084,15 @@ fn apply_pack_extras(
                 append_git_context_toon(&mut output, history);
             }
             if let Some(entries) = security_entries {
-                output.push_str(&format!("\n\nsecurity_scan[{}]{{severity,kind,file,line}}:\n", entries.len()));
+                output.push_str(&format!(
+                    "\n\nsecurity_scan[{}]{{severity,kind,file,line}}:\n",
+                    entries.len()
+                ));
                 for entry in entries {
-                    output.push_str(&format!("  {},{},{},{}\n", entry.severity, entry.kind, entry.file, entry.line));
+                    output.push_str(&format!(
+                        "  {},{},{},{}\n",
+                        entry.severity, entry.kind, entry.file, entry.line
+                    ));
                 }
             }
             if let Some(entries) = token_tree_entries {
@@ -1958,7 +2110,7 @@ fn apply_pack_extras(
             }
 
             Ok(output)
-        }
+        },
     }
 }
 
@@ -2101,7 +2253,9 @@ fn run_watch_mode(
 
                     if let Some(ref paths) = stdin_paths {
                         new_repo.files.retain(|f| {
-                            paths.iter().any(|p| f.relative_path == *p || f.relative_path.ends_with(p))
+                            paths
+                                .iter()
+                                .any(|p| f.relative_path == *p || f.relative_path.ends_with(p))
                         });
                     }
 
@@ -2136,7 +2290,9 @@ fn run_watch_mode(
                                 .files
                                 .iter()
                                 .map(|f| {
-                                    let freq = git_repo.file_change_frequency(&f.relative_path, 90).unwrap_or(0);
+                                    let freq = git_repo
+                                        .file_change_frequency(&f.relative_path, 90)
+                                        .unwrap_or(0);
                                     (f.relative_path.clone(), freq)
                                 })
                                 .collect();
@@ -2147,7 +2303,10 @@ fn run_watch_mode(
                                 .map(|(i, (path, _))| (path.clone(), i))
                                 .collect();
                             new_repo.files.sort_by_key(|f| {
-                                order_map.get(&f.relative_path).copied().unwrap_or(usize::MAX)
+                                order_map
+                                    .get(&f.relative_path)
+                                    .copied()
+                                    .unwrap_or(usize::MAX)
                             });
                         }
                     } else if full_mode {
@@ -2166,7 +2325,9 @@ fn run_watch_mode(
                     let should_remove_comments = remove_comments
                         || matches!(
                             compression,
-                            CompressionLevel::Balanced | CompressionLevel::Aggressive | CompressionLevel::Extreme
+                            CompressionLevel::Balanced
+                                | CompressionLevel::Aggressive
+                                | CompressionLevel::Extreme
                         );
                     let should_remove_empty = remove_empty_lines
                         || matches!(
@@ -2188,37 +2349,49 @@ fn run_watch_mode(
                             match compression {
                                 CompressionLevel::Aggressive => {
                                     if let Some(lang) = &file.language {
-                                        *content = extract_signatures_only(content, lang, &file.symbols);
+                                        *content =
+                                            extract_signatures_only(content, lang, &file.symbols);
                                     }
-                                }
+                                },
                                 CompressionLevel::Extreme => {
                                     if let Some(lang) = &file.language {
-                                        *content = extract_key_symbols_only(content, lang, &file.symbols);
+                                        *content =
+                                            extract_key_symbols_only(content, lang, &file.symbols);
                                     }
-                                }
+                                },
                                 CompressionLevel::Focused => {
                                     if let Some(lang) = &file.language {
-                                        *content = extract_key_symbols_focused(content, lang, &file.symbols);
+                                        *content = extract_key_symbols_focused(
+                                            content,
+                                            lang,
+                                            &file.symbols,
+                                        );
                                     }
-                                }
+                                },
                                 CompressionLevel::Semantic => {
                                     if let Some(ref compressor) = watch_semantic_compressor {
                                         if let Ok(compressed) = compressor.compress(content) {
                                             *content = compressed;
                                         }
                                     }
-                                }
+                                },
                                 _ => {
                                     if should_remove_empty {
-                                        *content = remove_empty_lines_from_content(content, show_line_numbers);
+                                        *content = remove_empty_lines_from_content(
+                                            content,
+                                            show_line_numbers,
+                                        );
                                     }
                                     if should_remove_comments {
                                         if let Some(lang) = &file.language {
-                                            *content =
-                                                remove_comments_from_content(content, lang, show_line_numbers);
+                                            *content = remove_comments_from_content(
+                                                content,
+                                                lang,
+                                                show_line_numbers,
+                                            );
                                         }
                                     }
-                                }
+                                },
                             }
                             if truncate_base64 {
                                 *content = truncate_base64_content(content);
@@ -2242,7 +2415,11 @@ fn run_watch_mode(
                                     let (redacted_content, file_issues) =
                                         scanner.scan_and_redact(content, &file.relative_path);
                                     file.content = Some(redacted_content);
-                                    if file_issues.is_empty() { None } else { Some(file_issues) }
+                                    if file_issues.is_empty() {
+                                        None
+                                    } else {
+                                        Some(file_issues)
+                                    }
                                 } else {
                                     None
                                 }
@@ -2293,7 +2470,9 @@ fn run_watch_mode(
                     // Git history
                     if include_logs || include_diffs {
                         if let Ok(git_repo) = GitRepo::open(repo_path) {
-                            use infiniloom_engine::types::{GitChangedFile, GitCommitInfo, GitHistory};
+                            use infiniloom_engine::types::{
+                                GitChangedFile, GitCommitInfo, GitHistory,
+                            };
 
                             let mut git_history = GitHistory::default();
 
@@ -2368,7 +2547,7 @@ fn run_watch_mode(
                         Err(err) => {
                             eprintln!("{} {}", "Error:".red(), err);
                             None
-                        }
+                        },
                     };
 
                     let mut new_output = match apply_pack_extras(
@@ -2379,20 +2558,25 @@ fn run_watch_mode(
                         header_text,
                         instructions_text.as_deref(),
                         token_tree,
-                        if security_check { watch_security_issues.as_deref() } else { None },
+                        if security_check {
+                            watch_security_issues.as_deref()
+                        } else {
+                            None
+                        },
                         include_logs || include_diffs,
                     ) {
                         Ok(output) => output,
                         Err(err) => {
                             eprintln!("{} {}", "Error:".red(), err);
                             continue;
-                        }
+                        },
                     };
 
                     if max_tokens > 0 {
                         let current_tokens = estimate_tokens(&new_output, model);
                         if current_tokens > max_tokens as usize {
-                            new_output = truncate_to_tokens(&new_output, max_tokens as usize, model);
+                            new_output =
+                                truncate_to_tokens(&new_output, max_tokens as usize, model);
                         }
                     }
 
@@ -2410,13 +2594,13 @@ fn run_watch_mode(
                 }
 
                 last_rebuild = Instant::now();
-            }
+            },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Just keep watching
-            }
+            },
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 break;
-            }
+            },
         }
     }
 

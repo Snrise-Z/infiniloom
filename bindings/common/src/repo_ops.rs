@@ -59,7 +59,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
     match level {
         CompressionLevel::None => {
             // No compression - keep content as-is
-        }
+        },
         CompressionLevel::Minimal => {
             // Remove empty lines
             for file in &mut repo.files {
@@ -72,7 +72,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
                     file.content = Some(compressed);
                 }
             }
-        }
+        },
         CompressionLevel::Balanced => {
             // Remove empty lines and comments (basic heuristic)
             for file in &mut repo.files {
@@ -92,7 +92,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
                     file.content = Some(compressed);
                 }
             }
-        }
+        },
         CompressionLevel::Aggressive | CompressionLevel::Extreme => {
             // Extract signatures only - keep function/class definitions
             for file in &mut repo.files {
@@ -100,7 +100,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
                     file.content = Some(signature_lines(content));
                 }
             }
-        }
+        },
         CompressionLevel::Focused => {
             // Key symbols with small surrounding context
             for file in &mut repo.files {
@@ -109,7 +109,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
                     file.content = Some(focused);
                 }
             }
-        }
+        },
         CompressionLevel::Semantic => {
             // Use heuristic-based semantic compression
             let compressor = HeuristicCompressor::new();
@@ -120,7 +120,7 @@ pub fn apply_compression(repo: &mut Repository, level: CompressionLevel) {
                     }
                 }
             }
-        }
+        },
     }
 }
 
@@ -198,10 +198,7 @@ mod tests {
                     content: Some("// Comment\npub fn helper() {}\n".to_string()),
                 },
             ],
-            metadata: RepoMetadata {
-                total_files: 2,
-                ..Default::default()
-            },
+            metadata: RepoMetadata { total_files: 2, ..Default::default() },
         }
     }
 
@@ -234,7 +231,11 @@ mod tests {
         let mut repo = create_test_repo();
         apply_compression(&mut repo, CompressionLevel::Aggressive);
         // Should only contain signature lines
-        assert!(repo.files[0].content.as_ref().unwrap().contains("fn main()"));
+        assert!(repo.files[0]
+            .content
+            .as_ref()
+            .unwrap()
+            .contains("fn main()"));
         assert!(!repo.files[0].content.as_ref().unwrap().contains("println"));
     }
 
@@ -246,9 +247,8 @@ mod tests {
         redact_secrets(&mut repo);
         // Should contain partial mask (AKIA************LKEY) instead of the full key
         let content = repo.files[0].content.as_ref().unwrap();
-        assert!(content.contains("AKIA"));  // Prefix preserved
-        assert!(content.contains("****"));  // Masked middle
-        assert!(!content.contains("AKIAIOSFODNN7REALKEY"));  // Full key is gone
+        assert!(content.contains("AKIA")); // Prefix preserved
+        assert!(content.contains("****")); // Masked middle
+        assert!(!content.contains("AKIAIOSFODNN7REALKEY")); // Full key is gone
     }
-
 }

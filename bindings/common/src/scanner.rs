@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use infiniloom_engine::parser::{Language, Parser};
-use infiniloom_engine::tokenizer::Tokenizer;
 use infiniloom_engine::tokenizer::TokenCounts;
+use infiniloom_engine::tokenizer::Tokenizer;
 use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository};
 
 // Thread-local parser for each rayon worker
@@ -131,29 +131,14 @@ pub fn scan_repository(path: &Path, config: ScanConfig) -> Result<Repository> {
             } else {
                 0.0
             };
-            LanguageStats {
-                language: lang,
-                files,
-                lines,
-                percentage,
-            }
+            LanguageStats { language: lang, files, lines, percentage }
         })
         .collect();
 
-    let metadata = RepoMetadata {
-        total_files,
-        total_lines,
-        total_tokens,
-        languages,
-        ..Default::default()
-    };
+    let metadata =
+        RepoMetadata { total_files, total_lines, total_tokens, languages, ..Default::default() };
 
-    Ok(Repository {
-        name: repo_name,
-        path: path.to_path_buf(),
-        files,
-        metadata,
-    })
+    Ok(Repository { name: repo_name, path: path.to_path_buf(), files, metadata })
 }
 
 /// Collect file paths without reading contents
@@ -184,10 +169,7 @@ fn collect_file_paths(path: &Path, config: &ScanConfig) -> Result<Vec<FileInfo>>
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| entry_path.to_string_lossy().to_string());
 
-        file_infos.push(FileInfo {
-            path: entry_path.to_path_buf(),
-            relative_path,
-        });
+        file_infos.push(FileInfo { path: entry_path.to_path_buf(), relative_path });
     }
 
     Ok(file_infos)
@@ -201,13 +183,13 @@ fn process_file(file_info: FileInfo, config: &ScanConfig) -> Result<Option<RepoF
         return Ok(None);
     }
 
-    // Detect language
+    // Detect language (use name() for lowercase consistency in APIs)
     let language = file_info
         .path
         .extension()
         .and_then(|e| e.to_str())
         .and_then(Language::from_extension)
-        .map(|l| l.to_string());
+        .map(|l| l.name().to_string());
 
     // Read content if requested
     let (content, token_count, symbols, size_bytes) = if config.read_contents {
@@ -337,7 +319,7 @@ mod tests {
 
         assert_eq!(repo.files.len(), 1);
         assert!(repo.files[0].relative_path.contains("test.rs"));
-        assert_eq!(repo.files[0].language, Some("Rust".to_string()));
+        assert_eq!(repo.files[0].language, Some("rust".to_string()));
     }
 
     #[test]

@@ -244,7 +244,11 @@ impl Language {
     /// Get all languages with full parser support
     #[must_use]
     pub fn all_with_parser_support() -> Vec<Self> {
-        Self::all().iter().copied().filter(|l| l.has_parser_support()).collect()
+        Self::all()
+            .iter()
+            .copied()
+            .filter(|l| l.has_parser_support())
+            .collect()
     }
 
     /// Check if this language uses indentation for blocks (like Python)
@@ -276,10 +280,7 @@ impl Language {
     /// Check if this is a functional language
     #[must_use]
     pub const fn is_functional(self) -> bool {
-        matches!(
-            self,
-            Self::Haskell | Self::OCaml | Self::Elixir | Self::Clojure | Self::Scala
-        )
+        matches!(self, Self::Haskell | Self::OCaml | Self::Elixir | Self::Clojure | Self::Scala)
     }
 }
 
