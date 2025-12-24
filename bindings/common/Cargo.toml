@@ -6,7 +6,6 @@ authors = ["Topos Labs"]
 description = "Shared utilities for Infiniloom language bindings"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Topos-Labs/infiniloom"
-readme = "README.md"
 keywords = ["infiniloom", "bindings", "utilities"]
 categories = ["development-tools"]
 
