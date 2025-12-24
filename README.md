@@ -598,7 +598,8 @@ include_docs: false
 |----------|-------------|
 | [Architecture](docs/INFINILOOM_DESIGN.md) | System design and architecture |
 | [Output Formats](docs/INFINILOOM_OUTPUT_FORMATS.md) | Detailed format specifications |
-| [Release Plan](docs/RELEASE_PLAN.md) | Publishing and distribution |
+| [Implementation Status](docs/IMPLEMENTATION_STATUS.md) | Feature implementation status |
+| [Command Reference](docs/commands/README.md) | CLI command documentation |
 
 ---
 
@@ -610,12 +611,16 @@ include_docs: false
 infiniloom/
 ├── cli/                 # Rust CLI application
 ├── engine/              # Core Rust engine
-│   ├── src/
-│   │   ├── parser.rs    # Tree-sitter AST parsing
-│   │   ├── repomap/     # PageRank symbol ranking
-│   │   ├── output/      # Format generators
-│   │   └── security.rs  # Secret detection
+│   └── src/
+│       ├── parser/      # Tree-sitter AST parsing (21 languages)
+│       ├── tokenizer/   # Multi-model token counting (tiktoken)
+│       ├── index/       # Symbol index for diff context
+│       ├── chunking/    # Semantic code chunking
+│       ├── repomap/     # PageRank symbol ranking
+│       ├── output/      # Format generators
+│       └── security.rs  # Secret detection
 ├── bindings/
+│   ├── common/          # Shared bindings code
 │   ├── python/          # PyO3 bindings
 │   └── node/            # NAPI-RS bindings
 └── docs/                # Documentation

@@ -1,7 +1,7 @@
 //! Symbol graph with PageRank computation
 
 use crate::types::{RepoFile, Symbol};
-use log::trace;
+use tracing::trace;
 use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 

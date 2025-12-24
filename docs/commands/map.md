@@ -27,6 +27,7 @@ The `map` command:
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--budget <TOKENS>` | `-b` | Token budget for map output | `2000` |
+| `--model <MODEL>` | `-m` | Target model for token counting | `claude` |
 | `--output <PATH>` | `-o` | Output file (default: stdout) | stdout |
 
 ## Output Format

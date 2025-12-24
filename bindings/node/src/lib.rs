@@ -1,16 +1,30 @@
 #![deny(clippy::all)]
 
+// Import from infiniloom-bindings-common
+use infiniloom_bindings_common::{
+    parse_format, parse_model, parse_compression,
+    file_priority_score,
+    format_file_status as common_format_file_status,
+    // Scanner from common crate
+    scan_repository as do_scan, ScanConfig, matches_any_pattern,
+    // Security utilities
+    parse_security_threshold as common_parse_security_threshold,
+    severity_at_or_above,
+    // Time utilities
+    format_timestamp,
+    // Repository operations
+    apply_compression, apply_default_ignores, prepare_repository, apply_token_budget,
+};
+
 use infiniloom_engine::{
-    count_symbol_references,
     default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
     git::{
         GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile,
         DiffHunk as EngineGitDiffHunk,
     },
-    rank_files, sort_files_by_importance,
+    security::Severity,
     CompressionLevel, OutputFormat, OutputFormatter, RepoMapGenerator, Repository, SecurityScanner,
-    SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel, Symbol,
-    SymbolKind, Visibility, HeuristicCompressor,
+    SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel,
     // Index module for new APIs
     index::{
         IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
@@ -33,9 +47,6 @@ use std::collections::HashSet;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::path::PathBuf;
-
-mod scanner;
-use scanner::{scan_repository as do_scan, ScanConfig};
 
 /// Options for packing a repository
 #[napi(object)]
@@ -172,9 +183,9 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
     });
 
     // Parse options
-    let format = parse_format(opts.format.as_deref())?;
-    let model = parse_model(opts.model.as_deref())?;
-    let compression = parse_compression(opts.compression.as_deref())?;
+    let format = napi_parse_format(opts.format.as_deref())?;
+    let model = napi_parse_model(opts.model.as_deref())?;
+    let compression = napi_parse_compression(opts.compression.as_deref())?;
     let map_budget = opts.map_budget.unwrap_or(2000);
     let max_symbols = opts.max_symbols.unwrap_or(50);
     let skip_security = opts.skip_security.unwrap_or(false);
@@ -309,12 +320,8 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
         }
     }
 
-    // Count cross-file symbol references (populates Symbol.references field)
-    count_symbol_references(&mut repo);
-
-    // Rank files by importance
-    rank_files(&mut repo);
-    sort_files_by_importance(&mut repo);
+    // Prepare repository (count references, rank files, sort by importance)
+    prepare_repository(&mut repo);
 
     // Security check and redaction
     let scanner = SecurityScanner::new();
@@ -343,103 +350,13 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
         }
     }
 
-    // Apply compression to file contents based on compression level
-    match compression {
-        CompressionLevel::None => {
-            // No compression - keep content as-is
-        }
-        CompressionLevel::Minimal => {
-            // Remove empty lines
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let compressed: String = content
-                        .lines()
-                        .filter(|line| !line.trim().is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    file.content = Some(compressed);
-                }
-            }
-        }
-        CompressionLevel::Balanced => {
-            // Remove empty lines and comments (basic heuristic)
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let compressed: String = content
-                        .lines()
-                        .filter(|line| {
-                            let trimmed = line.trim();
-                            !trimmed.is_empty()
-                                && !trimmed.starts_with("//")
-                                && !trimmed.starts_with('#')
-                                && !trimmed.starts_with("/*")
-                                && !trimmed.starts_with('*')
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    file.content = Some(compressed);
-                }
-            }
-        }
-        CompressionLevel::Aggressive | CompressionLevel::Extreme => {
-            // Extract signatures only - keep function/class definitions
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    file.content = Some(signature_lines(content));
-                }
-            }
-        }
-        CompressionLevel::Focused => {
-            // Key symbols with small surrounding context
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let focused = focused_symbol_context(content, &file.symbols);
-                    file.content = Some(focused);
-                }
-            }
-        }
-        CompressionLevel::Semantic => {
-            // Use heuristic-based semantic compression
-            let compressor = HeuristicCompressor::new();
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    if let Ok(compressed) = compressor.compress(content) {
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-        }
-    }
+    // Apply compression to file contents
+    apply_compression(&mut repo, compression);
 
     // Apply token budget to limit output size (Bug #7 fix)
     // Files are already sorted by importance, so we keep top files until budget is reached
     if token_budget > 0 {
-        let tokenizer = Tokenizer::new();
-        let mut cumulative_tokens: u32 = 0;
-        let mut files_to_keep = Vec::new();
-
-        for file in repo.files {
-            let file_tokens = file.content.as_ref()
-                .map(|c| tokenizer.count(c, model))
-                .unwrap_or(0);
-
-            // Check if adding this file would exceed budget
-            if cumulative_tokens + file_tokens <= token_budget {
-                cumulative_tokens += file_tokens;
-                files_to_keep.push(file);
-            } else if files_to_keep.is_empty() {
-                // Always include at least one file (the most important)
-                files_to_keep.push(file);
-                break;
-            } else {
-                // Budget exceeded, stop adding files
-                break;
-            }
-        }
-
-        repo.files = files_to_keep;
-        // Update metadata
-        repo.metadata.total_files = repo.files.len() as u32;
+        apply_token_budget(&mut repo, token_budget, model);
     }
 
     // Generate repository map using builder pattern
@@ -515,7 +432,7 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
         apply_default_ignores: Some(true),
     });
 
-    let tokenizer_model = parse_model(opts.model.as_deref())?;
+    let tokenizer_model = napi_parse_model(opts.model.as_deref())?;
     let apply_default_ignores = opts.apply_default_ignores.unwrap_or(true);
     let include_tests = opts.include_tests.unwrap_or(false);
 
@@ -618,52 +535,7 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
 /// ```
 #[napi]
 pub fn count_tokens(text: String, model: Option<String>) -> Result<u32> {
-    // Parse model string to TokenModel for accurate tokenization
-    let model_str = model.as_deref().unwrap_or("claude");
-    let token_model = match model_str.to_lowercase().as_str() {
-        "claude" => TokenModel::Claude,
-        // GPT-5.x series (latest)
-        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenModel::Gpt52,
-        "gpt-5.2-pro" | "gpt52-pro" => TokenModel::Gpt52Pro,
-        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenModel::Gpt51,
-        "gpt-5.1-mini" | "gpt51-mini" => TokenModel::Gpt51Mini,
-        "gpt-5.1-codex" | "gpt51-codex" => TokenModel::Gpt51Codex,
-        "gpt-5" | "gpt5" => TokenModel::Gpt5,
-        "gpt-5-mini" | "gpt5-mini" => TokenModel::Gpt5Mini,
-        "gpt-5-nano" | "gpt5-nano" => TokenModel::Gpt5Nano,
-        // O-series reasoning models
-        "o4-mini" => TokenModel::O4Mini,
-        "o3" => TokenModel::O3,
-        "o3-mini" => TokenModel::O3Mini,
-        "o1" => TokenModel::O1,
-        "o1-mini" => TokenModel::O1Mini,
-        "o1-preview" => TokenModel::O1Preview,
-        // GPT-4 series
-        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
-        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
-        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
-        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
-        // Other vendors
-        "gemini" => TokenModel::Gemini,
-        "llama" => TokenModel::Llama,
-        "codellama" => TokenModel::CodeLlama,
-        "mistral" => TokenModel::Mistral,
-        "deepseek" => TokenModel::DeepSeek,
-        "qwen" => TokenModel::Qwen,
-        "cohere" => TokenModel::Cohere,
-        "grok" => TokenModel::Grok,
-        _ => {
-            return Err(Error::new(
-                Status::InvalidArg,
-                format!(
-                    "Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok",
-                    model_str
-                ),
-            ));
-        }
-    };
-
-    // Use the engine's accurate tokenizer (tiktoken for OpenAI, calibrated estimates for others)
+    let token_model = napi_parse_model(model.as_deref())?;
     let tokenizer = Tokenizer::new();
     Ok(tokenizer.count(&text, token_model))
 }
@@ -684,7 +556,7 @@ impl Infiniloom {
     /// * `model` - Optional model name (default: "claude")
     #[napi(constructor)]
     pub fn new(path: String, model: Option<String>) -> Result<Self> {
-        let tokenizer_model = parse_model(model.as_deref())?;
+        let tokenizer_model = napi_parse_model(model.as_deref())?;
         let mut repo = scan_repository(&path, tokenizer_model, true)?;
 
         // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
@@ -693,12 +565,8 @@ impl Infiniloom {
                 && !matches_any(&f.relative_path, TEST_IGNORES)
         });
 
-        // Count cross-file symbol references (populates Symbol.references field)
-        count_symbol_references(&mut repo);
-
-        // Rank files by importance
-        rank_files(&mut repo);
-        sort_files_by_importance(&mut repo);
+        // Prepare repository (count references, rank files, sort by importance)
+        prepare_repository(&mut repo);
 
         Ok(Self {
             repo,
@@ -813,8 +681,8 @@ impl Infiniloom {
             related_depth: None,
         });
 
-        let format = parse_format(opts.format.as_deref())?;
-        let compression = parse_compression(opts.compression.as_deref())?;
+        let format = napi_parse_format(opts.format.as_deref())?;
+        let compression = napi_parse_compression(opts.compression.as_deref())?;
         let map_budget = opts.map_budget.unwrap_or(2000);
         let max_symbols = opts.max_symbols.unwrap_or(50);
         let redact_secrets = opts.redact_secrets.unwrap_or(true);
@@ -835,90 +703,11 @@ impl Infiniloom {
         }
 
         // Apply compression to file contents
-        match compression {
-            CompressionLevel::None => {}
-            CompressionLevel::Minimal => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let compressed: String = content
-                            .lines()
-                            .filter(|line| !line.trim().is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-            CompressionLevel::Balanced => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let compressed: String = content
-                            .lines()
-                            .filter(|line| {
-                                let trimmed = line.trim();
-                                !trimmed.is_empty()
-                                    && !trimmed.starts_with("//")
-                                    && !trimmed.starts_with('#')
-                                    && !trimmed.starts_with("/*")
-                                    && !trimmed.starts_with('*')
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-            CompressionLevel::Aggressive | CompressionLevel::Extreme => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        file.content = Some(signature_lines(content));
-                    }
-                }
-            }
-            CompressionLevel::Focused => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let focused = focused_symbol_context(content, &file.symbols);
-                        file.content = Some(focused);
-                    }
-                }
-            }
-            CompressionLevel::Semantic => {
-                let compressor = HeuristicCompressor::new();
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        if let Ok(compressed) = compressor.compress(content) {
-                            file.content = Some(compressed);
-                        }
-                    }
-                }
-            }
-        }
+        apply_compression(&mut repo, compression);
 
         // Apply token budget to limit output size (Bug #7 fix)
         if token_budget > 0 {
-            let tokenizer = Tokenizer::new();
-            let mut cumulative_tokens: u32 = 0;
-            let mut files_to_keep = Vec::new();
-
-            for file in repo.files {
-                let file_tokens = file.content.as_ref()
-                    .map(|c| tokenizer.count(c, self.model))
-                    .unwrap_or(0);
-
-                if cumulative_tokens + file_tokens <= token_budget {
-                    cumulative_tokens += file_tokens;
-                    files_to_keep.push(file);
-                } else if files_to_keep.is_empty() {
-                    files_to_keep.push(file);
-                    break;
-                } else {
-                    break;
-                }
-            }
-
-            repo.files = files_to_keep;
-            repo.metadata.total_files = repo.files.len() as u32;
+            apply_token_budget(&mut repo, token_budget, self.model);
         }
 
         let generator = RepoMapGenerator::builder()
@@ -984,291 +773,21 @@ impl Infiniloom {
 
 // Helper functions
 
-fn parse_format(format: Option<&str>) -> Result<OutputFormat> {
-    match format.unwrap_or("xml") {
-        "xml" => Ok(OutputFormat::Xml),
-        "markdown" | "md" => Ok(OutputFormat::Markdown),
-        "json" => Ok(OutputFormat::Json),
-        "yaml" | "yml" => Ok(OutputFormat::Yaml),
-        "toon" => Ok(OutputFormat::Toon),
-        "plain" | "text" | "txt" => Ok(OutputFormat::Plain),
-        other => Err(Error::new(
-            Status::InvalidArg,
-            format!("Unknown format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", other),
-        )),
-    }
+fn napi_parse_format(format: Option<&str>) -> Result<OutputFormat> {
+    parse_format(format).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
 }
 
-fn parse_model(model: Option<&str>) -> Result<TokenizerModel> {
-    match model.unwrap_or("claude").to_lowercase().as_str() {
-        "claude" => Ok(TokenizerModel::Claude),
-        // GPT-5.x series (latest)
-        "gpt-5.2" | "gpt5.2" | "gpt52" => Ok(TokenizerModel::Gpt52),
-        "gpt-5.2-pro" | "gpt52-pro" => Ok(TokenizerModel::Gpt52Pro),
-        "gpt-5.1" | "gpt5.1" | "gpt51" => Ok(TokenizerModel::Gpt51),
-        "gpt-5.1-mini" | "gpt51-mini" => Ok(TokenizerModel::Gpt51Mini),
-        "gpt-5.1-codex" | "gpt51-codex" => Ok(TokenizerModel::Gpt51Codex),
-        "gpt-5" | "gpt5" => Ok(TokenizerModel::Gpt5),
-        "gpt-5-mini" | "gpt5-mini" => Ok(TokenizerModel::Gpt5Mini),
-        "gpt-5-nano" | "gpt5-nano" => Ok(TokenizerModel::Gpt5Nano),
-        // O-series reasoning models
-        "o4-mini" => Ok(TokenizerModel::O4Mini),
-        "o3" => Ok(TokenizerModel::O3),
-        "o3-mini" => Ok(TokenizerModel::O3Mini),
-        "o1" => Ok(TokenizerModel::O1),
-        "o1-mini" => Ok(TokenizerModel::O1Mini),
-        "o1-preview" => Ok(TokenizerModel::O1Preview),
-        // GPT-4 series
-        "gpt-4o" | "gpt4o" => Ok(TokenizerModel::Gpt4o),
-        "gpt-4o-mini" | "gpt4o-mini" => Ok(TokenizerModel::Gpt4oMini),
-        "gpt-4" | "gpt4" | "gpt" => Ok(TokenizerModel::Gpt4),
-        "gpt-3.5-turbo" | "gpt35-turbo" => Ok(TokenizerModel::Gpt35Turbo),
-        // Other vendors
-        "gemini" => Ok(TokenizerModel::Gemini),
-        "llama" => Ok(TokenizerModel::Llama),
-        "codellama" => Ok(TokenizerModel::CodeLlama),
-        "mistral" => Ok(TokenizerModel::Mistral),
-        "deepseek" => Ok(TokenizerModel::DeepSeek),
-        "qwen" => Ok(TokenizerModel::Qwen),
-        "cohere" => Ok(TokenizerModel::Cohere),
-        "grok" => Ok(TokenizerModel::Grok),
-        other => Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Unknown model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok",
-                other
-            ),
-        )),
-    }
+fn napi_parse_model(model: Option<&str>) -> Result<TokenizerModel> {
+    parse_model(model).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
 }
 
-fn signature_lines(content: &str) -> String {
-    content
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            trimmed.starts_with("fn ")
-                || trimmed.starts_with("pub fn ")
-                || trimmed.starts_with("async fn ")
-                || trimmed.starts_with("def ")
-                || trimmed.starts_with("async def ")
-                || trimmed.starts_with("class ")
-                || trimmed.starts_with("struct ")
-                || trimmed.starts_with("enum ")
-                || trimmed.starts_with("trait ")
-                || trimmed.starts_with("impl ")
-                || trimmed.starts_with("interface ")
-                || trimmed.starts_with("function ")
-                || trimmed.starts_with("export ")
-                || trimmed.starts_with("const ")
-                || trimmed.starts_with("type ")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn focused_symbol_context(content: &str, symbols: &[Symbol]) -> String {
-    const CONTEXT_LINES: u32 = 2;
-
-    if symbols.is_empty() {
-        return signature_lines(content);
-    }
-
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len() as u32;
-    if total_lines == 0 {
-        return String::new();
-    }
-
-    let key_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| {
-            matches!(
-                s.kind,
-                SymbolKind::Function
-                    | SymbolKind::Class
-                    | SymbolKind::Struct
-                    | SymbolKind::Trait
-                    | SymbolKind::Enum
-                    | SymbolKind::Interface
-            ) && s.visibility != Visibility::Private
-        })
-        .collect();
-
-    let symbols_to_use: Vec<_> = if key_symbols.is_empty() {
-        symbols
-            .iter()
-            .filter(|s| s.kind != SymbolKind::Import)
-            .take(20)
-            .collect()
-    } else {
-        key_symbols.into_iter().take(30).collect()
-    };
-
-    #[derive(Clone)]
-    struct SymbolRange {
-        start: u32,
-        end: u32,
-        labels: Vec<String>,
-    }
-
-    let mut ranges = Vec::new();
-    let mut fallback_snippets = Vec::new();
-
-    for symbol in symbols_to_use {
-        let label = format!("{}: {}", symbol.kind.name(), symbol.name);
-        if symbol.start_line > 0
-            && symbol.end_line >= symbol.start_line
-            && symbol.start_line <= total_lines
-        {
-            let start = symbol.start_line.saturating_sub(CONTEXT_LINES).max(1);
-            let end = symbol
-                .end_line
-                .max(symbol.start_line)
-                .saturating_add(CONTEXT_LINES)
-                .min(total_lines);
-            ranges.push(SymbolRange {
-                start,
-                end,
-                labels: vec![label],
-            });
-        } else if let Some(ref sig) = symbol.signature {
-            fallback_snippets.push(format!("// {}\n{}", label, sig.trim()));
-        }
-    }
-
-    if ranges.is_empty() && fallback_snippets.is_empty() {
-        return signature_lines(content);
-    }
-
-    ranges.sort_by_key(|r| r.start);
-    let mut merged: Vec<SymbolRange> = Vec::new();
-
-    for range in ranges {
-        if let Some(last) = merged.last_mut() {
-            if range.start <= last.end.saturating_add(1) {
-                last.end = last.end.max(range.end);
-                for label in range.labels {
-                    if !last.labels.contains(&label) {
-                        last.labels.push(label);
-                    }
-                }
-            } else {
-                merged.push(range);
-            }
-        } else {
-            merged.push(range);
-        }
-    }
-
-    let mut result = String::new();
-    for range in merged {
-        result.push_str(&format!(
-            "// Focused symbols: {}\n",
-            range.labels.join(", ")
-        ));
-        let start_idx = range.start.saturating_sub(1) as usize;
-        let end_idx = range.end.saturating_sub(1) as usize;
-        if start_idx <= end_idx && end_idx < lines.len() {
-            result.push_str(&lines[start_idx..=end_idx].join("\n"));
-            result.push('\n');
-        }
-        result.push('\n');
-    }
-
-    if !fallback_snippets.is_empty() {
-        result.push_str("// Additional signatures\n");
-        for snippet in fallback_snippets {
-            result.push_str(&snippet);
-            result.push('\n');
-        }
-    }
-
-    result
-}
-
-fn parse_compression(compression: Option<&str>) -> Result<CompressionLevel> {
-    match compression.unwrap_or("balanced") {
-        "none" => Ok(CompressionLevel::None),
-        "minimal" => Ok(CompressionLevel::Minimal),
-        "balanced" => Ok(CompressionLevel::Balanced),
-        "aggressive" => Ok(CompressionLevel::Aggressive),
-        "extreme" => Ok(CompressionLevel::Extreme),
-        "focused" => Ok(CompressionLevel::Focused),
-        "semantic" => Ok(CompressionLevel::Semantic),
-        other => Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Unknown compression: {}. Use 'none', 'minimal', 'balanced', 'aggressive', 'extreme', 'focused', or 'semantic'",
-                other
-            ),
-        )),
-    }
+fn napi_parse_compression(compression: Option<&str>) -> Result<CompressionLevel> {
+    parse_compression(compression).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
 }
 
 /// Parse security severity threshold (Bug #5 fix)
-fn parse_security_threshold(threshold: Option<&str>) -> Result<infiniloom_engine::security::Severity> {
-    use infiniloom_engine::security::Severity;
-    match threshold.unwrap_or("critical").to_lowercase().as_str() {
-        "critical" => Ok(Severity::Critical),
-        "high" => Ok(Severity::High),
-        "medium" => Ok(Severity::Medium),
-        "low" => Ok(Severity::Low),
-        other => Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Unknown security threshold: {}. Use 'critical', 'high', 'medium', or 'low'",
-                other
-            ),
-        )),
-    }
-}
-
-/// Check if a severity is at or above a threshold
-fn severity_at_or_above(
-    severity: &infiniloom_engine::security::Severity,
-    threshold: &infiniloom_engine::security::Severity,
-) -> bool {
-    use infiniloom_engine::security::Severity;
-    let severity_level = match severity {
-        Severity::Critical => 4,
-        Severity::High => 3,
-        Severity::Medium => 2,
-        Severity::Low => 1,
-    };
-    let threshold_level = match threshold {
-        Severity::Critical => 4,
-        Severity::High => 3,
-        Severity::Medium => 2,
-        Severity::Low => 1,
-    };
-    severity_level >= threshold_level
-}
-
-/// Check if a path matches any of the given glob patterns (Bug #3 fix)
-fn matches_any_pattern(path: &str, patterns: &[&str]) -> bool {
-    for pattern in patterns {
-        if let Ok(glob) = glob::Pattern::new(pattern) {
-            if glob.matches(path) {
-                return true;
-            }
-        }
-        // Also check if pattern matches any path component
-        if let Some(suffix) = pattern.strip_prefix("**/") {
-            if let Ok(glob) = glob::Pattern::new(suffix) {
-                // Check against each component and suffix of path
-                for (i, _) in path.match_indices('/') {
-                    if glob.matches(&path[i + 1..]) {
-                        return true;
-                    }
-                }
-                if glob.matches(path) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+fn parse_security_threshold(threshold: Option<&str>) -> Result<Severity> {
+    common_parse_security_threshold(threshold).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
 }
 
 /// Compress text using semantic compression
@@ -1906,22 +1425,7 @@ pub fn scan_security(path: String) -> Result<Vec<SecurityFinding>> {
 
 /// Format FileStatus as string
 fn format_file_status(status: EngineFileStatus) -> String {
-    match status {
-        EngineFileStatus::Added => "Added".to_string(),
-        EngineFileStatus::Modified => "Modified".to_string(),
-        EngineFileStatus::Deleted => "Deleted".to_string(),
-        EngineFileStatus::Renamed => "Renamed".to_string(),
-        EngineFileStatus::Copied => "Copied".to_string(),
-        EngineFileStatus::Unknown => "Unknown".to_string(),
-    }
-}
-
-/// Format Unix timestamp to ISO 8601 string
-fn format_timestamp(timestamp: u64) -> String {
-    use std::time::{Duration, UNIX_EPOCH};
-    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    // Simple ISO 8601 format
-    format!("{:?}", datetime)
+    common_format_file_status(status).to_string()
 }
 
 // ============================================================================
@@ -2558,8 +2062,8 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
 
     let max_tokens = opts.max_tokens.unwrap_or(8000);
     let overlap = opts.overlap.unwrap_or(0);
-    let model = parse_model(opts.model.as_deref())?;
-    let format = parse_format(opts.format.as_deref())?;
+    let model = napi_parse_model(opts.model.as_deref())?;
+    let format = napi_parse_format(opts.format.as_deref())?;
     let priority_first = opts.priority_first.unwrap_or(false);
 
     // Scan repository
@@ -2567,8 +2071,7 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
     let mut repo = scan_repository_with_options(&path, model, true, !needs_symbols)?;
 
     // Apply default ignores
-    repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
-    repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    apply_default_ignores(&mut repo);
 
     // Create chunker
     let chunker = Chunker::new(strategy, max_tokens)
@@ -2639,36 +2142,6 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
         .collect();
 
     Ok(result)
-}
-
-/// Calculate priority score for a file path
-fn file_priority_score(path: &str) -> f64 {
-    let path_lower = path.to_lowercase();
-
-    // Core source files
-    if path_lower.contains("src/") || path_lower.contains("lib/") {
-        if path_lower.contains("main") || path_lower.contains("index") || path_lower.contains("app") {
-            return 1.0;
-        }
-        return 0.8;
-    }
-
-    // Config files
-    if path_lower.ends_with(".json") || path_lower.ends_with(".yaml") || path_lower.ends_with(".toml") {
-        return 0.6;
-    }
-
-    // Test files
-    if path_lower.contains("test") || path_lower.contains("spec") {
-        return 0.3;
-    }
-
-    // Docs
-    if path_lower.contains("doc") || path_lower.ends_with(".md") {
-        return 0.2;
-    }
-
-    0.5
 }
 
 // ============================================================================

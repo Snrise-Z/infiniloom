@@ -1,7 +1,7 @@
 //! Specification-based black-box tests
 //!
 //! These tests verify behavior against specifications, NOT implementation.
-//! Each test case corresponds to a TC-* identifier in TEST_SPECIFICATION.md
+//! Each test case corresponds to a TC-* identifier in docs/TEST_SPECIFICATION.md
 //!
 //! The test fixtures are created fresh with known content, and expectations
 //! are defined independently of how the code works internally.

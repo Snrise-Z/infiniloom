@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "engine",
     "cli",
+    "bindings/common",
 ]
 exclude = [
     "bindings/python",
@@ -11,7 +12,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.91"
 license = "MIT"

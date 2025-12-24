@@ -16,50 +16,73 @@ static RE_EXAMPLE_WORD: Lazy<Regex> = Lazy::new(|| {
     //
     // The regex allows dots in word boundaries to handle domain examples like
     // db.example.com without matching.
-    Regex::new(r"(?i)(?:^|[^a-zA-Z0-9.])example(?:[^a-zA-Z0-9.]|$)").unwrap()
+    Regex::new(r"(?i)(?:^|[^a-zA-Z0-9.])example(?:[^a-zA-Z0-9.]|$)")
+        .expect("RE_EXAMPLE_WORD: invalid regex pattern")
 });
 
 // Pre-compiled regex patterns (compiled once, reused across all scanner instances)
-static RE_AWS_KEY: Lazy<Regex> = Lazy::new(|| Regex::new(r"AKIA[0-9A-Z]{16}").unwrap());
+static RE_AWS_KEY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"AKIA[0-9A-Z]{16}").expect("RE_AWS_KEY: invalid regex pattern"));
 static RE_AWS_SECRET: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)aws[_-]?secret[_-]?access[_-]?key['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})"#)
-        .unwrap()
+        .expect("RE_AWS_SECRET: invalid regex pattern")
 });
 // GitHub Personal Access Token (classic) - 36 alphanumeric chars after prefix
-static RE_GITHUB_PAT: Lazy<Regex> = Lazy::new(|| Regex::new(r"ghp_[A-Za-z0-9]{36}").unwrap());
+static RE_GITHUB_PAT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"ghp_[A-Za-z0-9]{36}").expect("RE_GITHUB_PAT: invalid regex pattern")
+});
 // GitHub fine-grained PAT
-static RE_GITHUB_FINE_PAT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}").unwrap());
+static RE_GITHUB_FINE_PAT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}")
+        .expect("RE_GITHUB_FINE_PAT: invalid regex pattern")
+});
 // GitHub OAuth, user-to-server, server-to-server, and refresh tokens
-static RE_GITHUB_OTHER_TOKENS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"gh[ours]_[A-Za-z0-9]{36,}").unwrap());
-static RE_PRIVATE_KEY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap());
+static RE_GITHUB_OTHER_TOKENS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"gh[ours]_[A-Za-z0-9]{36,}").expect("RE_GITHUB_OTHER_TOKENS: invalid regex pattern")
+});
+static RE_PRIVATE_KEY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")
+        .expect("RE_PRIVATE_KEY: invalid regex pattern")
+});
 static RE_API_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)(?:api[_-]?key|apikey)['"]?\s*[:=]\s*['"]?([A-Za-z0-9_-]{20,})"#).unwrap()
+    Regex::new(r#"(?i)(?:api[_-]?key|apikey)['"]?\s*[:=]\s*['"]?([A-Za-z0-9_-]{20,})"#)
+        .expect("RE_API_KEY: invalid regex pattern")
 });
 static RE_SECRET_TOKEN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)(?:secret|token)['"]?\s*[:=]\s*['"]?([A-Za-z0-9_-]{20,})"#).unwrap()
+    Regex::new(r#"(?i)(?:secret|token)['"]?\s*[:=]\s*['"]?([A-Za-z0-9_-]{20,})"#)
+        .expect("RE_SECRET_TOKEN: invalid regex pattern")
 });
-static RE_PASSWORD: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)password['"]?\s*[:=]\s*['"]?([^'"\s]{8,})"#).unwrap());
+static RE_PASSWORD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?i)password['"]?\s*[:=]\s*['"]?([^'"\s]{8,})"#)
+        .expect("RE_PASSWORD: invalid regex pattern")
+});
 static RE_CONN_STRING: Lazy<Regex> = Lazy::new(|| {
     // Note: postgres and postgresql are both valid (postgresql:// is more common in practice)
     Regex::new(
         r#"(?i)(?:mongodb|postgres(?:ql)?|mysql|redis|mariadb|cockroachdb|mssql)://[^\s'"]+"#,
     )
-    .unwrap()
+    .expect("RE_CONN_STRING: invalid regex pattern")
 });
-static RE_JWT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*").unwrap());
-static RE_SLACK: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}").unwrap());
-static RE_STRIPE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?:sk|pk)_(?:test|live)_[A-Za-z0-9]{24,}").unwrap());
+static RE_JWT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*")
+        .expect("RE_JWT: invalid regex pattern")
+});
+static RE_SLACK: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}")
+        .expect("RE_SLACK: invalid regex pattern")
+});
+static RE_STRIPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:sk|pk)_(?:test|live)_[A-Za-z0-9]{24,}")
+        .expect("RE_STRIPE: invalid regex pattern")
+});
 // OpenAI API keys (sk-... followed by alphanumeric characters)
-static RE_OPENAI: Lazy<Regex> = Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").unwrap());
+static RE_OPENAI: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"sk-[A-Za-z0-9]{32,}").expect("RE_OPENAI: invalid regex pattern")
+});
 // Anthropic API keys (sk-ant-...)
-static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").unwrap());
+static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").expect("RE_ANTHROPIC: invalid regex pattern")
+});
 
 /// A detected secret or sensitive data
 #[derive(Debug, Clone)]

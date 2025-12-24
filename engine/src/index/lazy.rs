@@ -31,7 +31,9 @@ pub enum LazyError {
     FileNotFound(String),
 }
 
-static IDENT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").unwrap());
+static IDENT_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("IDENT_RE: invalid regex pattern")
+});
 
 static COMMON_KEYWORDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [

@@ -107,7 +107,9 @@
 
 // Core modules
 pub mod chunking;
+pub mod constants;
 pub mod default_ignores;
+pub mod newtypes;
 pub mod output;
 pub mod parser;
 pub mod ranking;
@@ -142,6 +144,13 @@ pub mod error;
 
 // Re-exports from core modules
 pub use chunking::{Chunk, ChunkStrategy, Chunker};
+pub use constants::{
+    budget as budget_constants, compression as compression_constants,
+    files as file_constants, index as index_constants, pagerank as pagerank_constants,
+    parser as parser_constants, repomap as repomap_constants, security as security_constants,
+    timeouts as timeout_constants,
+};
+pub use newtypes::{ByteOffset, FileSize, ImportanceScore, LineNumber, SymbolId, TokenCount};
 pub use output::{OutputFormat, OutputFormatter};
 pub use parser::{Language, Parser, ParserError};
 pub use ranking::{count_symbol_references, rank_files, sort_files_by_importance, SymbolRanker};
@@ -181,10 +190,10 @@ pub use error::{InfiniloomError, Result as InfiniloomResult};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Default token budget for repository maps
-pub const DEFAULT_MAP_BUDGET: u32 = 2000;
+pub const DEFAULT_MAP_BUDGET: u32 = budget_constants::DEFAULT_MAP_BUDGET;
 
 /// Default chunk size in tokens
-pub const DEFAULT_CHUNK_SIZE: u32 = 8000;
+pub const DEFAULT_CHUNK_SIZE: u32 = budget_constants::DEFAULT_CHUNK_SIZE;
 
 #[cfg(test)]
 mod tests {

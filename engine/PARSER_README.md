@@ -183,6 +183,19 @@ The parser extracts the following symbol types (defined in `SymbolKind`):
 
 ## Architecture
 
+### Module Structure
+
+```
+parser/
+├── mod.rs           # Public API, re-exports
+├── core.rs          # Parser struct, main entry point
+├── language.rs      # Language enum (21 variants)
+├── extraction.rs    # Symbol extraction from AST nodes
+├── queries.rs       # Tree-sitter query strings per language
+├── query_builder.rs # Super-query construction
+└── init.rs          # Tree-sitter parser initialization
+```
+
 ### Parser Structure
 
 ```rust
@@ -358,7 +371,7 @@ To add support for a new language:
 
 - [Tree-sitter Documentation](https://tree-sitter.github.io/tree-sitter/)
 - [Tree-sitter Playground](https://tree-sitter.github.io/tree-sitter/playground)
-- [Infiniloom Documentation](https://toposlabs.ai/infiniloom/)
+- [Infiniloom GitHub](https://github.com/Topos-Labs/infiniloom)
 
 ## License
 

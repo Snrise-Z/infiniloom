@@ -43,8 +43,8 @@ pub mod types;
 // Re-exports
 pub use builder::{BuildError, BuildOptions, IndexBuilder};
 pub use context::{
-    CallChain, ChangeType, ContextDepth, ContextExpander, ContextFile, ContextSnippet,
-    ContextSymbol, DiffChange, ExpandedContext, ImpactLevel, ImpactSummary,
+    CallChain, ChangeClassification, ChangeType, ContextDepth, ContextExpander, ContextFile,
+    ContextSnippet, ContextSymbol, DiffChange, ExpandedContext, ImpactLevel, ImpactSummary,
 };
 pub use lazy::{LazyContextBuilder, LazyError};
 pub use query::{

@@ -247,7 +247,7 @@ impl MmapScanner {
                 Ok(Some(file)) => Some(file),
                 Ok(None) => None,
                 Err(e) => {
-                    log::debug!("Error scanning {:?}: {}", path, e);
+                    tracing::debug!("Error scanning {:?}: {}", path, e);
                     None
                 },
             })

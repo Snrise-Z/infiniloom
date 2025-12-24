@@ -462,3 +462,235 @@ proptest! {
         prop_assert!(count as usize <= text.len());
     }
 }
+
+// ============================================================================
+// Parser Property Tests
+// ============================================================================
+
+use infiniloom_engine::parser::{Language, Parser};
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    /// Parser should never panic on arbitrary input (Python)
+    #[test]
+    fn prop_parser_no_panic_python(code in "\\PC{0,500}") {
+        let mut parser = Parser::new();
+        // Should not panic - may return error or empty symbols
+        let _ = parser.parse(&code, Language::Python);
+    }
+
+    /// Parser should never panic on arbitrary input (JavaScript)
+    #[test]
+    fn prop_parser_no_panic_javascript(code in "\\PC{0,500}") {
+        let mut parser = Parser::new();
+        let _ = parser.parse(&code, Language::JavaScript);
+    }
+
+    /// Parser should never panic on arbitrary input (Rust)
+    #[test]
+    fn prop_parser_no_panic_rust(code in "\\PC{0,500}") {
+        let mut parser = Parser::new();
+        let _ = parser.parse(&code, Language::Rust);
+    }
+
+    /// Parsed symbols should have valid line numbers (start <= end, both >= 1)
+    #[test]
+    fn prop_python_symbols_valid_lines(
+        name in "[a-z_][a-z0-9_]{0,20}",
+        body_lines in 1usize..10,
+    ) {
+        let code = format!(
+            "def {}():\n{}",
+            name,
+            "    pass\n".repeat(body_lines)
+        );
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Python) {
+            for symbol in &symbols {
+                prop_assert!(
+                    symbol.start_line >= 1,
+                    "Symbol {} has invalid start_line: {}",
+                    symbol.name, symbol.start_line
+                );
+                prop_assert!(
+                    symbol.end_line >= symbol.start_line,
+                    "Symbol {} has end_line {} < start_line {}",
+                    symbol.name, symbol.end_line, symbol.start_line
+                );
+            }
+        }
+    }
+
+    /// Parsed symbols should have non-empty names
+    #[test]
+    fn prop_symbol_names_nonempty(
+        func_name in "[a-zA-Z_][a-zA-Z0-9_]{0,20}",
+    ) {
+        let code = format!("def {}(): pass", func_name);
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Python) {
+            for symbol in &symbols {
+                prop_assert!(
+                    !symbol.name.is_empty(),
+                    "Symbol has empty name"
+                );
+            }
+        }
+    }
+
+    /// Parsing should be deterministic - same input always gives same output
+    #[test]
+    fn prop_parse_deterministic(
+        name in "[a-z_][a-z0-9_]{0,15}",
+        params in "[a-z, ]{0,30}",
+    ) {
+        let code = format!("def {}({}):\n    pass", name, params);
+
+        let mut parser1 = Parser::new();
+        let mut parser2 = Parser::new();
+
+        let result1 = parser1.parse(&code, Language::Python);
+        let result2 = parser2.parse(&code, Language::Python);
+
+        match (result1, result2) {
+            (Ok(symbols1), Ok(symbols2)) => {
+                prop_assert_eq!(
+                    symbols1.len(), symbols2.len(),
+                    "Different symbol counts"
+                );
+                for (s1, s2) in symbols1.iter().zip(symbols2.iter()) {
+                    prop_assert_eq!(&s1.name, &s2.name);
+                    prop_assert_eq!(s1.start_line, s2.start_line);
+                    prop_assert_eq!(s1.end_line, s2.end_line);
+                }
+            },
+            (Err(_), Err(_)) => {
+                // Both failed - that's consistent
+            },
+            _ => {
+                prop_assert!(false, "Inconsistent parse results");
+            }
+        }
+    }
+
+    /// Class parsing should produce valid symbols
+    #[test]
+    fn prop_class_symbols_valid(
+        class_name in "[A-Z][a-zA-Z0-9]{0,15}",
+        method_name in "[a-z_][a-z0-9_]{0,15}",
+    ) {
+        let code = format!(
+            "class {}:\n    def {}(self):\n        pass",
+            class_name, method_name
+        );
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Python) {
+            // Should find at least the class
+            let class_symbols: Vec<_> = symbols.iter()
+                .filter(|s| s.name == class_name)
+                .collect();
+            prop_assert!(
+                !class_symbols.is_empty(),
+                "Class {} not found in symbols",
+                class_name
+            );
+
+            // All symbols should have valid line ranges
+            for symbol in &symbols {
+                prop_assert!(symbol.start_line >= 1);
+                prop_assert!(symbol.end_line >= symbol.start_line);
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(50))]
+
+    /// JavaScript function parsing
+    #[test]
+    fn prop_js_function_parsing(
+        func_name in "[a-z][a-zA-Z0-9]{0,15}",
+        param_count in 0usize..5,
+    ) {
+        let params: String = (0..param_count)
+            .map(|i| format!("arg{}", i))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = format!("function {}({}) {{ return 42; }}", func_name, params);
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::JavaScript) {
+            for symbol in &symbols {
+                prop_assert!(symbol.start_line >= 1);
+                prop_assert!(symbol.end_line >= symbol.start_line);
+                prop_assert!(!symbol.name.is_empty());
+            }
+        }
+    }
+
+    /// Rust function parsing
+    #[test]
+    fn prop_rust_function_parsing(
+        func_name in "[a-z_][a-z0-9_]{0,15}",
+    ) {
+        let code = format!("fn {}() {{ }}", func_name);
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Rust) {
+            let func_symbols: Vec<_> = symbols.iter()
+                .filter(|s| s.name == func_name)
+                .collect();
+            prop_assert!(
+                !func_symbols.is_empty(),
+                "Function {} not found",
+                func_name
+            );
+        }
+    }
+
+    /// Go function parsing
+    #[test]
+    fn prop_go_function_parsing(
+        func_name in "[A-Z][a-zA-Z0-9]{0,15}",
+    ) {
+        let code = format!("package main\n\nfunc {}() {{}}", func_name);
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Go) {
+            for symbol in &symbols {
+                prop_assert!(symbol.start_line >= 1);
+                prop_assert!(!symbol.name.is_empty());
+            }
+        }
+    }
+
+    /// Nested structures should have proper line ranges
+    #[test]
+    fn prop_nested_line_ranges(
+        class_name in "[A-Z][a-zA-Z]{0,10}",
+        method_count in 1usize..5,
+    ) {
+        let methods: String = (0..method_count)
+            .map(|i| format!("    def method_{}(self):\n        pass\n", i))
+            .collect();
+        let code = format!("class {}:\n{}", class_name, methods);
+
+        let mut parser = Parser::new();
+        if let Ok(symbols) = parser.parse(&code, Language::Python) {
+            // All symbols should be within the source code line count
+            let line_count = code.lines().count() as u32;
+            for symbol in &symbols {
+                prop_assert!(
+                    symbol.end_line <= line_count + 1,
+                    "Symbol {} ends at line {} but code only has {} lines",
+                    symbol.name, symbol.end_line, line_count
+                );
+            }
+        }
+    }
+}

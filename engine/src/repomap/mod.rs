@@ -2,28 +2,7 @@
 
 mod graph;
 
-// ============================================================================
-// Token estimation constants for budget calculations
-// ============================================================================
-// These values are derived from empirical analysis of typical repository maps:
-// - Symbol entries include name, kind, file, line, signature (~25 tokens avg)
-// - File entries include path, tokens, importance (~10 tokens avg)
-// - Overhead covers headers, summary text, formatting (~100 tokens)
-
-/// Estimated tokens per symbol entry in the repository map
-const TOKENS_PER_SYMBOL: u32 = 25;
-
-/// Estimated tokens per file entry in the file index
-const TOKENS_PER_FILE: u32 = 10;
-
-/// Fixed token overhead for headers, summary, and formatting
-const TOKEN_OVERHEAD: u32 = 100;
-
-/// Divisor for computing max symbols from budget (includes safety margin)
-/// Formula: max_symbols = budget / BUDGET_SYMBOL_DIVISOR
-/// Bug #7 fix: Reduced from 30 to 20 for more pronounced effect
-const BUDGET_SYMBOL_DIVISOR: usize = 20;
-const SUMMARY_MAX_LEN: usize = 120;
+use crate::constants::repomap as repomap_consts;
 
 fn summarize_symbol(symbol: &Symbol) -> Option<String> {
     let line = symbol
@@ -32,7 +11,7 @@ fn summarize_symbol(symbol: &Symbol) -> Option<String> {
         .and_then(first_nonempty_line)
         .or_else(|| symbol.signature.as_deref().and_then(first_nonempty_line));
 
-    line.map(|text| truncate_summary(text, SUMMARY_MAX_LEN))
+    line.map(|text| truncate_summary(text, repomap_consts::SUMMARY_MAX_LEN))
 }
 
 fn first_nonempty_line(text: &str) -> Option<&str> {
@@ -201,7 +180,8 @@ impl RepoMapGenerator {
         self.max_symbols.unwrap_or_else(|| {
             // Use constants for token estimation (see module-level documentation)
             // Bug #7 fix: Increased max from 200 to 500 for larger budgets
-            ((self.token_budget as usize) / BUDGET_SYMBOL_DIVISOR).clamp(5, 500)
+            ((self.token_budget as usize) / repomap_consts::BUDGET_SYMBOL_DIVISOR)
+                .clamp(repomap_consts::MIN_SYMBOLS, repomap_consts::MAX_SYMBOLS)
         })
     }
 
@@ -506,13 +486,13 @@ impl RepoMapGenerator {
         });
 
         // Enforce token budget: limit file entries based on remaining budget
-        // Uses constants defined at module level for token estimation
-        let symbol_tokens = symbol_count as u32 * TOKENS_PER_SYMBOL;
+        // Uses centralized constants for token estimation
+        let symbol_tokens = symbol_count as u32 * repomap_consts::TOKENS_PER_SYMBOL;
         let remaining_budget = self
             .token_budget
             .saturating_sub(symbol_tokens)
-            .saturating_sub(TOKEN_OVERHEAD);
-        let max_files = (remaining_budget / TOKENS_PER_FILE) as usize;
+            .saturating_sub(repomap_consts::TOKEN_OVERHEAD);
+        let max_files = (remaining_budget / repomap_consts::TOKENS_PER_FILE) as usize;
 
         if files.len() > max_files && max_files > 0 {
             files.truncate(max_files);
@@ -551,11 +531,11 @@ impl RepoMapGenerator {
     }
 
     fn estimate_tokens(&self, symbols: &[RankedSymbol], files: &[FileIndexEntry]) -> u32 {
-        // Uses constants defined at module level for token estimation
-        let symbol_tokens = symbols.len() as u32 * TOKENS_PER_SYMBOL;
-        let file_tokens = files.len() as u32 * TOKENS_PER_FILE;
+        // Uses centralized constants for token estimation
+        let symbol_tokens = symbols.len() as u32 * repomap_consts::TOKENS_PER_SYMBOL;
+        let file_tokens = files.len() as u32 * repomap_consts::TOKENS_PER_FILE;
 
-        symbol_tokens + file_tokens + TOKEN_OVERHEAD
+        symbol_tokens + file_tokens + repomap_consts::TOKEN_OVERHEAD
     }
 
     /// Strip language extension from a file path for indexing
@@ -778,17 +758,17 @@ mod tests {
         // 2000 / 20 = 100
         // 10000 / 20 = 500
         assert!(
-            small_max >= 20 && small_max <= 30,
+            (20..=30).contains(&small_max),
             "Small max_symbols should be ~25, got {}",
             small_max
         );
         assert!(
-            medium_max >= 90 && medium_max <= 110,
+            (90..=110).contains(&medium_max),
             "Medium max_symbols should be ~100, got {}",
             medium_max
         );
         assert!(
-            large_max >= 400 && large_max <= 500,
+            (400..=500).contains(&large_max),
             "Large max_symbols should be ~500, got {}",
             large_max
         );
@@ -796,12 +776,14 @@ mod tests {
 
     #[test]
     fn test_map_budget_min_max_clamped() {
+        use crate::constants::repomap as consts;
+
         // Very small budget should clamp to minimum
         let tiny = RepoMapGenerator::new(10);
-        assert_eq!(tiny.effective_max_symbols(), 5);
+        assert_eq!(tiny.effective_max_symbols(), consts::MIN_SYMBOLS);
 
         // Very large budget should clamp to maximum
         let huge = RepoMapGenerator::new(100_000);
-        assert_eq!(huge.effective_max_symbols(), 500);
+        assert_eq!(huge.effective_max_symbols(), consts::MAX_SYMBOLS);
     }
 }

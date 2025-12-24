@@ -296,8 +296,7 @@ impl SemanticCompressor {
                 // Calculate how many instances to keep based on budget_ratio
                 let instances_to_show = (count as f32 * self.config.budget_ratio)
                     .ceil()
-                    .max(1.0)
-                    .min(5.0) as usize;
+                    .clamp(1.0, 5.0) as usize;
 
                 let shown_content = pattern.repeat(instances_to_show);
                 let remainder = &content[count * pattern_len..];
@@ -594,21 +593,24 @@ impl SemanticCompressor {
                 .ok_or_else(|| SemanticError::ClusteringError("Missing embedding".into()))?;
 
             // Find existing cluster with similar embedding
-            let mut assigned = false;
+            let mut target_cluster = None;
             for (&cluster_id, cluster_chunks) in &clusters {
                 if let Some(first) = cluster_chunks.first() {
                     if let Some(ref first_emb) = first.embedding {
                         let similarity = cosine_similarity(embedding, first_emb);
                         if similarity >= self.config.similarity_threshold {
-                            clusters.get_mut(&cluster_id).unwrap().push(chunk);
-                            assigned = true;
+                            target_cluster = Some(cluster_id);
                             break;
                         }
                     }
                 }
             }
 
-            if !assigned {
+            if let Some(cluster_id) = target_cluster {
+                if let Some(cluster) = clusters.get_mut(&cluster_id) {
+                    cluster.push(chunk);
+                }
+            } else {
                 clusters.insert(next_cluster, vec![chunk]);
                 next_cluster += 1;
             }

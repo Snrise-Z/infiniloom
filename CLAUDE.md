@@ -106,44 +106,94 @@ infiniloom impact --symbol "foo"      # What calls this symbol?
 
 ```
 infiniloom/
-├── cli/                    # CLI application (clap-based)
+├── cli/                        # CLI application (clap-based)
 │   └── src/
-│       ├── main.rs         # Command handling, argument parsing
-│       └── scanner.rs      # Repository scanning with parallel processing
-├── engine/                 # Core Rust engine library
+│       ├── main.rs             # CLI entry point, argument parsing
+│       ├── config.rs           # Configuration loading utilities
+│       ├── scanner.rs          # Repository scanning with parallel processing
+│       └── commands/           # Individual command implementations
+│           ├── mod.rs          # Command module exports
+│           ├── pack.rs         # Pack command (main output generation)
+│           ├── scan.rs         # Scan command (statistics)
+│           ├── map.rs          # Map command (symbol ranking)
+│           ├── chunk.rs        # Chunk command (repo splitting)
+│           ├── diff.rs         # Diff command (context-aware diffs)
+│           ├── index.rs        # Index command (build symbol index)
+│           ├── impact.rs       # Impact command (change analysis)
+│           ├── init.rs         # Init command (config file creation)
+│           └── info.rs         # Info command (version/config display)
+├── engine/                     # Core Rust engine library
 │   └── src/
-│       ├── lib.rs          # Public API exports
-│       ├── types.rs        # Core types: Repository, RepoFile, Symbol
-│       ├── parser.rs       # Tree-sitter AST parsing (21 languages)
-│       ├── repomap/        # PageRank symbol ranking
-│       │   ├── mod.rs      # RepoMapGenerator
-│       │   └── graph.rs    # SymbolGraph, PageRank computation
-│       ├── output/         # Format generators
-│       │   ├── xml.rs      # Claude-optimized XML
-│       │   ├── markdown.rs # GPT-optimized Markdown
-│       │   └── toon.rs     # Token-efficient TOON format
-│       ├── ranking.rs      # File importance ranking
-│       ├── security.rs     # Secret detection/redaction
-│       ├── tokenizer.rs    # Multi-model token counting (tiktoken-rs)
-│       ├── chunking/       # Semantic code chunking
-│       ├── config.rs       # Configuration loading (YAML/TOML/JSON)
-│       ├── git.rs          # Git operations (log, status, diff)
-│       ├── remote.rs       # Remote repository cloning
-│       ├── dependencies.rs # Dependency graph resolution
-│       ├── mmap_scanner.rs # Memory-mapped file scanning
-│       └── index/          # Symbol index for fast diff context
-│           ├── mod.rs      # Module exports
-│           ├── builder.rs  # Index building with parallel parsing
-│           ├── context.rs  # Diff context expansion
-│           ├── lazy.rs     # On-the-fly context generation
-│           ├── storage.rs  # Bincode serialization
-│           ├── types.rs    # Index types (SymbolIndex, DepGraph)
-│           ├── query.rs    # Call graph query API (callers, callees, references)
-│           ├── convert.rs  # Shared type conversion utilities
-│           └── patterns.rs # Pre-compiled regex patterns
-└── bindings/               # Language bindings
-    ├── python/             # PyO3 bindings (maturin)
-    └── node/               # NAPI-RS bindings
+│       ├── lib.rs              # Public API exports
+│       ├── types.rs            # Core types: Repository, RepoFile, Symbol
+│       ├── constants.rs        # Shared constants and magic numbers
+│       ├── newtypes.rs         # Type-safe wrappers (SymbolId, FileId, etc.)
+│       ├── error.rs            # Error types
+│       ├── parser/             # Tree-sitter AST parsing (21 languages)
+│       │   ├── mod.rs          # Parser module exports
+│       │   ├── core.rs         # Core Parser struct and methods
+│       │   ├── language.rs     # Language enum and detection
+│       │   ├── extraction.rs   # Symbol extraction from AST
+│       │   ├── init.rs         # Tree-sitter initialization
+│       │   ├── queries.rs      # Tree-sitter query definitions
+│       │   └── query_builder.rs # Dynamic query construction
+│       ├── tokenizer/          # Multi-model token counting
+│       │   ├── mod.rs          # Tokenizer module exports
+│       │   ├── core.rs         # Tokenizer struct and counting
+│       │   ├── models.rs       # TokenizerModel enum (27 models)
+│       │   └── counts.rs       # TokenCounts struct
+│       ├── repomap/            # PageRank symbol ranking
+│       │   ├── mod.rs          # RepoMapGenerator
+│       │   └── graph.rs        # SymbolGraph, PageRank computation
+│       ├── output/             # Format generators
+│       │   ├── mod.rs          # OutputFormatter trait
+│       │   ├── xml.rs          # Claude-optimized XML
+│       │   ├── markdown.rs     # GPT-optimized Markdown
+│       │   └── toon.rs         # Token-efficient TOON format
+│       ├── chunking/           # Semantic code chunking
+│       │   ├── mod.rs          # Chunker struct
+│       │   ├── strategies.rs   # ChunkStrategy implementations
+│       │   └── types.rs        # Chunk types
+│       ├── index/              # Symbol index for fast diff context
+│       │   ├── mod.rs          # Module exports
+│       │   ├── builder/        # Index building
+│       │   │   ├── mod.rs      # IndexBuilder struct
+│       │   │   ├── core.rs     # Build logic with parallel parsing
+│       │   │   ├── graph.rs    # Dependency graph construction
+│       │   │   └── types.rs    # Builder-specific types
+│       │   ├── context/        # Diff context expansion
+│       │   │   ├── mod.rs      # Context module exports
+│       │   │   ├── expander.rs # ContextExpander implementation
+│       │   │   └── types.rs    # Context types (DiffChange, etc.)
+│       │   ├── lazy.rs         # On-the-fly context generation
+│       │   ├── storage.rs      # Bincode serialization
+│       │   ├── types.rs        # Index types (SymbolIndex, DepGraph)
+│       │   ├── query.rs        # Call graph query API
+│       │   ├── convert.rs      # Type conversion utilities
+│       │   └── patterns.rs     # Pre-compiled regex patterns
+│       ├── ranking.rs          # File importance ranking
+│       ├── security.rs         # Secret detection/redaction
+│       ├── budget.rs           # Token budget management
+│       ├── semantic.rs         # Semantic compression
+│       ├── config.rs           # Configuration loading (YAML/TOML/JSON)
+│       ├── git.rs              # Git operations (log, status, diff, hunks)
+│       ├── remote.rs           # Remote repository cloning
+│       ├── dependencies.rs     # Dependency graph resolution
+│       ├── mmap_scanner.rs     # Memory-mapped file scanning
+│       ├── incremental.rs      # Incremental caching with change detection
+│       └── default_ignores.rs  # Default ignore patterns
+├── bindings/                   # Language bindings
+│   ├── common/                 # Shared bindings code
+│   │   └── src/
+│   │       ├── lib.rs          # Common utilities (parse_format, parse_model, etc.)
+│   │       ├── scanner.rs      # Shared repository scanning
+│   │       └── repo_ops.rs     # Shared repository operations
+│   ├── python/                 # PyO3 bindings (maturin)
+│   │   └── src/lib.rs          # Python module: pack, scan, GitRepo, etc.
+│   └── node/                   # NAPI-RS bindings
+│       └── src/lib.rs          # Node module: pack, scan, GitRepo, etc.
+└── packages/                   # Distribution packages
+    └── infiniloom/             # npm CLI wrapper (downloads binary)
 ```
 
 ### Core Types (`engine/src/types.rs`)
@@ -151,12 +201,25 @@ infiniloom/
 - **`Repository`**: Root container with name, path, files, and metadata
 - **`RepoFile`**: Single file with path, language, token counts, symbols, importance score
 - **`Symbol`**: Extracted code symbol (function, class, etc.) with kind, signature, line numbers
+- **`SymbolKind`**: Function, Class, Method, Struct, Enum, Trait, Interface, Constant, Variable, Import, Type
+- **`Visibility`**: Public, Private, Protected, Internal
+- **`CompressionLevel`**: None, Minimal, Balanced, Aggressive, Extreme, Focused, Semantic
+
+### Tokenizer Types (`engine/src/tokenizer/`)
+
 - **`TokenCounts`**: Token counts for multiple models grouped by encoding family:
   - `o200k`: OpenAI modern (GPT-5.x, GPT-4o, O1/O3/O4) - exact via tiktoken
   - `cl100k`: OpenAI legacy (GPT-4, GPT-3.5-turbo) - exact via tiktoken
   - `claude`, `gemini`, `llama`, `mistral`, `deepseek`, `qwen`, `cohere`, `grok`: estimation-based
 - **`TokenizerModel`**: Enum with 27 supported LLM tokenizers
-- **`CompressionLevel`**: None, Minimal, Balanced, Aggressive, Extreme
+- **`Tokenizer`**: Thread-safe tokenizer with lazy tiktoken initialization
+
+### Newtype Wrappers (`engine/src/newtypes.rs`)
+
+Type-safe wrappers to prevent ID confusion:
+- **`SymbolId`**: Unique identifier for symbols within an index
+- **`FileId`**: Unique identifier for files within an index
+- **`LineNumber`**: 1-indexed line number
 
 ### Index and Call Graph Types (`engine/src/index/`)
 
@@ -179,7 +242,7 @@ High-level functions for querying symbol relationships:
 ### Data Flow
 
 1. **Scanning** (`cli/scanner.rs`): Walk directory with `ignore` crate, filter by gitignore, detect languages
-2. **Parsing** (`parser.rs`): Tree-sitter AST extraction for symbols (thread-local parsers for parallelism)
+2. **Parsing** (`engine/src/parser/`): Tree-sitter AST extraction for symbols (thread-local parsers for parallelism)
 3. **Ranking** (`ranking.rs`, `repomap/`): PageRank-based importance scoring
 4. **Formatting** (`output/`): Model-specific output generation
 5. **Security** (`security.rs`): Secret detection before output
@@ -207,7 +270,7 @@ files.into_par_iter()
 - Computes PageRank with damping factor 0.85
 - Top symbols returned with importance scores
 
-**Accurate Token Counting** (`tokenizer.rs`):
+**Accurate Token Counting** (`engine/src/tokenizer/`):
 ```rust
 // Uses tiktoken-rs for exact OpenAI token counts
 let tokenizer = Tokenizer::new();

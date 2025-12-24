@@ -43,6 +43,8 @@
 //! - **Semantic**: Truncates at function/class boundaries (slower, preserves context)
 //! - **Hard**: Truncates at exact byte position (fastest, may break mid-statement)
 
+use crate::constants::budget as budget_consts;
+use crate::newtypes::TokenCount;
 use crate::tokenizer::{TokenModel, Tokenizer};
 use crate::types::Repository;
 
@@ -62,22 +64,22 @@ pub enum TruncationStrategy {
 #[derive(Debug, Clone, Copy)]
 pub struct BudgetConfig {
     /// Total token budget
-    pub budget: u32,
+    pub budget: TokenCount,
     /// Target tokenizer model
     pub model: TokenModel,
     /// Truncation strategy
     pub strategy: TruncationStrategy,
     /// Reserve tokens for overhead (headers, map, etc.)
-    pub overhead_reserve: u32,
+    pub overhead_reserve: TokenCount,
 }
 
 impl Default for BudgetConfig {
     fn default() -> Self {
         Self {
-            budget: 100_000,
+            budget: TokenCount::new(budget_consts::DEFAULT_BUDGET),
             model: TokenModel::Claude,
             strategy: TruncationStrategy::Line,
-            overhead_reserve: 1000,
+            overhead_reserve: TokenCount::new(budget_consts::OVERHEAD_RESERVE),
         }
     }
 }
@@ -96,7 +98,7 @@ impl BudgetEnforcer {
 
     /// Create with just budget and model
     pub fn with_budget(budget: u32, model: TokenModel) -> Self {
-        Self::new(BudgetConfig { budget, model, ..Default::default() })
+        Self::new(BudgetConfig { budget: TokenCount::new(budget), model, ..Default::default() })
     }
 
     /// Enforce budget on repository, truncating file contents as needed
@@ -104,13 +106,11 @@ impl BudgetEnforcer {
     /// Files are processed in importance order (highest first).
     /// Returns the number of files that were truncated.
     pub fn enforce(&self, repo: &mut Repository) -> EnforcementResult {
-        let available_budget = self
-            .config
-            .budget
-            .saturating_sub(self.config.overhead_reserve);
-        let mut used_tokens = 0u32;
+        let available_budget = self.config.budget.saturating_sub(self.config.overhead_reserve);
+        let mut used_tokens = TokenCount::zero();
         let mut truncated_count = 0usize;
         let mut excluded_count = 0usize;
+        let min_partial = TokenCount::new(budget_consts::MIN_PARTIAL_FIT_TOKENS);
 
         // Sort files by importance (descending)
         let mut file_indices: Vec<usize> = (0..repo.files.len()).collect();
@@ -125,16 +125,16 @@ impl BudgetEnforcer {
             let file = &mut repo.files[idx];
 
             if let Some(content) = file.content.as_ref() {
-                let file_tokens = self.count_tokens(content);
+                let file_tokens = TokenCount::new(self.count_tokens(content));
 
                 if used_tokens + file_tokens <= available_budget {
                     // File fits entirely
                     used_tokens += file_tokens;
-                } else if used_tokens + 100 < available_budget {
+                } else if used_tokens + min_partial < available_budget {
                     // Partial fit - truncate to remaining budget
-                    let remaining = available_budget - used_tokens;
-                    let truncated = self.truncate_to_tokens(content, remaining);
-                    let truncated_tokens = self.count_tokens(&truncated);
+                    let remaining = available_budget.saturating_sub(used_tokens);
+                    let truncated = self.truncate_to_tokens(content, remaining.get());
+                    let truncated_tokens = TokenCount::new(self.count_tokens(&truncated));
 
                     file.content = Some(truncated);
                     used_tokens += truncated_tokens;
@@ -151,7 +151,7 @@ impl BudgetEnforcer {
             total_tokens: used_tokens,
             truncated_files: truncated_count,
             excluded_files: excluded_count,
-            budget_used_pct: (used_tokens as f32 / available_budget as f32) * 100.0,
+            budget_used_pct: used_tokens.percentage_of(available_budget),
         }
     }
 
@@ -262,7 +262,7 @@ impl BudgetEnforcer {
         for pattern in patterns {
             if let Some(pos) = content.rfind(pattern) {
                 // Check if this position is better (closer to end)
-                if best_pos.is_none() || pos > best_pos.unwrap() {
+                if best_pos.map_or(true, |bp| pos > bp) {
                     best_pos = Some(pos);
                 }
             }
@@ -288,7 +288,7 @@ impl BudgetEnforcer {
 #[derive(Debug, Clone)]
 pub struct EnforcementResult {
     /// Total tokens used after enforcement
-    pub total_tokens: u32,
+    pub total_tokens: TokenCount,
     /// Number of files that were truncated
     pub truncated_files: usize,
     /// Number of files excluded entirely
@@ -484,13 +484,13 @@ mod tests {
     #[test]
     fn test_enforcement_result_fields() {
         let result = EnforcementResult {
-            total_tokens: 1000,
+            total_tokens: TokenCount::new(1000),
             truncated_files: 5,
             excluded_files: 2,
             budget_used_pct: 85.5,
         };
 
-        assert_eq!(result.total_tokens, 1000);
+        assert_eq!(result.total_tokens.get(), 1000);
         assert_eq!(result.truncated_files, 5);
         assert_eq!(result.excluded_files, 2);
         assert!((result.budget_used_pct - 85.5).abs() < 0.01);
@@ -498,9 +498,10 @@ mod tests {
 
     #[test]
     fn test_budget_config_default() {
+        use crate::constants::budget as budget_consts;
         let config = BudgetConfig::default();
-        assert_eq!(config.budget, 100_000);
+        assert_eq!(config.budget.get(), budget_consts::DEFAULT_BUDGET);
         assert!(matches!(config.strategy, TruncationStrategy::Line));
-        assert_eq!(config.overhead_reserve, 1000);
+        assert_eq!(config.overhead_reserve.get(), budget_consts::OVERHEAD_RESERVE);
     }
 }

@@ -9,15 +9,21 @@ use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::types::{PyDict, PyList};
 use std::path::PathBuf;
 
+// Import from infiniloom-bindings-common
+use infiniloom_bindings_common::{
+    parse_format, parse_model, parse_compression,
+    file_priority_score, format_file_status,
+    // Scanner from common crate
+    scan_repository, ScanConfig,
+    // Repository operations
+    apply_compression, apply_default_ignores, prepare_repository,
+};
+
 // Import from infiniloom-engine
 use infiniloom_engine::{
-    count_symbol_references,
-    default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
     git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile, DiffHunk as EngineGitDiffHunk},
-    rank_files, sort_files_by_importance,
-    tokenizer::TokenModel, CompressionLevel, HeuristicCompressor, OutputFormat, OutputFormatter,
+    tokenizer::TokenModel, OutputFormatter,
     RepoMapGenerator, Repository, SecurityScanner, SemanticCompressor, SemanticConfig, Tokenizer,
-    TokenizerModel, Symbol, SymbolKind, Visibility,
     // Index module
     index::{
         IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
@@ -34,9 +40,6 @@ use infiniloom_engine::{
     // Chunking module
     Chunker, ChunkStrategy,
 };
-
-mod scanner;
-use scanner::{scan_repository, ScanConfig};
 
 // Python exception for Infiniloom errors
 pyo3::create_exception!(infiniloom, InfiniloomError, pyo3::exceptions::PyException);
@@ -77,64 +80,17 @@ fn pack(
     redact_secrets: bool,
     skip_symbols: bool,
 ) -> PyResult<String> {
-    // Parse format
-    let output_format = match format.to_lowercase().as_str() {
-        "xml" => OutputFormat::Xml,
-        "markdown" | "md" => OutputFormat::Markdown,
-        "json" => OutputFormat::Json,
-        "yaml" | "yml" => OutputFormat::Yaml,
-        "toon" => OutputFormat::Toon,
-        "plain" | "text" | "txt" => OutputFormat::Plain,
-        _ => return Err(PyValueError::new_err(format!("Invalid format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", format))),
-    };
+    // Parse format using common crate
+    let output_format = parse_format(Some(format))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // Parse model
-    let tokenizer_model = match model.to_lowercase().as_str() {
-        "claude" => TokenizerModel::Claude,
-        // GPT-5.x series (latest)
-        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
-        "gpt-5.2-pro" | "gpt52-pro" => TokenizerModel::Gpt52Pro,
-        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
-        "gpt-5.1-mini" | "gpt51-mini" => TokenizerModel::Gpt51Mini,
-        "gpt-5.1-codex" | "gpt51-codex" => TokenizerModel::Gpt51Codex,
-        "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
-        "gpt-5-mini" | "gpt5-mini" => TokenizerModel::Gpt5Mini,
-        "gpt-5-nano" | "gpt5-nano" => TokenizerModel::Gpt5Nano,
-        // O-series reasoning models
-        "o4-mini" => TokenizerModel::O4Mini,
-        "o3" => TokenizerModel::O3,
-        "o3-mini" => TokenizerModel::O3Mini,
-        "o1" => TokenizerModel::O1,
-        "o1-mini" => TokenizerModel::O1Mini,
-        "o1-preview" => TokenizerModel::O1Preview,
-        // GPT-4 series
-        "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
-        "gpt-4o-mini" | "gpt4o-mini" => TokenizerModel::Gpt4oMini,
-        "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
-        "gpt-3.5-turbo" | "gpt35-turbo" => TokenizerModel::Gpt35Turbo,
-        // Other vendors
-        "gemini" => TokenizerModel::Gemini,
-        "llama" => TokenizerModel::Llama,
-        "codellama" => TokenizerModel::CodeLlama,
-        "mistral" => TokenizerModel::Mistral,
-        "deepseek" => TokenizerModel::DeepSeek,
-        "qwen" => TokenizerModel::Qwen,
-        "cohere" => TokenizerModel::Cohere,
-        "grok" => TokenizerModel::Grok,
-        _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok", model))),
-    };
+    // Parse model using common crate
+    let tokenizer_model = parse_model(Some(model))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // Parse compression level
-    let compression_level = match compression.to_lowercase().as_str() {
-        "none" => CompressionLevel::None,
-        "minimal" => CompressionLevel::Minimal,
-        "balanced" => CompressionLevel::Balanced,
-        "aggressive" => CompressionLevel::Aggressive,
-        "extreme" => CompressionLevel::Extreme,
-        "focused" => CompressionLevel::Focused,
-        "semantic" => CompressionLevel::Semantic,
-        _ => return Err(PyValueError::new_err(format!("Invalid compression: {}", compression))),
-    };
+    // Parse compression level using common crate
+    let compression_level = parse_compression(Some(compression))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Scan repository
     let path_buf = PathBuf::from(path);
@@ -149,96 +105,18 @@ fn pack(
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
-    repo.files.retain(|f| {
-        !matches_any(&f.relative_path, DEFAULT_IGNORES)
-            && !matches_any(&f.relative_path, TEST_IGNORES)
-    });
+    apply_default_ignores(&mut repo);
 
-    // Count cross-file symbol references (populates Symbol.references field)
-    count_symbol_references(&mut repo);
-
-    // Rank files by importance
-    rank_files(&mut repo);
-    sort_files_by_importance(&mut repo);
+    // Prepare repository (count references, rank files, sort by importance)
+    prepare_repository(&mut repo);
 
     // Redact secrets from file content if enabled
     if redact_secrets {
-        let scanner = SecurityScanner::new();
-        for file in &mut repo.files {
-            if let Some(ref content) = file.content {
-                let redacted = scanner.redact_content(content, &file.relative_path);
-                file.content = Some(redacted);
-            }
-        }
+        infiniloom_bindings_common::redact_secrets(&mut repo);
     }
 
     // Apply compression to file contents based on compression level
-    match compression_level {
-        CompressionLevel::None => {
-            // No compression - keep content as-is
-        }
-        CompressionLevel::Minimal => {
-            // Remove empty lines
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let compressed: String = content
-                        .lines()
-                        .filter(|line| !line.trim().is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    file.content = Some(compressed);
-                }
-            }
-        }
-        CompressionLevel::Balanced => {
-            // Remove empty lines and comments (basic heuristic)
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let compressed: String = content
-                        .lines()
-                        .filter(|line| {
-                            let trimmed = line.trim();
-                            !trimmed.is_empty()
-                                && !trimmed.starts_with("//")
-                                && !trimmed.starts_with('#')
-                                && !trimmed.starts_with("/*")
-                                && !trimmed.starts_with('*')
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    file.content = Some(compressed);
-                }
-            }
-        }
-        CompressionLevel::Aggressive | CompressionLevel::Extreme => {
-            // Extract signatures only - keep function/class definitions
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    file.content = Some(signature_lines(content));
-                }
-            }
-        }
-        CompressionLevel::Focused => {
-            // Key symbols with small surrounding context
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    let focused = focused_symbol_context(content, &file.symbols);
-                    file.content = Some(focused);
-                }
-            }
-        }
-        CompressionLevel::Semantic => {
-            // Use heuristic-based semantic compression
-            let compressor = HeuristicCompressor::new();
-            for file in &mut repo.files {
-                if let Some(ref content) = file.content {
-                    if let Ok(compressed) = compressor.compress(content) {
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-        }
-    }
+    apply_compression(&mut repo, compression_level);
 
     // Generate repository map using builder pattern
     let generator = RepoMapGenerator::builder()
@@ -354,40 +232,8 @@ fn scan(
 #[pyo3(signature = (text, model="claude"))]
 fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
     // Use the engine's accurate tokenizer (tiktoken for OpenAI, calibrated estimates for others)
-    let token_model = match model.to_lowercase().as_str() {
-        "claude" => TokenModel::Claude,
-        // GPT-5.x series (latest)
-        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenModel::Gpt52,
-        "gpt-5.2-pro" | "gpt52-pro" => TokenModel::Gpt52Pro,
-        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenModel::Gpt51,
-        "gpt-5.1-mini" | "gpt51-mini" => TokenModel::Gpt51Mini,
-        "gpt-5.1-codex" | "gpt51-codex" => TokenModel::Gpt51Codex,
-        "gpt-5" | "gpt5" => TokenModel::Gpt5,
-        "gpt-5-mini" | "gpt5-mini" => TokenModel::Gpt5Mini,
-        "gpt-5-nano" | "gpt5-nano" => TokenModel::Gpt5Nano,
-        // O-series reasoning models
-        "o4-mini" => TokenModel::O4Mini,
-        "o3" => TokenModel::O3,
-        "o3-mini" => TokenModel::O3Mini,
-        "o1" => TokenModel::O1,
-        "o1-mini" => TokenModel::O1Mini,
-        "o1-preview" => TokenModel::O1Preview,
-        // GPT-4 series
-        "gpt-4o" | "gpt4o" => TokenModel::Gpt4o,
-        "gpt-4o-mini" | "gpt4o-mini" => TokenModel::Gpt4oMini,
-        "gpt" | "gpt-4" | "gpt4" => TokenModel::Gpt4,
-        "gpt-3.5-turbo" | "gpt35-turbo" | "gpt35turbo" => TokenModel::Gpt35Turbo,
-        // Other vendors
-        "gemini" => TokenModel::Gemini,
-        "llama" => TokenModel::Llama,
-        "codellama" => TokenModel::CodeLlama,
-        "mistral" => TokenModel::Mistral,
-        "deepseek" => TokenModel::DeepSeek,
-        "qwen" => TokenModel::Qwen,
-        "cohere" => TokenModel::Cohere,
-        "grok" => TokenModel::Grok,
-        _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, codellama, mistral, deepseek, qwen, cohere, grok", model))),
-    };
+    let token_model = parse_model(Some(model))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     let tokenizer = Tokenizer::new();
     Ok(tokenizer.count(text, token_model))
@@ -578,137 +424,21 @@ impl Infiniloom {
         let mut repo = self.repo.as_ref().unwrap().clone();
 
         // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
-        repo.files.retain(|f| {
-            !matches_any(&f.relative_path, DEFAULT_IGNORES)
-                && !matches_any(&f.relative_path, TEST_IGNORES)
-        });
+        apply_default_ignores(&mut repo);
 
-        // Count cross-file symbol references (populates Symbol.references field)
-        count_symbol_references(&mut repo);
+        // Prepare repository (count references, rank files, sort by importance)
+        prepare_repository(&mut repo);
 
-        // Rank files by importance
-        rank_files(&mut repo);
-        sort_files_by_importance(&mut repo);
-
-        // Parse format
-        let output_format = match format.to_lowercase().as_str() {
-            "xml" => OutputFormat::Xml,
-            "markdown" | "md" => OutputFormat::Markdown,
-            "json" => OutputFormat::Json,
-            "yaml" | "yml" => OutputFormat::Yaml,
-            "toon" => OutputFormat::Toon,
-            "plain" | "text" | "txt" => OutputFormat::Plain,
-            _ => return Err(PyValueError::new_err(format!("Invalid format: {}. Use 'xml', 'markdown', 'json', 'yaml', 'toon', or 'plain'", format))),
-        };
-
-        // Parse model
-        let tokenizer_model = match model.to_lowercase().as_str() {
-            "claude" => TokenizerModel::Claude,
-            // GPT-5.x series (latest)
-            "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
-            "gpt-5.2-pro" | "gpt52-pro" => TokenizerModel::Gpt52Pro,
-            "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
-            "gpt-5.1-mini" | "gpt51-mini" => TokenizerModel::Gpt51Mini,
-            "gpt-5.1-codex" | "gpt51-codex" => TokenizerModel::Gpt51Codex,
-            "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
-            "gpt-5-mini" | "gpt5-mini" => TokenizerModel::Gpt5Mini,
-            "gpt-5-nano" | "gpt5-nano" => TokenizerModel::Gpt5Nano,
-            // O-series reasoning models
-            "o4-mini" => TokenizerModel::O4Mini,
-            "o3" => TokenizerModel::O3,
-            "o3-mini" => TokenizerModel::O3Mini,
-            "o1" => TokenizerModel::O1,
-            "o1-mini" => TokenizerModel::O1Mini,
-            "o1-preview" => TokenizerModel::O1Preview,
-            // GPT-4 series
-            "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
-            "gpt-4o-mini" | "gpt4o-mini" => TokenizerModel::Gpt4oMini,
-            "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
-            "gpt-3.5-turbo" | "gpt35-turbo" => TokenizerModel::Gpt35Turbo,
-            // Other vendors
-            "gemini" => TokenizerModel::Gemini,
-            "llama" => TokenizerModel::Llama,
-            "codellama" => TokenizerModel::CodeLlama,
-            "mistral" => TokenizerModel::Mistral,
-            "deepseek" => TokenizerModel::DeepSeek,
-            "qwen" => TokenizerModel::Qwen,
-            "cohere" => TokenizerModel::Cohere,
-            "grok" => TokenizerModel::Grok,
-            _ => return Err(PyValueError::new_err(format!("Invalid model: {}. Supported: gpt-5.2, gpt-5.1, gpt-5, o4-mini, o3, o1, gpt-4o, gpt-4, claude, gemini, llama, mistral, deepseek, qwen, cohere, grok", model))),
-        };
-
-        // Parse and apply compression level
-        let compression_level = match compression.to_lowercase().as_str() {
-            "none" => CompressionLevel::None,
-            "minimal" => CompressionLevel::Minimal,
-            "balanced" => CompressionLevel::Balanced,
-            "aggressive" => CompressionLevel::Aggressive,
-            "extreme" => CompressionLevel::Extreme,
-            "focused" => CompressionLevel::Focused,
-            "semantic" => CompressionLevel::Semantic,
-            _ => return Err(PyValueError::new_err(format!("Invalid compression: {}", compression))),
-        };
+        // Parse format, model, and compression using common crate
+        let output_format = parse_format(Some(format))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let tokenizer_model = parse_model(Some(model))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let compression_level = parse_compression(Some(compression))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Apply compression to file contents
-        match compression_level {
-            CompressionLevel::None => {}
-            CompressionLevel::Minimal => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let compressed: String = content
-                            .lines()
-                            .filter(|line| !line.trim().is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-            CompressionLevel::Balanced => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let compressed: String = content
-                            .lines()
-                            .filter(|line| {
-                                let trimmed = line.trim();
-                                !trimmed.is_empty()
-                                    && !trimmed.starts_with("//")
-                                    && !trimmed.starts_with('#')
-                                    && !trimmed.starts_with("/*")
-                                    && !trimmed.starts_with('*')
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        file.content = Some(compressed);
-                    }
-                }
-            }
-            CompressionLevel::Aggressive | CompressionLevel::Extreme => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        file.content = Some(signature_lines(content));
-                    }
-                }
-            }
-            CompressionLevel::Focused => {
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        let focused = focused_symbol_context(content, &file.symbols);
-                        file.content = Some(focused);
-                    }
-                }
-            }
-            CompressionLevel::Semantic => {
-                let compressor = HeuristicCompressor::new();
-                for file in &mut repo.files {
-                    if let Some(ref content) = file.content {
-                        if let Ok(compressed) = compressor.compress(content) {
-                            file.content = Some(compressed);
-                        }
-                    }
-                }
-            }
-        }
+        apply_compression(&mut repo, compression_level);
 
         // Generate repository map using builder pattern
         let generator = RepoMapGenerator::builder()
@@ -735,16 +465,9 @@ impl Infiniloom {
         // Clone and process repo
         let mut repo = self.repo.as_ref().unwrap().clone();
 
-        // Apply default ignores
-        repo.files.retain(|f| {
-            !matches_any(&f.relative_path, DEFAULT_IGNORES)
-                && !matches_any(&f.relative_path, TEST_IGNORES)
-        });
-
-        // Count references and rank files
-        count_symbol_references(&mut repo);
-        rank_files(&mut repo);
-        sort_files_by_importance(&mut repo);
+        // Apply default ignores and prepare repository
+        apply_default_ignores(&mut repo);
+        prepare_repository(&mut repo);
 
         let generator = RepoMapGenerator::builder()
             .token_budget(map_budget)
@@ -1282,163 +1005,6 @@ fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py py
     dict
 }
 
-fn signature_lines(content: &str) -> String {
-    content
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            trimmed.starts_with("fn ")
-                || trimmed.starts_with("pub fn ")
-                || trimmed.starts_with("async fn ")
-                || trimmed.starts_with("def ")
-                || trimmed.starts_with("async def ")
-                || trimmed.starts_with("class ")
-                || trimmed.starts_with("struct ")
-                || trimmed.starts_with("enum ")
-                || trimmed.starts_with("trait ")
-                || trimmed.starts_with("impl ")
-                || trimmed.starts_with("interface ")
-                || trimmed.starts_with("function ")
-                || trimmed.starts_with("export ")
-                || trimmed.starts_with("const ")
-                || trimmed.starts_with("type ")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn focused_symbol_context(content: &str, symbols: &[Symbol]) -> String {
-    const CONTEXT_LINES: u32 = 2;
-
-    if symbols.is_empty() {
-        return signature_lines(content);
-    }
-
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len() as u32;
-    if total_lines == 0 {
-        return String::new();
-    }
-
-    let key_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| {
-            matches!(
-                s.kind,
-                SymbolKind::Function
-                    | SymbolKind::Class
-                    | SymbolKind::Struct
-                    | SymbolKind::Trait
-                    | SymbolKind::Enum
-                    | SymbolKind::Interface
-            ) && s.visibility != Visibility::Private
-        })
-        .collect();
-
-    let symbols_to_use: Vec<_> = if key_symbols.is_empty() {
-        symbols
-            .iter()
-            .filter(|s| s.kind != SymbolKind::Import)
-            .take(20)
-            .collect()
-    } else {
-        key_symbols.into_iter().take(30).collect()
-    };
-
-    #[derive(Clone)]
-    struct SymbolRange {
-        start: u32,
-        end: u32,
-        labels: Vec<String>,
-    }
-
-    let mut ranges = Vec::new();
-    let mut fallback_snippets = Vec::new();
-
-    for symbol in symbols_to_use {
-        let label = format!("{}: {}", symbol.kind.name(), symbol.name);
-        if symbol.start_line > 0
-            && symbol.end_line >= symbol.start_line
-            && symbol.start_line <= total_lines
-        {
-            let start = symbol.start_line.saturating_sub(CONTEXT_LINES).max(1);
-            let end = symbol
-                .end_line
-                .max(symbol.start_line)
-                .saturating_add(CONTEXT_LINES)
-                .min(total_lines);
-            ranges.push(SymbolRange {
-                start,
-                end,
-                labels: vec![label],
-            });
-        } else if let Some(ref sig) = symbol.signature {
-            fallback_snippets.push(format!("// {}\n{}", label, sig.trim()));
-        }
-    }
-
-    if ranges.is_empty() && fallback_snippets.is_empty() {
-        return signature_lines(content);
-    }
-
-    ranges.sort_by_key(|r| r.start);
-    let mut merged: Vec<SymbolRange> = Vec::new();
-
-    for range in ranges {
-        if let Some(last) = merged.last_mut() {
-            if range.start <= last.end.saturating_add(1) {
-                last.end = last.end.max(range.end);
-                for label in range.labels {
-                    if !last.labels.contains(&label) {
-                        last.labels.push(label);
-                    }
-                }
-            } else {
-                merged.push(range);
-            }
-        } else {
-            merged.push(range);
-        }
-    }
-
-    let mut result = String::new();
-    for range in merged {
-        result.push_str(&format!(
-            "// Focused symbols: {}\n",
-            range.labels.join(", ")
-        ));
-        let start_idx = range.start.saturating_sub(1) as usize;
-        let end_idx = range.end.saturating_sub(1) as usize;
-        if start_idx <= end_idx && end_idx < lines.len() {
-            result.push_str(&lines[start_idx..=end_idx].join("\n"));
-            result.push('\n');
-        }
-        result.push('\n');
-    }
-
-    if !fallback_snippets.is_empty() {
-        result.push_str("// Additional signatures\n");
-        for snippet in fallback_snippets {
-            result.push_str(&snippet);
-            result.push('\n');
-        }
-    }
-
-    result
-}
-
-/// Format FileStatus as string
-fn format_file_status(status: EngineFileStatus) -> &'static str {
-    match status {
-        EngineFileStatus::Added => "Added",
-        EngineFileStatus::Modified => "Modified",
-        EngineFileStatus::Deleted => "Deleted",
-        EngineFileStatus::Renamed => "Renamed",
-        EngineFileStatus::Copied => "Copied",
-        EngineFileStatus::Unknown => "Unknown",
-    }
-}
-
 // ============================================================================
 // Index API - Build and query symbol indexes
 // ============================================================================
@@ -1892,26 +1458,9 @@ fn chunk(
         ))),
     };
 
-    // Parse model
-    let tokenizer_model = match model.to_lowercase().as_str() {
-        "claude" => TokenizerModel::Claude,
-        "gpt-5.2" | "gpt5.2" | "gpt52" => TokenizerModel::Gpt52,
-        "gpt-5.1" | "gpt5.1" | "gpt51" => TokenizerModel::Gpt51,
-        "gpt-5" | "gpt5" => TokenizerModel::Gpt5,
-        "o4-mini" => TokenizerModel::O4Mini,
-        "o3" => TokenizerModel::O3,
-        "o1" => TokenizerModel::O1,
-        "gpt-4o" | "gpt4o" => TokenizerModel::Gpt4o,
-        "gpt" | "gpt-4" | "gpt4" => TokenizerModel::Gpt4,
-        "gemini" => TokenizerModel::Gemini,
-        "llama" => TokenizerModel::Llama,
-        "mistral" => TokenizerModel::Mistral,
-        "deepseek" => TokenizerModel::DeepSeek,
-        "qwen" => TokenizerModel::Qwen,
-        "cohere" => TokenizerModel::Cohere,
-        "grok" => TokenizerModel::Grok,
-        _ => return Err(PyValueError::new_err(format!("Invalid model: {}", model))),
-    };
+    // Parse model using common crate
+    let tokenizer_model = parse_model(Some(model))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Scan repository
     let path_buf = PathBuf::from(path);
@@ -1927,10 +1476,7 @@ fn chunk(
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     // Apply default ignores
-    repo.files.retain(|f| {
-        !matches_any(&f.relative_path, DEFAULT_IGNORES)
-            && !matches_any(&f.relative_path, TEST_IGNORES)
-    });
+    apply_default_ignores(&mut repo);
 
     // Create chunker
     let chunker = Chunker::new(chunk_strategy, max_tokens)
@@ -1997,36 +1543,6 @@ fn chunk(
     );
 
     Ok(results.into())
-}
-
-/// Calculate priority score for a file path
-fn file_priority_score(path: &str) -> f64 {
-    let path_lower = path.to_lowercase();
-
-    if path_lower.contains("src/") || path_lower.contains("lib/") {
-        if path_lower.contains("main") || path_lower.contains("index") || path_lower.contains("app")
-        {
-            return 1.0;
-        }
-        return 0.8;
-    }
-
-    if path_lower.ends_with(".json")
-        || path_lower.ends_with(".yaml")
-        || path_lower.ends_with(".toml")
-    {
-        return 0.6;
-    }
-
-    if path_lower.contains("test") || path_lower.contains("spec") {
-        return 0.3;
-    }
-
-    if path_lower.contains("doc") || path_lower.ends_with(".md") {
-        return 0.2;
-    }
-
-    0.5
 }
 
 // ============================================================================

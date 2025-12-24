@@ -7,33 +7,46 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// Python: `import module` or `import module.submodule`
-pub static PYTHON_IMPORT: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*import\s+(\S+)").unwrap());
+pub static PYTHON_IMPORT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*import\s+(\S+)").expect("PYTHON_IMPORT: invalid regex pattern")
+});
 
 /// Python: `from module import name`
-pub static PYTHON_FROM_IMPORT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\s*from\s+(\S+)\s+import").unwrap());
+pub static PYTHON_FROM_IMPORT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*from\s+(\S+)\s+import").expect("PYTHON_FROM_IMPORT: invalid regex pattern")
+});
 
 /// JavaScript/TypeScript: `import ... from 'module'` or `import ... from "module"`
-pub static JS_IMPORT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"import\s+.*\s+from\s+['"]([^'"]+)['"]"#).unwrap());
+pub static JS_IMPORT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"import\s+.*\s+from\s+['"]([^'"]+)['"]"#).expect("JS_IMPORT: invalid regex pattern")
+});
 
 /// JavaScript/TypeScript: multi-line import statements
-pub static JS_IMPORT_MULTILINE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?s)import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap());
+pub static JS_IMPORT_MULTILINE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?s)import\s+.*?\s+from\s+['"]([^'"]+)['"]"#)
+        .expect("JS_IMPORT_MULTILINE: invalid regex pattern")
+});
 
 /// JavaScript/TypeScript: `require('module')` or `require("module")`
-pub static JS_REQUIRE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
+pub static JS_REQUIRE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).expect("JS_REQUIRE: invalid regex pattern")
+});
 
 /// Rust: `use crate::module;` or `use std::collections::HashMap;`
-pub static RUST_USE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*use\s+([^;]+);").unwrap());
+pub static RUST_USE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*use\s+([^;]+);").expect("RUST_USE: invalid regex pattern")
+});
 
 /// Go: `import "module"` or `import alias "module"` or `import ( "module" )`
-pub static GO_IMPORT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"import\s+(?:\(\s*)?(?:[\w.]+\s+)?["']([^"']+)["']"#).unwrap());
+pub static GO_IMPORT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"import\s+(?:\(\s*)?(?:[\w.]+\s+)?["']([^"']+)["']"#)
+        .expect("GO_IMPORT: invalid regex pattern")
+});
 
 /// Java: `import package.Class;`
-pub static JAVA_IMPORT: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*import\s+([\w.]+);").unwrap());
+pub static JAVA_IMPORT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*import\s+([\w.]+);").expect("JAVA_IMPORT: invalid regex pattern")
+});
 
 #[cfg(test)]
 mod tests {

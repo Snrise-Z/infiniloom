@@ -1,0 +1,22 @@
+[package]
+name = "infiniloom-bindings-common"
+version = "0.4.0"
+edition = "2021"
+authors = ["Topos Labs"]
+description = "Shared utilities for Infiniloom language bindings"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Topos-Labs/infiniloom"
+readme = "README.md"
+keywords = ["infiniloom", "bindings", "utilities"]
+categories = ["development-tools"]
+
+[dependencies]
+infiniloom-engine = { path = "../../engine" }
+thiserror = "1.0"
+anyhow = "1.0"
+ignore = "0.4"
+rayon = "1.10"
+glob = "0.3"
+
+[dev-dependencies]
+tempfile = "3.10"
