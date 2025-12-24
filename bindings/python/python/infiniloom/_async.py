@@ -46,6 +46,12 @@ from ._infiniloom import (
     chunk,
     analyze_impact,
     get_diff_context,
+    # Call Graph API
+    find_symbol,
+    get_callers,
+    get_callees,
+    get_references,
+    get_call_graph,
 )
 
 # Thread pool for running blocking operations
@@ -462,6 +468,191 @@ async def get_diff_context_async(
     )
 
 
+async def find_symbol_async(
+    path: str,
+    name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Find a symbol by name (async version).
+
+    This is the async version of :func:`find_symbol`. It runs the operation
+    in a thread pool to avoid blocking the event loop.
+
+    Args:
+        path: Path to repository root
+        name: Symbol name to search for
+
+    Returns:
+        List of symbol dictionaries with: id, name, kind, file, line, end_line, signature, visibility
+
+    Example:
+        >>> import asyncio
+        >>> import infiniloom
+        >>>
+        >>> async def main():
+        ...     await infiniloom.build_index_async("/path/to/repo")
+        ...     symbols = await infiniloom.find_symbol_async("/path/to/repo", "process_request")
+        ...     print(f"Found {len(symbols)} symbols")
+        >>>
+        >>> asyncio.run(main())
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        partial(find_symbol, path, name),
+    )
+
+
+async def get_callers_async(
+    path: str,
+    symbol_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Get all callers of a symbol (async version).
+
+    This is the async version of :func:`get_callers`. It runs the operation
+    in a thread pool to avoid blocking the event loop.
+
+    Requires an index to be built first (use build_index_async).
+
+    Args:
+        path: Path to repository root
+        symbol_name: Name of the symbol to find callers for
+
+    Returns:
+        List of symbols that call the target symbol
+
+    Example:
+        >>> import asyncio
+        >>> import infiniloom
+        >>>
+        >>> async def main():
+        ...     await infiniloom.build_index_async("/path/to/repo")
+        ...     callers = await infiniloom.get_callers_async("/path/to/repo", "authenticate")
+        ...     print(f"authenticate is called by {len(callers)} functions")
+        >>>
+        >>> asyncio.run(main())
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        partial(get_callers, path, symbol_name),
+    )
+
+
+async def get_callees_async(
+    path: str,
+    symbol_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Get all callees of a symbol (async version).
+
+    This is the async version of :func:`get_callees`. It runs the operation
+    in a thread pool to avoid blocking the event loop.
+
+    Requires an index to be built first (use build_index_async).
+
+    Args:
+        path: Path to repository root
+        symbol_name: Name of the symbol to find callees for
+
+    Returns:
+        List of symbols that the target symbol calls
+
+    Example:
+        >>> import asyncio
+        >>> import infiniloom
+        >>>
+        >>> async def main():
+        ...     await infiniloom.build_index_async("/path/to/repo")
+        ...     callees = await infiniloom.get_callees_async("/path/to/repo", "main")
+        ...     print(f"main calls {len(callees)} functions")
+        >>>
+        >>> asyncio.run(main())
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        partial(get_callees, path, symbol_name),
+    )
+
+
+async def get_references_async(
+    path: str,
+    symbol_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Get all references to a symbol (async version).
+
+    This is the async version of :func:`get_references`. It runs the operation
+    in a thread pool to avoid blocking the event loop.
+
+    Requires an index to be built first (use build_index_async).
+
+    Args:
+        path: Path to repository root
+        symbol_name: Name of the symbol to find references for
+
+    Returns:
+        List of reference dictionaries with: symbol (SymbolInfo dict), kind (reference type)
+
+    Example:
+        >>> import asyncio
+        >>> import infiniloom
+        >>>
+        >>> async def main():
+        ...     await infiniloom.build_index_async("/path/to/repo")
+        ...     refs = await infiniloom.get_references_async("/path/to/repo", "UserService")
+        ...     print(f"UserService is referenced {len(refs)} times")
+        >>>
+        >>> asyncio.run(main())
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        partial(get_references, path, symbol_name),
+    )
+
+
+async def get_call_graph_async(
+    path: str,
+    max_nodes: Optional[int] = None,
+    max_edges: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Get the complete call graph (async version).
+
+    This is the async version of :func:`get_call_graph`. It runs the operation
+    in a thread pool to avoid blocking the event loop.
+
+    Requires an index to be built first (use build_index_async).
+
+    Args:
+        path: Path to repository root
+        max_nodes: Maximum number of nodes to return (default: unlimited)
+        max_edges: Maximum number of edges to return (default: unlimited)
+
+    Returns:
+        Dictionary with: nodes (list of symbols), edges (list of call edges), stats (summary)
+
+    Example:
+        >>> import asyncio
+        >>> import infiniloom
+        >>>
+        >>> async def main():
+        ...     await infiniloom.build_index_async("/path/to/repo")
+        ...     graph = await infiniloom.get_call_graph_async("/path/to/repo")
+        ...     print(f"Call graph: {graph['stats']['total_symbols']} symbols")
+        >>>
+        >>> asyncio.run(main())
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        partial(get_call_graph, path, max_nodes=max_nodes, max_edges=max_edges),
+    )
+
+
 __all__ = [
     "pack_async",
     "scan_async",
@@ -472,4 +663,10 @@ __all__ = [
     "chunk_async",
     "analyze_impact_async",
     "get_diff_context_async",
+    # Call Graph async functions
+    "find_symbol_async",
+    "get_callers_async",
+    "get_callees_async",
+    "get_references_async",
+    "get_call_graph_async",
 ]

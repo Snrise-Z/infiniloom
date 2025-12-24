@@ -5,7 +5,20 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.4] - 2025-12-23
+
+### Added
+
+- **Call Graph Query API** - Query caller/callee relationships and navigate codebases programmatically
+  - `find_symbol()` - Find symbols by name in the index
+  - `get_callers()` - Get all functions/methods that call a target symbol
+  - `get_callees()` - Get all functions/methods that a target symbol calls
+  - `get_references()` - Get all references to a symbol (calls, imports, inheritance)
+  - `get_call_graph()` - Get complete call graph with nodes, edges, and statistics
+  - New `engine/src/index/query.rs` module with high-level query functions
+  - Full Python bindings with sync and async versions
+  - Full Node.js bindings with sync and async versions
+  - TypeScript type definitions for all call graph types
 
 ## [0.3.2] - 2025-12-23
 

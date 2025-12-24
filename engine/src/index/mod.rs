@@ -36,6 +36,7 @@ pub mod context;
 mod convert;
 pub mod lazy;
 pub mod patterns;
+pub mod query;
 pub mod storage;
 pub mod types;
 
@@ -46,8 +47,13 @@ pub use context::{
     ContextSymbol, DiffChange, ExpandedContext, ImpactLevel, ImpactSummary,
 };
 pub use lazy::{LazyContextBuilder, LazyError};
+pub use query::{
+    find_symbol, get_call_graph, get_call_graph_filtered, get_callees_by_id, get_callees_by_name,
+    get_callers_by_id, get_callers_by_name, get_references_by_name, CallGraph, CallGraphEdge,
+    CallGraphStats, ReferenceInfo, SymbolInfo,
+};
 pub use storage::{IndexMeta, IndexStorage, StorageError};
 pub use types::{
-    DepGraph, FileEntry, Import, IndexSymbol, IndexSymbolKind, Language, RefKind, Reference, Span,
-    SymbolIndex, Visibility,
+    DepGraph, FileEntry, FileId, Import, IndexSymbol, IndexSymbolKind, Language, RefKind,
+    Reference, Span, SymbolId, SymbolIndex, Visibility,
 };

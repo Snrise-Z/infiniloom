@@ -432,6 +432,55 @@ infiniloom pack . --redact-secrets  # Scan and redact secrets with [REDACTED]
 - `allowlist`: Patterns to exclude from detection
 - `custom_patterns`: Additional regex patterns for company-specific secrets
 
+### Call Graph API
+
+Query caller/callee relationships and navigate your codebase programmatically:
+
+```bash
+# Build symbol index (required once, auto-updates)
+infiniloom index /path/to/repo
+
+# Analyze impact of changes
+infiniloom impact . src/auth.rs
+infiniloom impact . --symbol "authenticate"
+```
+
+```python
+import infiniloom
+
+# Build index first
+infiniloom.build_index("/path/to/repo")
+
+# Find who calls a function
+callers = infiniloom.get_callers("/path/to/repo", "authenticate")
+for c in callers:
+    print(f"{c['name']} at {c['file']}:{c['line']}")
+
+# Find what a function calls
+callees = infiniloom.get_callees("/path/to/repo", "main")
+
+# Get all references (calls, imports, inheritance)
+refs = infiniloom.get_references("/path/to/repo", "UserService")
+
+# Get complete call graph
+graph = infiniloom.get_call_graph("/path/to/repo")
+print(f"{graph['stats']['total_symbols']} symbols, {graph['stats']['total_calls']} call edges")
+```
+
+```javascript
+const { buildIndex, getCallers, getCallGraph } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+
+// Find callers
+const callers = getCallers('./my-repo', 'authenticate');
+callers.forEach(c => console.log(`${c.name} at ${c.file}:${c.line}`));
+
+// Get call graph
+const graph = getCallGraph('./my-repo');
+console.log(`${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
+```
+
 ### Native Language Bindings
 
 Use Infiniloom directly in your applications — no shell commands needed:

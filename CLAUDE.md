@@ -138,6 +138,7 @@ infiniloom/
 │           ├── lazy.rs     # On-the-fly context generation
 │           ├── storage.rs  # Bincode serialization
 │           ├── types.rs    # Index types (SymbolIndex, DepGraph)
+│           ├── query.rs    # Call graph query API (callers, callees, references)
 │           ├── convert.rs  # Shared type conversion utilities
 │           └── patterns.rs # Pre-compiled regex patterns
 └── bindings/               # Language bindings
@@ -156,6 +157,24 @@ infiniloom/
   - `claude`, `gemini`, `llama`, `mistral`, `deepseek`, `qwen`, `cohere`, `grok`: estimation-based
 - **`TokenizerModel`**: Enum with 27 supported LLM tokenizers
 - **`CompressionLevel`**: None, Minimal, Balanced, Aggressive, Extreme
+
+### Index and Call Graph Types (`engine/src/index/`)
+
+- **`SymbolIndex`**: Stores all symbols with fast lookup by name
+- **`DepGraph`**: Dependency graph storing call edges as `(caller_id, callee_id)` pairs
+- **`SymbolInfo`**: Query result with id, name, kind, file, line numbers, signature, visibility
+- **`CallGraph`**: Complete graph with nodes (symbols), edges (calls), and statistics
+- **`CallGraphEdge`**: Single edge with caller/callee IDs, names, file, and line
+
+### Call Graph Query API (`engine/src/index/query.rs`)
+
+High-level functions for querying symbol relationships:
+- `find_symbol(index, name)` - Find symbols by name
+- `get_callers_by_name(index, graph, name)` - Get all callers of a symbol
+- `get_callees_by_name(index, graph, name)` - Get all callees of a symbol
+- `get_references_by_name(index, graph, name)` - Get all references (calls + imports)
+- `get_call_graph(index, graph)` - Get complete call graph
+- `get_call_graph_filtered(index, graph, max_nodes, max_edges)` - Get filtered graph
 
 ### Data Flow
 

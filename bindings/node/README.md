@@ -221,6 +221,105 @@ for (const finding of findings) {
 }
 ```
 
+### Call Graph API
+
+Query caller/callee relationships and navigate your codebase programmatically.
+
+#### `buildIndex(path: string, options?: IndexOptions): IndexStatus`
+
+Build or update the symbol index for a repository (required for call graph queries).
+
+```javascript
+const { buildIndex } = require('infiniloom-node');
+
+const status = buildIndex('./my-repo');
+console.log(`Indexed ${status.symbolCount} symbols`);
+```
+
+#### `findSymbol(path: string, name: string): SymbolInfo[]`
+
+Find symbols by name.
+
+```javascript
+const { findSymbol, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const symbols = findSymbol('./my-repo', 'processRequest');
+for (const s of symbols) {
+  console.log(`${s.name} (${s.kind}) at ${s.file}:${s.line}`);
+}
+```
+
+#### `getCallers(path: string, symbolName: string): SymbolInfo[]`
+
+Get all functions/methods that call the target symbol.
+
+```javascript
+const { getCallers, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const callers = getCallers('./my-repo', 'authenticate');
+console.log(`authenticate is called by ${callers.length} functions`);
+for (const c of callers) {
+  console.log(`  ${c.name} at ${c.file}:${c.line}`);
+}
+```
+
+#### `getCallees(path: string, symbolName: string): SymbolInfo[]`
+
+Get all functions/methods that the target symbol calls.
+
+```javascript
+const { getCallees, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const callees = getCallees('./my-repo', 'main');
+console.log(`main calls ${callees.length} functions`);
+```
+
+#### `getReferences(path: string, symbolName: string): ReferenceInfo[]`
+
+Get all references to a symbol (calls, imports, inheritance).
+
+```javascript
+const { getReferences, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const refs = getReferences('./my-repo', 'UserService');
+for (const r of refs) {
+  console.log(`${r.kind}: ${r.symbol.name} at ${r.symbol.file}:${r.symbol.line}`);
+}
+```
+
+#### `getCallGraph(path: string, options?: CallGraphOptions): CallGraph`
+
+Get the complete call graph with all symbols and call relationships.
+
+```javascript
+const { getCallGraph, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const graph = getCallGraph('./my-repo');
+console.log(`${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
+
+// Find most called functions
+const callCounts = new Map();
+for (const edge of graph.edges) {
+  callCounts.set(edge.callee, (callCounts.get(edge.callee) || 0) + 1);
+}
+const sorted = [...callCounts.entries()].sort((a, b) => b[1] - a[1]);
+console.log('Most called:', sorted.slice(0, 5));
+```
+
+#### Async versions
+
+All call graph functions have async versions:
+- `findSymbolAsync(path, name)`
+- `getCallersAsync(path, symbolName)`
+- `getCalleesAsync(path, symbolName)`
+- `getReferencesAsync(path, symbolName)`
+- `getCallGraphAsync(path, options)`
+
 #### `isGitRepo(path: string): boolean`
 
 Check if a path is a git repository.

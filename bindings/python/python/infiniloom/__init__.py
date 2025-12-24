@@ -194,6 +194,12 @@ from ._infiniloom import (
     # Index API
     build_index,
     index_status,
+    # Call Graph API
+    find_symbol,
+    get_callers,
+    get_callees,
+    get_references,
+    get_call_graph,
     # Chunk API
     chunk,
     # Impact & Diff Context API
@@ -218,6 +224,12 @@ from ._async import (
     chunk_async,
     analyze_impact_async,
     get_diff_context_async,
+    # Call Graph async
+    find_symbol_async,
+    get_callers_async,
+    get_callees_async,
+    get_references_async,
+    get_call_graph_async,
 )
 
 __all__ = [
@@ -231,6 +243,12 @@ __all__ = [
     # Index API
     "build_index",
     "index_status",
+    # Call Graph API
+    "find_symbol",
+    "get_callers",
+    "get_callees",
+    "get_references",
+    "get_call_graph",
     # Chunk API
     "chunk",
     # Impact & Diff Context API
@@ -246,6 +264,12 @@ __all__ = [
     "chunk_async",
     "analyze_impact_async",
     "get_diff_context_async",
+    # Call Graph Async functions
+    "find_symbol_async",
+    "get_callers_async",
+    "get_callees_async",
+    "get_references_async",
+    "get_call_graph_async",
     # Classes
     "Infiniloom",
     "GitRepo",

@@ -173,6 +173,150 @@ if is_git_repo("/path/to/repo"):
     print("This is a git repository")
 ```
 
+### Call Graph API
+
+Query caller/callee relationships and navigate your codebase programmatically.
+
+#### `build_index(path, force=False, include_tests=False, max_file_size=None)`
+
+Build or update the symbol index for a repository (required for call graph queries).
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `force` (bool): Force full rebuild even if index exists (default: False)
+- `include_tests` (bool): Include test files in index (default: False)
+- `max_file_size` (int): Maximum file size to index in bytes (default: 10MB)
+
+**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built`, `version`
+
+```python
+import infiniloom
+
+status = infiniloom.build_index("/path/to/repo")
+print(f"Indexed {status['symbol_count']} symbols")
+```
+
+#### `find_symbol(path, name)`
+
+Find symbols by name in the index.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `name` (str): Symbol name to search for
+
+**Returns:** list[dict] - List of matching symbols with `id`, `name`, `kind`, `file`, `line`, `end_line`, `signature`, `visibility`
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+symbols = infiniloom.find_symbol("/path/to/repo", "process_request")
+for s in symbols:
+    print(f"{s['name']} ({s['kind']}) at {s['file']}:{s['line']}")
+```
+
+#### `get_callers(path, symbol_name)`
+
+Get all functions/methods that call the target symbol.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `symbol_name` (str): Name of the symbol to find callers for
+
+**Returns:** list[dict] - List of symbols that call the target
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+callers = infiniloom.get_callers("/path/to/repo", "authenticate")
+print(f"authenticate is called by {len(callers)} functions")
+for c in callers:
+    print(f"  {c['name']} at {c['file']}:{c['line']}")
+```
+
+#### `get_callees(path, symbol_name)`
+
+Get all functions/methods that the target symbol calls.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `symbol_name` (str): Name of the symbol to find callees for
+
+**Returns:** list[dict] - List of symbols that the target calls
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+callees = infiniloom.get_callees("/path/to/repo", "main")
+print(f"main calls {len(callees)} functions")
+```
+
+#### `get_references(path, symbol_name)`
+
+Get all references to a symbol (calls, imports, inheritance).
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `symbol_name` (str): Name of the symbol to find references for
+
+**Returns:** list[dict] - List of references with `symbol` (dict) and `kind` (str)
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+refs = infiniloom.get_references("/path/to/repo", "UserService")
+for r in refs:
+    print(f"{r['kind']}: {r['symbol']['name']} at {r['symbol']['file']}:{r['symbol']['line']}")
+```
+
+#### `get_call_graph(path, max_nodes=None, max_edges=None)`
+
+Get the complete call graph with all symbols and call relationships.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `max_nodes` (int): Maximum number of nodes to return (default: unlimited)
+- `max_edges` (int): Maximum number of edges to return (default: unlimited)
+
+**Returns:** dict - Call graph with `nodes` (list), `edges` (list), `stats` (dict)
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+graph = infiniloom.get_call_graph("/path/to/repo")
+print(f"{graph['stats']['total_symbols']} symbols, {graph['stats']['total_calls']} calls")
+
+# Find most called functions
+from collections import Counter
+call_counts = Counter(edge['callee'] for edge in graph['edges'])
+print("Most called:", call_counts.most_common(5))
+```
+
+#### Async versions
+
+All call graph functions have async versions:
+- `find_symbol_async(path, name)`
+- `get_callers_async(path, symbol_name)`
+- `get_callees_async(path, symbol_name)`
+- `get_references_async(path, symbol_name)`
+- `get_call_graph_async(path, max_nodes=None, max_edges=None)`
+
+```python
+import asyncio
+import infiniloom
+
+async def analyze_codebase():
+    await infiniloom.build_index_async("/path/to/repo")
+    callers = await infiniloom.get_callers_async("/path/to/repo", "authenticate")
+    print(f"Found {len(callers)} callers")
+
+asyncio.run(analyze_codebase())
+```
+
 ### Classes
 
 #### `Infiniloom(path)`

@@ -671,6 +671,236 @@ export declare function buildIndex(path: string, options?: IndexOptions | undefi
 export declare function indexStatus(path: string): IndexStatus
 
 // ============================================================================
+// Call Graph API - Query symbol relationships
+// ============================================================================
+
+/** Information about a symbol in the call graph */
+export interface SymbolInfo {
+  /** Symbol ID */
+  id: number
+  /** Symbol name */
+  name: string
+  /** Symbol kind (function, class, method, etc.) */
+  kind: string
+  /** File path containing the symbol */
+  file: string
+  /** Start line number */
+  line: number
+  /** End line number */
+  endLine: number
+  /** Function/method signature */
+  signature?: string
+  /** Visibility (public, private, etc.) */
+  visibility: string
+}
+
+/** A reference to a symbol with context */
+export interface ReferenceInfo {
+  /** Symbol making the reference */
+  symbol: SymbolInfo
+  /** Reference kind (call, import, inherit, implement) */
+  kind: string
+}
+
+/** An edge in the call graph */
+export interface CallGraphEdge {
+  /** Caller symbol ID */
+  callerId: number
+  /** Callee symbol ID */
+  calleeId: number
+  /** Caller symbol name */
+  caller: string
+  /** Callee symbol name */
+  callee: string
+  /** File containing the call site */
+  file: string
+  /** Line number of the call */
+  line: number
+}
+
+/** Call graph statistics */
+export interface CallGraphStats {
+  /** Total number of symbols */
+  totalSymbols: number
+  /** Total number of call edges */
+  totalCalls: number
+  /** Number of functions/methods */
+  functions: number
+  /** Number of classes/structs */
+  classes: number
+}
+
+/** Complete call graph with nodes and edges */
+export interface CallGraph {
+  /** All symbols (nodes) */
+  nodes: Array<SymbolInfo>
+  /** Call relationships (edges) */
+  edges: Array<CallGraphEdge>
+  /** Summary statistics */
+  stats: CallGraphStats
+}
+
+/** Options for call graph queries */
+export interface CallGraphOptions {
+  /** Maximum number of nodes to return (default: unlimited) */
+  maxNodes?: number
+  /** Maximum number of edges to return (default: unlimited) */
+  maxEdges?: number
+}
+
+/**
+ * Find a symbol by name
+ *
+ * Searches the index for all symbols matching the given name.
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `name` - Symbol name to search for
+ *
+ * # Returns
+ * Array of matching symbols
+ *
+ * # Example
+ * ```javascript
+ * const { findSymbol, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const symbols = findSymbol('./my-repo', 'processRequest');
+ * console.log(`Found ${symbols.length} symbols named processRequest`);
+ * ```
+ */
+export declare function findSymbol(path: string, name: string): Array<SymbolInfo>
+
+/**
+ * Get all callers of a symbol
+ *
+ * Returns symbols that call any symbol with the given name.
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbolName` - Name of the symbol to find callers for
+ *
+ * # Returns
+ * Array of symbols that call the target symbol
+ *
+ * # Example
+ * ```javascript
+ * const { getCallers, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callers = getCallers('./my-repo', 'authenticate');
+ * console.log(`authenticate is called by ${callers.length} functions`);
+ * for (const c of callers) {
+ *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+ * }
+ * ```
+ */
+export declare function getCallers(path: string, symbolName: string): Array<SymbolInfo>
+
+/**
+ * Get all callees of a symbol
+ *
+ * Returns symbols that are called by any symbol with the given name.
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbolName` - Name of the symbol to find callees for
+ *
+ * # Returns
+ * Array of symbols that the target symbol calls
+ *
+ * # Example
+ * ```javascript
+ * const { getCallees, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callees = getCallees('./my-repo', 'main');
+ * console.log(`main calls ${callees.length} functions`);
+ * for (const c of callees) {
+ *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+ * }
+ * ```
+ */
+export declare function getCallees(path: string, symbolName: string): Array<SymbolInfo>
+
+/**
+ * Get all references to a symbol
+ *
+ * Returns all locations where a symbol is referenced (calls, imports, inheritance).
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbolName` - Name of the symbol to find references for
+ *
+ * # Returns
+ * Array of reference information including the referencing symbol and kind
+ *
+ * # Example
+ * ```javascript
+ * const { getReferences, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const refs = getReferences('./my-repo', 'UserService');
+ * console.log(`UserService is referenced ${refs.length} times`);
+ * for (const r of refs) {
+ *   console.log(`  ${r.kind}: ${r.symbol.name} at ${r.symbol.file}:${r.symbol.line}`);
+ * }
+ * ```
+ */
+export declare function getReferences(path: string, symbolName: string): Array<ReferenceInfo>
+
+/**
+ * Get the complete call graph
+ *
+ * Returns all symbols and their call relationships.
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional filtering options
+ *
+ * # Returns
+ * Call graph with nodes (symbols), edges (calls), and statistics
+ *
+ * # Example
+ * ```javascript
+ * const { getCallGraph, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const graph = getCallGraph('./my-repo');
+ * console.log(`Call graph: ${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
+ *
+ * // Find most called functions
+ * const callCounts = new Map();
+ * for (const edge of graph.edges) {
+ *   callCounts.set(edge.callee, (callCounts.get(edge.callee) || 0) + 1);
+ * }
+ * const sorted = [...callCounts.entries()].sort((a, b) => b[1] - a[1]);
+ * console.log('Most called functions:', sorted.slice(0, 10));
+ * ```
+ */
+export declare function getCallGraph(path: string, options?: CallGraphOptions | undefined | null): CallGraph
+
+/** Async version of findSymbol */
+export declare function findSymbolAsync(path: string, name: string): Promise<Array<SymbolInfo>>
+
+/** Async version of getCallers */
+export declare function getCallersAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
+
+/** Async version of getCallees */
+export declare function getCalleesAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
+
+/** Async version of getReferences */
+export declare function getReferencesAsync(path: string, symbolName: string): Promise<Array<ReferenceInfo>>
+
+/** Async version of getCallGraph */
+export declare function getCallGraphAsync(path: string, options?: CallGraphOptions | undefined | null): Promise<CallGraph>
+
+// ============================================================================
 // Chunk API - Split repositories into manageable pieces
 // ============================================================================
 

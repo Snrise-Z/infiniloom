@@ -15,6 +15,16 @@ use infiniloom_engine::{
     index::{
         IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
         DiffChange, ChangeType,
+        // Call graph query API
+        find_symbol as engine_find_symbol,
+        get_callers_by_name, get_callees_by_name, get_references_by_name,
+        get_call_graph as engine_get_call_graph,
+        get_call_graph_filtered,
+        SymbolInfo as EngineSymbolInfo,
+        ReferenceInfo as EngineReferenceInfo,
+        CallGraph as EngineCallGraph,
+        CallGraphEdge as EngineCallGraphEdge,
+        CallGraphStats as EngineCallGraphStats,
     },
     // Chunking module
     Chunker, ChunkStrategy,
@@ -2079,6 +2089,383 @@ pub fn index_status(path: String) -> Result<IndexStatus> {
             version: None,
         }),
     }
+}
+
+// ============================================================================
+// Call Graph API - Query symbol relationships
+// ============================================================================
+
+/// Information about a symbol in the call graph
+#[napi(object)]
+pub struct SymbolInfo {
+    /// Symbol ID
+    pub id: u32,
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind (function, class, method, etc.)
+    pub kind: String,
+    /// File path containing the symbol
+    pub file: String,
+    /// Start line number
+    pub line: u32,
+    /// End line number
+    pub end_line: u32,
+    /// Function/method signature
+    pub signature: Option<String>,
+    /// Visibility (public, private, etc.)
+    pub visibility: String,
+}
+
+impl From<EngineSymbolInfo> for SymbolInfo {
+    fn from(s: EngineSymbolInfo) -> Self {
+        Self {
+            id: s.id,
+            name: s.name,
+            kind: s.kind,
+            file: s.file,
+            line: s.line,
+            end_line: s.end_line,
+            signature: s.signature,
+            visibility: s.visibility,
+        }
+    }
+}
+
+/// A reference to a symbol with context
+#[napi(object)]
+pub struct ReferenceInfo {
+    /// Symbol making the reference
+    pub symbol: SymbolInfo,
+    /// Reference kind (call, import, inherit, implement)
+    pub kind: String,
+}
+
+impl From<EngineReferenceInfo> for ReferenceInfo {
+    fn from(r: EngineReferenceInfo) -> Self {
+        Self {
+            symbol: r.symbol.into(),
+            kind: r.kind,
+        }
+    }
+}
+
+/// An edge in the call graph
+#[napi(object)]
+pub struct CallGraphEdge {
+    /// Caller symbol ID
+    pub caller_id: u32,
+    /// Callee symbol ID
+    pub callee_id: u32,
+    /// Caller symbol name
+    pub caller: String,
+    /// Callee symbol name
+    pub callee: String,
+    /// File containing the call site
+    pub file: String,
+    /// Line number of the call
+    pub line: u32,
+}
+
+impl From<EngineCallGraphEdge> for CallGraphEdge {
+    fn from(e: EngineCallGraphEdge) -> Self {
+        Self {
+            caller_id: e.caller_id,
+            callee_id: e.callee_id,
+            caller: e.caller,
+            callee: e.callee,
+            file: e.file,
+            line: e.line,
+        }
+    }
+}
+
+/// Call graph statistics
+#[napi(object)]
+pub struct CallGraphStats {
+    /// Total number of symbols
+    pub total_symbols: u32,
+    /// Total number of call edges
+    pub total_calls: u32,
+    /// Number of functions/methods
+    pub functions: u32,
+    /// Number of classes/structs
+    pub classes: u32,
+}
+
+impl From<EngineCallGraphStats> for CallGraphStats {
+    fn from(s: EngineCallGraphStats) -> Self {
+        Self {
+            total_symbols: s.total_symbols as u32,
+            total_calls: s.total_calls as u32,
+            functions: s.functions as u32,
+            classes: s.classes as u32,
+        }
+    }
+}
+
+/// Complete call graph with nodes and edges
+#[napi(object)]
+pub struct CallGraph {
+    /// All symbols (nodes)
+    pub nodes: Vec<SymbolInfo>,
+    /// Call relationships (edges)
+    pub edges: Vec<CallGraphEdge>,
+    /// Summary statistics
+    pub stats: CallGraphStats,
+}
+
+impl From<EngineCallGraph> for CallGraph {
+    fn from(g: EngineCallGraph) -> Self {
+        Self {
+            nodes: g.nodes.into_iter().map(Into::into).collect(),
+            edges: g.edges.into_iter().map(Into::into).collect(),
+            stats: g.stats.into(),
+        }
+    }
+}
+
+/// Options for call graph queries
+#[napi(object)]
+pub struct CallGraphOptions {
+    /// Maximum number of nodes to return (default: unlimited)
+    pub max_nodes: Option<u32>,
+    /// Maximum number of edges to return (default: unlimited)
+    pub max_edges: Option<u32>,
+}
+
+/// Find a symbol by name
+///
+/// Searches the index for all symbols matching the given name.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `name` - Symbol name to search for
+///
+/// # Returns
+/// Array of matching symbols
+///
+/// # Example
+/// ```javascript
+/// const { findSymbol, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const symbols = findSymbol('./my-repo', 'processRequest');
+/// console.log(`Found ${symbols.length} symbols named processRequest`);
+/// ```
+#[napi]
+pub fn find_symbol(path: String, name: String) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    let results = engine_find_symbol(&index, &name);
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Get all callers of a symbol
+///
+/// Returns symbols that call any symbol with the given name.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find callers for
+///
+/// # Returns
+/// Array of symbols that call the target symbol
+///
+/// # Example
+/// ```javascript
+/// const { getCallers, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const callers = getCallers('./my-repo', 'authenticate');
+/// console.log(`authenticate is called by ${callers.length} functions`);
+/// for (const c of callers) {
+///   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+/// }
+/// ```
+#[napi]
+pub fn get_callers(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results = get_callers_by_name(&index, &graph, &symbol_name);
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Get all callees of a symbol
+///
+/// Returns symbols that are called by any symbol with the given name.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find callees for
+///
+/// # Returns
+/// Array of symbols that the target symbol calls
+///
+/// # Example
+/// ```javascript
+/// const { getCallees, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const callees = getCallees('./my-repo', 'main');
+/// console.log(`main calls ${callees.length} functions`);
+/// for (const c of callees) {
+///   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+/// }
+/// ```
+#[napi]
+pub fn get_callees(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results = get_callees_by_name(&index, &graph, &symbol_name);
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Get all references to a symbol
+///
+/// Returns all locations where a symbol is referenced (calls, imports, inheritance).
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find references for
+///
+/// # Returns
+/// Array of reference information including the referencing symbol and kind
+///
+/// # Example
+/// ```javascript
+/// const { getReferences, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const refs = getReferences('./my-repo', 'UserService');
+/// console.log(`UserService is referenced ${refs.length} times`);
+/// for (const r of refs) {
+///   console.log(`  ${r.kind}: ${r.symbol.name} at ${r.symbol.file}:${r.symbol.line}`);
+/// }
+/// ```
+#[napi]
+pub fn get_references(path: String, symbol_name: String) -> Result<Vec<ReferenceInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results = get_references_by_name(&index, &graph, &symbol_name);
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Get the complete call graph
+///
+/// Returns all symbols and their call relationships.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `options` - Optional filtering options
+///
+/// # Returns
+/// Call graph with nodes (symbols), edges (calls), and statistics
+///
+/// # Example
+/// ```javascript
+/// const { getCallGraph, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const graph = getCallGraph('./my-repo');
+/// console.log(`Call graph: ${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
+///
+/// // Find most called functions
+/// const callCounts = new Map();
+/// for (const edge of graph.edges) {
+///   callCounts.set(edge.callee, (callCounts.get(edge.callee) || 0) + 1);
+/// }
+/// const sorted = [...callCounts.entries()].sort((a, b) => b[1] - a[1]);
+/// console.log('Most called functions:', sorted.slice(0, 10));
+/// ```
+#[napi]
+pub fn get_call_graph(path: String, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let result = if let Some(opts) = options {
+        get_call_graph_filtered(
+            &index,
+            &graph,
+            opts.max_nodes.map(|n| n as usize),
+            opts.max_edges.map(|n| n as usize),
+        )
+    } else {
+        engine_get_call_graph(&index, &graph)
+    };
+
+    Ok(result.into())
+}
+
+/// Async version of findSymbol
+#[napi]
+pub async fn find_symbol_async(path: String, name: String) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || find_symbol(path, name))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallers
+#[napi]
+pub async fn get_callers_async(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_callers(path, symbol_name))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallees
+#[napi]
+pub async fn get_callees_async(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_callees(path, symbol_name))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getReferences
+#[napi]
+pub async fn get_references_async(path: String, symbol_name: String) -> Result<Vec<ReferenceInfo>> {
+    tokio::task::spawn_blocking(move || get_references(path, symbol_name))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallGraph
+#[napi]
+pub async fn get_call_graph_async(path: String, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+    tokio::task::spawn_blocking(move || get_call_graph(path, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }
 
 // ============================================================================

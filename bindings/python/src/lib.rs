@@ -22,6 +22,14 @@ use infiniloom_engine::{
     index::{
         IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
         DiffChange, ChangeType,
+        // Call graph query API
+        find_symbol as engine_find_symbol,
+        get_callers_by_name, get_callees_by_name, get_references_by_name,
+        get_call_graph as engine_get_call_graph,
+        get_call_graph_filtered,
+        SymbolInfo as EngineSymbolInfo,
+        ReferenceInfo as EngineReferenceInfo,
+        CallGraph as EngineCallGraph,
     },
     // Chunking module
     Chunker, ChunkStrategy,
@@ -1562,6 +1570,280 @@ fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
 }
 
 // ============================================================================
+// Call Graph API - Query symbol relationships
+// ============================================================================
+
+/// Convert an engine SymbolInfo to a Python dict
+fn symbol_info_to_py<'py>(py: Python<'py>, s: &EngineSymbolInfo) -> &'py pyo3::types::PyDict {
+    let dict = PyDict::new(py);
+    dict.set_item("id", s.id).unwrap();
+    dict.set_item("name", &s.name).unwrap();
+    dict.set_item("kind", &s.kind).unwrap();
+    dict.set_item("file", &s.file).unwrap();
+    dict.set_item("line", s.line).unwrap();
+    dict.set_item("end_line", s.end_line).unwrap();
+    if let Some(ref sig) = s.signature {
+        dict.set_item("signature", sig).unwrap();
+    }
+    dict.set_item("visibility", &s.visibility).unwrap();
+    dict
+}
+
+/// Convert an engine ReferenceInfo to a Python dict
+fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> &'py pyo3::types::PyDict {
+    let dict = PyDict::new(py);
+    dict.set_item("symbol", symbol_info_to_py(py, &r.symbol)).unwrap();
+    dict.set_item("kind", &r.kind).unwrap();
+    dict
+}
+
+/// Convert an engine CallGraph to a Python dict
+fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::types::PyDict {
+    let dict = PyDict::new(py);
+
+    // Convert nodes
+    let nodes = PyList::new(
+        py,
+        g.nodes.iter().map(|n| symbol_info_to_py(py, n)),
+    );
+    dict.set_item("nodes", nodes).unwrap();
+
+    // Convert edges
+    let edges = PyList::new(
+        py,
+        g.edges.iter().map(|e| {
+            let edge_dict = PyDict::new(py);
+            edge_dict.set_item("caller_id", e.caller_id).unwrap();
+            edge_dict.set_item("callee_id", e.callee_id).unwrap();
+            edge_dict.set_item("caller", &e.caller).unwrap();
+            edge_dict.set_item("callee", &e.callee).unwrap();
+            edge_dict.set_item("file", &e.file).unwrap();
+            edge_dict.set_item("line", e.line).unwrap();
+            edge_dict
+        }),
+    );
+    dict.set_item("edges", edges).unwrap();
+
+    // Convert stats
+    let stats = PyDict::new(py);
+    stats.set_item("total_symbols", g.stats.total_symbols).unwrap();
+    stats.set_item("total_calls", g.stats.total_calls).unwrap();
+    stats.set_item("functions", g.stats.functions).unwrap();
+    stats.set_item("classes", g.stats.classes).unwrap();
+    dict.set_item("stats", stats).unwrap();
+
+    dict
+}
+
+/// Find a symbol by name
+///
+/// Searches the index for all symbols matching the given name.
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     name: Symbol name to search for
+///
+/// Returns:
+///     List of dicts with: id, name, kind, file, line, end_line, signature, visibility
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> symbols = infiniloom.find_symbol("/path/to/repo", "process_request")
+///     >>> print(f"Found {len(symbols)} symbols named process_request")
+#[pyfunction]
+fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index: {}", e))
+    })?;
+
+    let results = engine_find_symbol(&index, name);
+
+    let list = PyList::new(
+        py,
+        results.iter().map(|s| symbol_info_to_py(py, s)),
+    );
+
+    Ok(list.into())
+}
+
+/// Get all callers of a symbol
+///
+/// Returns symbols that call any symbol with the given name.
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find callers for
+///
+/// Returns:
+///     List of symbols that call the target symbol
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> callers = infiniloom.get_callers("/path/to/repo", "authenticate")
+///     >>> print(f"authenticate is called by {len(callers)} functions")
+///     >>> for c in callers:
+///     ...     print(f"  {c['name']} at {c['file']}:{c['line']}")
+#[pyfunction]
+fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index: {}", e))
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load graph: {}", e))
+    })?;
+
+    let results = get_callers_by_name(&index, &graph, symbol_name);
+
+    let list = PyList::new(
+        py,
+        results.iter().map(|s| symbol_info_to_py(py, s)),
+    );
+
+    Ok(list.into())
+}
+
+/// Get all callees of a symbol
+///
+/// Returns symbols that are called by any symbol with the given name.
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find callees for
+///
+/// Returns:
+///     List of symbols that the target symbol calls
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> callees = infiniloom.get_callees("/path/to/repo", "main")
+///     >>> print(f"main calls {len(callees)} functions")
+///     >>> for c in callees:
+///     ...     print(f"  {c['name']} at {c['file']}:{c['line']}")
+#[pyfunction]
+fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index: {}", e))
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load graph: {}", e))
+    })?;
+
+    let results = get_callees_by_name(&index, &graph, symbol_name);
+
+    let list = PyList::new(
+        py,
+        results.iter().map(|s| symbol_info_to_py(py, s)),
+    );
+
+    Ok(list.into())
+}
+
+/// Get all references to a symbol
+///
+/// Returns all locations where a symbol is referenced (calls, imports, inheritance).
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find references for
+///
+/// Returns:
+///     List of dicts with: symbol (SymbolInfo dict), kind (reference type)
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> refs = infiniloom.get_references("/path/to/repo", "UserService")
+///     >>> print(f"UserService is referenced {len(refs)} times")
+///     >>> for r in refs:
+///     ...     print(f"  {r['kind']}: {r['symbol']['name']} at {r['symbol']['file']}:{r['symbol']['line']}")
+#[pyfunction]
+fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index: {}", e))
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load graph: {}", e))
+    })?;
+
+    let results = get_references_by_name(&index, &graph, symbol_name);
+
+    let list = PyList::new(
+        py,
+        results.iter().map(|r| reference_info_to_py(py, r)),
+    );
+
+    Ok(list.into())
+}
+
+/// Get the complete call graph
+///
+/// Returns all symbols and their call relationships.
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     max_nodes: Maximum number of nodes to return (default: unlimited)
+///     max_edges: Maximum number of edges to return (default: unlimited)
+///
+/// Returns:
+///     Dict with: nodes (list of symbols), edges (list of call edges), stats (summary)
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> graph = infiniloom.get_call_graph("/path/to/repo")
+///     >>> print(f"Call graph: {graph['stats']['total_symbols']} symbols, {graph['stats']['total_calls']} calls")
+///     >>> # Find most called functions
+///     >>> from collections import Counter
+///     >>> call_counts = Counter(edge['callee'] for edge in graph['edges'])
+///     >>> print("Most called:", call_counts.most_common(10))
+#[pyfunction]
+#[pyo3(signature = (path, max_nodes=None, max_edges=None))]
+fn get_call_graph(
+    py: Python,
+    path: &str,
+    max_nodes: Option<usize>,
+    max_edges: Option<usize>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load index: {}", e))
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        PyIOError::new_err(format!("Failed to load graph: {}", e))
+    })?;
+
+    let result = if max_nodes.is_some() || max_edges.is_some() {
+        get_call_graph_filtered(&index, &graph, max_nodes, max_edges)
+    } else {
+        engine_get_call_graph(&index, &graph)
+    };
+
+    Ok(call_graph_to_py(py, &result).into())
+}
+
+// ============================================================================
 // Chunk API - Split repositories into manageable pieces
 // ============================================================================
 
@@ -2053,6 +2335,13 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     // Index API
     m.add_function(wrap_pyfunction!(build_index, m)?)?;
     m.add_function(wrap_pyfunction!(index_status, m)?)?;
+
+    // Call Graph API
+    m.add_function(wrap_pyfunction!(find_symbol, m)?)?;
+    m.add_function(wrap_pyfunction!(get_callers, m)?)?;
+    m.add_function(wrap_pyfunction!(get_callees, m)?)?;
+    m.add_function(wrap_pyfunction!(get_references, m)?)?;
+    m.add_function(wrap_pyfunction!(get_call_graph, m)?)?;
 
     // Chunk API
     m.add_function(wrap_pyfunction!(chunk, m)?)?;
