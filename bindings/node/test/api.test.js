@@ -72,7 +72,7 @@ test('countTokens returns a positive number and rejects invalid models', () => {
 
   assert.throws(
     () => countTokens('Hello', 'invalid-model'),
-    /Invalid model/i,
+    /Unknown model/i,
   )
 })
 

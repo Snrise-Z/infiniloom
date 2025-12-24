@@ -379,7 +379,7 @@ impl fmt::Display for FileSize {
 }
 
 /// Importance score (0.0 to 1.0)
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ImportanceScore(f32);
 
@@ -449,10 +449,16 @@ impl fmt::Display for ImportanceScore {
 
 impl Eq for ImportanceScore {}
 
-#[allow(clippy::derive_ord_xor_partial_ord)]
+impl PartialOrd for ImportanceScore {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for ImportanceScore {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+        // Use f32's partial_cmp directly, treating NaN as equal (shouldn't happen with clamped values)
+        self.0.partial_cmp(&other.0).unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 

@@ -156,10 +156,19 @@ fn scan(
     respect_gitignore: bool,
 ) -> PyResult<PyObject> {
     let path_buf = PathBuf::from(path);
+
+    // Check if path exists
+    if !path_buf.exists() {
+        return Err(InfiniloomError::new_err(format!(
+            "Path does not exist: {}",
+            path
+        )));
+    }
+
     let config = ScanConfig {
         include_hidden,
         respect_gitignore,
-        read_contents: false,
+        read_contents: true, // Must be true to get line counts and language stats
         max_file_size: 50 * 1024 * 1024,
         skip_symbols: true, // Fast mode for scan stats
     };
