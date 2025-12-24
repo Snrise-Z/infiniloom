@@ -31,6 +31,18 @@ export interface PackOptions {
   securityThreshold?: string
   /** Token budget for total output (0 = no limit). Files are included by importance until budget is reached. */
   tokenBudget?: number
+  /** Only include files changed in git (requires baseSha or uses uncommitted changes) */
+  changedOnly?: boolean
+  /** Base SHA/ref for diff comparison (e.g., "main", "HEAD~5", commit hash) */
+  baseSha?: string
+  /** Head SHA/ref for diff comparison (default: working tree or HEAD) */
+  headSha?: string
+  /** Include staged changes only (if changedOnly is true and no refs specified) */
+  stagedOnly?: boolean
+  /** Include related files (importers/dependencies of changed files) */
+  includeRelated?: boolean
+  /** Depth for related file traversal (1-3, default: 1) */
+  relatedDepth?: number
 }
 /** Statistics from scanning a repository */
 export interface ScanStats {
@@ -245,6 +257,32 @@ export interface GitBlameLine {
   date: string
   /** Line number (1-indexed) */
   lineNumber: number
+}
+/** Diff line information for structured diff parsing */
+export interface GitDiffLine {
+  /** Change type: "add", "remove", or "context" */
+  changeType: string
+  /** Line number in old file (for remove/context lines) */
+  oldLine?: number
+  /** Line number in new file (for add/context lines) */
+  newLine?: number
+  /** Line content (without +/- prefix) */
+  content: string
+}
+/** Diff hunk information for structured diff parsing */
+export interface GitDiffHunk {
+  /** Starting line in old file */
+  oldStart: number
+  /** Number of lines in old file */
+  oldCount: number
+  /** Starting line in new file */
+  newStart: number
+  /** Number of lines in new file */
+  newCount: number
+  /** Hunk header (e.g., "@@ -1,5 +1,6 @@ function name") */
+  header: string
+  /** Lines in this hunk */
+  lines: Array<GitDiffLine>
 }
 /** Security finding information */
 export interface SecurityFinding {
@@ -473,4 +511,468 @@ export declare class GitRepo {
    * Number of commits that modified the file in the period
    */
   fileChangeFrequency(path: string, days?: number | undefined | null): number
+  /**
+   * Get file content at a specific git ref (commit, branch, tag)
+   *
+   * Uses `git show <ref>:<path>` to retrieve file content at that revision.
+   *
+   * # Arguments
+   * * `path` - File path (relative to repo root)
+   * * `gitRef` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+   *
+   * # Returns
+   * File content as string
+   *
+   * # Example
+   * ```javascript
+   * const repo = new GitRepo('./my-project');
+   * const oldVersion = repo.fileAtRef('src/main.js', 'HEAD~5');
+   * const mainVersion = repo.fileAtRef('src/main.js', 'main');
+   * ```
+   */
+  fileAtRef(path: string, gitRef: string): string
+  /**
+   * Parse diff between two refs into structured hunks
+   *
+   * Returns detailed hunk information including line numbers for each change.
+   * Useful for PR review tools that need to post comments at specific lines.
+   *
+   * # Arguments
+   * * `fromRef` - Starting ref (e.g., "main", "HEAD~5", commit hash)
+   * * `toRef` - Ending ref (e.g., "HEAD", "feature-branch")
+   * * `path` - Optional file path to filter to a single file
+   *
+   * # Returns
+   * Array of diff hunks with line-level change information
+   *
+   * # Example
+   * ```javascript
+   * const repo = new GitRepo('./my-project');
+   * const hunks = repo.diffHunks('main', 'HEAD', 'src/index.js');
+   * for (const hunk of hunks) {
+   *   console.log(`Hunk at old:${hunk.oldStart} new:${hunk.newStart}`);
+   *   for (const line of hunk.lines) {
+   *     console.log(`${line.changeType}: ${line.content}`);
+   *   }
+   * }
+   * ```
+   */
+  diffHunks(fromRef: string, toRef: string, path?: string | undefined | null): Array<GitDiffHunk>
+  /**
+   * Parse uncommitted changes (working tree vs HEAD) into structured hunks
+   *
+   * # Arguments
+   * * `path` - Optional file path to filter to a single file
+   *
+   * # Returns
+   * Array of diff hunks for uncommitted changes
+   *
+   * # Example
+   * ```javascript
+   * const repo = new GitRepo('./my-project');
+   * const hunks = repo.uncommittedHunks('src/index.js');
+   * console.log(`${hunks.length} hunks with uncommitted changes`);
+   * ```
+   */
+  uncommittedHunks(path?: string | undefined | null): Array<GitDiffHunk>
+  /**
+   * Parse staged changes into structured hunks
+   *
+   * # Arguments
+   * * `path` - Optional file path to filter to a single file
+   *
+   * # Returns
+   * Array of diff hunks for staged changes only
+   *
+   * # Example
+   * ```javascript
+   * const repo = new GitRepo('./my-project');
+   * const hunks = repo.stagedHunks('src/index.js');
+   * console.log(`${hunks.length} hunks staged for commit`);
+   * ```
+   */
+  stagedHunks(path?: string | undefined | null): Array<GitDiffHunk>
 }
+
+// ============================================================================
+// Index API - Build and query symbol indexes
+// ============================================================================
+
+/** Options for building an index */
+export interface IndexOptions {
+  /** Force full rebuild even if index exists */
+  force?: boolean
+  /** Include test files in index */
+  includeTests?: boolean
+  /** Maximum file size to index (bytes) */
+  maxFileSize?: number
+}
+
+/** Index status information */
+export interface IndexStatus {
+  /** Whether an index exists */
+  exists: boolean
+  /** Number of files indexed */
+  fileCount: number
+  /** Number of symbols indexed */
+  symbolCount: number
+  /** Last build timestamp (ISO 8601) */
+  lastBuilt?: string
+  /** Index version */
+  version?: string
+}
+
+/**
+ * Build or update the symbol index for a repository
+ *
+ * The index enables fast diff-to-context lookups and impact analysis.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional index build options
+ *
+ * # Returns
+ * Index status after building
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndex } = require('infiniloom-node');
+ *
+ * const status = buildIndex('./my-repo');
+ * console.log(`Indexed ${status.symbolCount} symbols`);
+ *
+ * // Force rebuild
+ * const status2 = buildIndex('./my-repo', { force: true });
+ * ```
+ */
+export declare function buildIndex(path: string, options?: IndexOptions | undefined | null): IndexStatus
+
+/**
+ * Get the status of an existing index
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ *
+ * # Returns
+ * Index status information
+ *
+ * # Example
+ * ```javascript
+ * const { indexStatus } = require('infiniloom-node');
+ *
+ * const status = indexStatus('./my-repo');
+ * if (status.exists) {
+ *   console.log(`Index has ${status.symbolCount} symbols`);
+ * } else {
+ *   console.log('No index found, run buildIndex first');
+ * }
+ * ```
+ */
+export declare function indexStatus(path: string): IndexStatus
+
+// ============================================================================
+// Chunk API - Split repositories into manageable pieces
+// ============================================================================
+
+/** Options for chunking a repository */
+export interface ChunkOptions {
+  /** Chunking strategy: "fixed", "file", "module", "symbol", "semantic", "dependency" */
+  strategy?: string
+  /** Maximum tokens per chunk (default: 8000) */
+  maxTokens?: number
+  /** Token overlap between chunks (default: 0) */
+  overlap?: number
+  /** Target model for token counting (default: "claude") */
+  model?: string
+  /** Output format: "xml", "markdown", "json" (default: "xml") */
+  format?: string
+  /** Sort chunks by priority (core modules first) */
+  priorityFirst?: boolean
+}
+
+/** A chunk of repository content */
+export interface RepoChunk {
+  /** Chunk index (0-based) */
+  index: number
+  /** Total number of chunks */
+  total: number
+  /** Primary focus/topic of this chunk */
+  focus: string
+  /** Estimated token count */
+  tokens: number
+  /** Files included in this chunk */
+  files: Array<string>
+  /** Formatted content of the chunk */
+  content: string
+}
+
+/**
+ * Split a repository into chunks for incremental processing
+ *
+ * Useful for processing large repositories that exceed LLM context limits.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional chunking options
+ *
+ * # Returns
+ * Array of repository chunks
+ *
+ * # Example
+ * ```javascript
+ * const { chunk } = require('infiniloom-node');
+ *
+ * const chunks = chunk('./large-repo', {
+ *   strategy: 'module',
+ *   maxTokens: 50000,
+ *   model: 'claude'
+ * });
+ *
+ * for (const c of chunks) {
+ *   console.log(`Chunk ${c.index}/${c.total}: ${c.focus} (${c.tokens} tokens)`);
+ *   // Process c.content with LLM
+ * }
+ * ```
+ */
+export declare function chunk(path: string, options?: ChunkOptions | undefined | null): Array<RepoChunk>
+
+// ============================================================================
+// Impact API - Analyze change impact
+// ============================================================================
+
+/** Options for impact analysis */
+export interface ImpactOptions {
+  /** Depth of dependency traversal (1-3, default: 2) */
+  depth?: number
+  /** Include test files in analysis */
+  includeTests?: boolean
+}
+
+/** Symbol affected by a change */
+export interface AffectedSymbol {
+  /** Symbol name */
+  name: string
+  /** Symbol kind (function, class, etc.) */
+  kind: string
+  /** File containing the symbol */
+  file: string
+  /** Line number */
+  line: number
+  /** How the symbol is affected: "direct", "caller", "callee", "dependent" */
+  impactType: string
+}
+
+/** Impact analysis result */
+export interface ImpactResult {
+  /** Files directly changed */
+  changedFiles: Array<string>
+  /** Files that depend on changed files */
+  dependentFiles: Array<string>
+  /** Related test files */
+  testFiles: Array<string>
+  /** Symbols affected by the changes */
+  affectedSymbols: Array<AffectedSymbol>
+  /** Overall impact level: "low", "medium", "high", "critical" */
+  impactLevel: string
+  /** Summary of the impact */
+  summary: string
+}
+
+/**
+ * Analyze the impact of changes to files or symbols
+ *
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `files` - Files to analyze (can be paths or globs)
+ * * `options` - Optional analysis options
+ *
+ * # Returns
+ * Impact analysis result
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndex, analyzeImpact } = require('infiniloom-node');
+ *
+ * // Build index first
+ * buildIndex('./my-repo');
+ *
+ * // Analyze impact of changes
+ * const impact = analyzeImpact('./my-repo', ['src/auth.ts']);
+ * console.log(`Impact level: ${impact.impactLevel}`);
+ * console.log(`Affected files: ${impact.dependentFiles.length}`);
+ * ```
+ */
+export declare function analyzeImpact(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): ImpactResult
+
+// ============================================================================
+// Diff Context API - Get context-aware diffs
+// ============================================================================
+
+/** Options for diff context */
+export interface DiffContextOptions {
+  /** Depth of context expansion (1-3, default: 2) */
+  depth?: number
+  /** Token budget for context (default: 50000) */
+  budget?: number
+  /** Include the actual diff content (default: false) */
+  includeDiff?: boolean
+  /** Output format: "xml", "markdown", "json" (default: "xml") */
+  format?: string
+}
+
+/** A changed file with surrounding context */
+export interface DiffFileContext {
+  /** File path */
+  path: string
+  /** Change type: "Added", "Modified", "Deleted", "Renamed" */
+  changeType: string
+  /** Lines added */
+  additions: number
+  /** Lines deleted */
+  deletions: number
+  /** Unified diff content (if includeDiff is true) */
+  diff?: string
+  /** Relevant code context around changes */
+  contextSnippets: Array<string>
+}
+
+/** Symbol context information */
+export interface ContextSymbolInfo {
+  /** Symbol name */
+  name: string
+  /** Symbol kind */
+  kind: string
+  /** File containing symbol */
+  file: string
+  /** Line number */
+  line: number
+  /** Why this symbol is included: "changed", "caller", "callee", "dependent" */
+  reason: string
+  /** Symbol signature/definition */
+  signature?: string
+}
+
+/** Context-aware diff result */
+export interface DiffContextResult {
+  /** Changed files with context */
+  changedFiles: Array<DiffFileContext>
+  /** Related symbols and their context */
+  contextSymbols: Array<ContextSymbolInfo>
+  /** Related test files */
+  relatedTests: Array<string>
+  /** Formatted output (if format specified) */
+  formattedOutput?: string
+  /** Total token count */
+  totalTokens: number
+}
+
+/**
+ * Get context-aware diff with surrounding symbols and dependencies
+ *
+ * Unlike basic diffFiles, this provides semantic context around changes.
+ * Requires an index (will build on-the-fly if not present).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `fromRef` - Starting commit/branch (use "" for unstaged changes)
+ * * `toRef` - Ending commit/branch (use "HEAD" for staged, "" for working tree)
+ * * `options` - Optional context options
+ *
+ * # Returns
+ * Context-aware diff result with related symbols
+ *
+ * # Example
+ * ```javascript
+ * const { getDiffContext } = require('infiniloom-node');
+ *
+ * // Get context for last commit
+ * const context = getDiffContext('./my-repo', 'HEAD~1', 'HEAD', {
+ *   depth: 2,
+ *   budget: 50000,
+ *   includeDiff: true
+ * });
+ *
+ * console.log(`Changed: ${context.changedFiles.length} files`);
+ * console.log(`Related symbols: ${context.contextSymbols.length}`);
+ * console.log(`Related tests: ${context.relatedTests.length}`);
+ * ```
+ */
+export declare function getDiffContext(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): DiffContextResult
+
+// ============================================================================
+// Async API - Async versions of key functions
+// ============================================================================
+
+/**
+ * Async version of pack
+ *
+ * # Example
+ * ```javascript
+ * const { packAsync } = require('infiniloom-node');
+ *
+ * const context = await packAsync('./my-repo', { format: 'xml' });
+ * ```
+ */
+export declare function packAsync(path: string, options?: PackOptions | undefined | null): Promise<string>
+
+/**
+ * Async version of scan
+ *
+ * # Example
+ * ```javascript
+ * const { scanAsync } = require('infiniloom-node');
+ *
+ * const stats = await scanAsync('./my-repo', 'claude');
+ * ```
+ */
+export declare function scanAsync(path: string, model?: string | undefined | null): Promise<ScanStats>
+
+/**
+ * Async version of buildIndex
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndexAsync } = require('infiniloom-node');
+ *
+ * const status = await buildIndexAsync('./my-repo', { force: true });
+ * ```
+ */
+export declare function buildIndexAsync(path: string, options?: IndexOptions | undefined | null): Promise<IndexStatus>
+
+/**
+ * Async version of chunk
+ *
+ * # Example
+ * ```javascript
+ * const { chunkAsync } = require('infiniloom-node');
+ *
+ * const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
+ * ```
+ */
+export declare function chunkAsync(path: string, options?: ChunkOptions | undefined | null): Promise<Array<RepoChunk>>
+
+/**
+ * Async version of analyzeImpact
+ *
+ * # Example
+ * ```javascript
+ * const { analyzeImpactAsync } = require('infiniloom-node');
+ *
+ * const impact = await analyzeImpactAsync('./my-repo', ['src/auth.ts']);
+ * ```
+ */
+export declare function analyzeImpactAsync(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): Promise<ImpactResult>
+
+/**
+ * Async version of getDiffContext
+ *
+ * # Example
+ * ```javascript
+ * const { getDiffContextAsync } = require('infiniloom-node');
+ *
+ * const context = await getDiffContextAsync('./my-repo', 'HEAD~1', 'HEAD');
+ * ```
+ */
+export declare function getDiffContextAsync(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): Promise<DiffContextResult>

@@ -70,6 +70,58 @@ pub struct BlameLine {
     pub line_number: u32,
 }
 
+/// Type of line change in a diff
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineType {
+    /// Line was added
+    Add,
+    /// Line was removed
+    Remove,
+    /// Context line (unchanged)
+    Context,
+}
+
+impl DiffLineType {
+    /// Get string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Remove => "remove",
+            Self::Context => "context",
+        }
+    }
+}
+
+/// A single line change within a diff hunk
+#[derive(Debug, Clone)]
+pub struct DiffLine {
+    /// Type of change: add, remove, or context
+    pub change_type: DiffLineType,
+    /// Line number in the old file (None for additions)
+    pub old_line: Option<u32>,
+    /// Line number in the new file (None for deletions)
+    pub new_line: Option<u32>,
+    /// The actual line content (without +/- prefix)
+    pub content: String,
+}
+
+/// A diff hunk representing a contiguous block of changes
+#[derive(Debug, Clone)]
+pub struct DiffHunk {
+    /// Starting line in the old file
+    pub old_start: u32,
+    /// Number of lines in the old file section
+    pub old_count: u32,
+    /// Starting line in the new file
+    pub new_start: u32,
+    /// Number of lines in the new file section
+    pub new_count: u32,
+    /// Header line (e.g., "@@ -1,5 +1,7 @@ function name")
+    pub header: String,
+    /// Individual line changes within this hunk
+    pub lines: Vec<DiffLine>,
+}
+
 /// Git errors
 #[derive(Debug, Error)]
 pub enum GitError {
@@ -409,6 +461,83 @@ impl GitRepo {
         Ok(output.lines().count() as u32)
     }
 
+    /// Get file content at a specific git ref (commit, branch, tag)
+    ///
+    /// Uses `git show <ref>:<path>` to retrieve file content at that revision.
+    ///
+    /// # Arguments
+    /// * `path` - File path relative to repository root
+    /// * `git_ref` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+    ///
+    /// # Returns
+    /// File content as string, or error if file doesn't exist at that ref
+    ///
+    /// # Example
+    /// ```ignore
+    /// let repo = GitRepo::open(Path::new("."))?;
+    /// let content = repo.file_at_ref("src/main.rs", "HEAD~5")?;
+    /// ```
+    pub fn file_at_ref(&self, path: &str, git_ref: &str) -> Result<String, GitError> {
+        self.run_git(&["show", &format!("{}:{}", git_ref, path)])
+    }
+
+    /// Parse diff between two refs into structured hunks
+    ///
+    /// Returns detailed hunk information including line numbers for each change.
+    ///
+    /// # Arguments
+    /// * `from_ref` - Starting ref (e.g., "main", "HEAD~5", commit hash)
+    /// * `to_ref` - Ending ref (e.g., "HEAD", "feature-branch")
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Vec of DiffHunk with structured line-level information
+    pub fn diff_hunks(
+        &self,
+        from_ref: &str,
+        to_ref: &str,
+        path: Option<&str>,
+    ) -> Result<Vec<DiffHunk>, GitError> {
+        let output = match path {
+            Some(p) => self.run_git(&["diff", "-U3", from_ref, to_ref, "--", p])?,
+            None => self.run_git(&["diff", "-U3", from_ref, to_ref])?,
+        };
+
+        parse_diff_hunks(&output)
+    }
+
+    /// Parse uncommitted changes (working tree vs HEAD) into structured hunks
+    ///
+    /// # Arguments
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Vec of DiffHunk for uncommitted changes
+    pub fn uncommitted_hunks(&self, path: Option<&str>) -> Result<Vec<DiffHunk>, GitError> {
+        let output = match path {
+            Some(p) => self.run_git(&["diff", "-U3", "HEAD", "--", p])?,
+            None => self.run_git(&["diff", "-U3", "HEAD"])?,
+        };
+
+        parse_diff_hunks(&output)
+    }
+
+    /// Parse staged changes into structured hunks
+    ///
+    /// # Arguments
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Vec of DiffHunk for staged changes only
+    pub fn staged_hunks(&self, path: Option<&str>) -> Result<Vec<DiffHunk>, GitError> {
+        let output = match path {
+            Some(p) => self.run_git(&["diff", "-U3", "--staged", "--", p])?,
+            None => self.run_git(&["diff", "-U3", "--staged"])?,
+        };
+
+        parse_diff_hunks(&output)
+    }
+
     /// Run a git command and return output
     fn run_git(&self, args: &[&str]) -> Result<String, GitError> {
         let output = Command::new("git")
@@ -467,6 +596,125 @@ fn format_timestamp(ts: i64) -> String {
 
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Parse unified diff output into structured hunks
+///
+/// Handles the standard unified diff format with hunk headers like:
+/// `@@ -start,count +start,count @@ optional context`
+fn parse_diff_hunks(diff_output: &str) -> Result<Vec<DiffHunk>, GitError> {
+    let mut hunks = Vec::new();
+    let mut current_hunk: Option<DiffHunk> = None;
+    let mut old_line = 0u32;
+    let mut new_line = 0u32;
+
+    for line in diff_output.lines() {
+        // Check for hunk header: @@ -old_start,old_count +new_start,new_count @@ context
+        if line.starts_with("@@") {
+            // Save previous hunk if exists
+            if let Some(hunk) = current_hunk.take() {
+                hunks.push(hunk);
+            }
+
+            // Parse hunk header
+            if let Some((old_start, old_count, new_start, new_count)) = parse_hunk_header(line) {
+                old_line = old_start;
+                new_line = new_start;
+
+                current_hunk = Some(DiffHunk {
+                    old_start,
+                    old_count,
+                    new_start,
+                    new_count,
+                    header: line.to_owned(),
+                    lines: Vec::new(),
+                });
+            }
+        } else if let Some(ref mut hunk) = current_hunk {
+            // Parse line within a hunk
+            if let Some(first_char) = line.chars().next() {
+                let (change_type, content) = match first_char {
+                    '+' => (DiffLineType::Add, line[1..].to_owned()),
+                    '-' => (DiffLineType::Remove, line[1..].to_owned()),
+                    ' ' => (DiffLineType::Context, line[1..].to_owned()),
+                    '\\' => continue, // "\ No newline at end of file"
+                    _ => continue,    // Skip diff headers (diff --git, index, ---, +++)
+                };
+
+                let (old_ln, new_ln) = match change_type {
+                    DiffLineType::Add => {
+                        let nl = new_line;
+                        new_line += 1;
+                        (None, Some(nl))
+                    },
+                    DiffLineType::Remove => {
+                        let ol = old_line;
+                        old_line += 1;
+                        (Some(ol), None)
+                    },
+                    DiffLineType::Context => {
+                        let ol = old_line;
+                        let nl = new_line;
+                        old_line += 1;
+                        new_line += 1;
+                        (Some(ol), Some(nl))
+                    },
+                };
+
+                hunk.lines.push(DiffLine {
+                    change_type,
+                    old_line: old_ln,
+                    new_line: new_ln,
+                    content,
+                });
+            }
+        }
+    }
+
+    // Push final hunk
+    if let Some(hunk) = current_hunk {
+        hunks.push(hunk);
+    }
+
+    Ok(hunks)
+}
+
+/// Parse a hunk header line into (old_start, old_count, new_start, new_count)
+///
+/// Format: @@ -old_start,old_count +new_start,new_count @@ optional_context
+/// Note: count defaults to 1 if omitted (e.g., @@ -5 +5,2 @@)
+fn parse_hunk_header(header: &str) -> Option<(u32, u32, u32, u32)> {
+    // Find the range specifications between @@ markers
+    let header = header.strip_prefix("@@")?;
+    let end_idx = header.find("@@")?;
+    let range_part = header[..end_idx].trim();
+
+    let parts: Vec<&str> = range_part.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    // Parse old range: -start,count or -start
+    let old_part = parts[0].strip_prefix('-')?;
+    let (old_start, old_count) = parse_range(old_part)?;
+
+    // Parse new range: +start,count or +start
+    let new_part = parts[1].strip_prefix('+')?;
+    let (new_start, new_count) = parse_range(new_part)?;
+
+    Some((old_start, old_count, new_start, new_count))
+}
+
+/// Parse a range specification like "5,3" or "5" into (start, count)
+fn parse_range(range: &str) -> Option<(u32, u32)> {
+    if let Some((start_str, count_str)) = range.split_once(',') {
+        let start = start_str.parse().ok()?;
+        let count = count_str.parse().ok()?;
+        Some((start, count))
+    } else {
+        let start = range.parse().ok()?;
+        Some((start, 1)) // Default count is 1
+    }
 }
 
 #[cfg(test)]
@@ -563,5 +811,139 @@ mod tests {
         let ts = 1704067200;
         let date = format_timestamp(ts);
         assert_eq!(date, "2024-01-01");
+    }
+
+    #[test]
+    fn test_file_at_ref() {
+        let temp = init_test_repo();
+        let repo = GitRepo::open(temp.path()).unwrap();
+
+        // Get file content at HEAD
+        let content = repo.file_at_ref("test.txt", "HEAD").unwrap();
+        assert_eq!(content.trim(), "hello");
+
+        // Modify the file and commit
+        std::fs::write(temp.path().join("test.txt"), "world").unwrap();
+        Command::new("git")
+            .current_dir(temp.path())
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(temp.path())
+            .args(["commit", "-m", "Update"])
+            .output()
+            .unwrap();
+
+        // Check current HEAD has new content
+        let new_content = repo.file_at_ref("test.txt", "HEAD").unwrap();
+        assert_eq!(new_content.trim(), "world");
+
+        // Check HEAD~1 still has old content
+        let old_content = repo.file_at_ref("test.txt", "HEAD~1").unwrap();
+        assert_eq!(old_content.trim(), "hello");
+    }
+
+    #[test]
+    fn test_parse_hunk_header() {
+        // Standard case
+        let result = parse_hunk_header("@@ -1,5 +1,7 @@ fn main()");
+        assert_eq!(result, Some((1, 5, 1, 7)));
+
+        // No count (defaults to 1)
+        let result = parse_hunk_header("@@ -1 +1 @@");
+        assert_eq!(result, Some((1, 1, 1, 1)));
+
+        // Mixed
+        let result = parse_hunk_header("@@ -10,3 +15 @@");
+        assert_eq!(result, Some((10, 3, 15, 1)));
+
+        // Invalid
+        let result = parse_hunk_header("not a header");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_diff_hunks() {
+        let diff = r#"diff --git a/test.txt b/test.txt
+index abc123..def456 100644
+--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,4 @@
+ line 1
+-old line 2
++new line 2
++added line
+ line 3
+"#;
+
+        let hunks = parse_diff_hunks(diff).unwrap();
+        assert_eq!(hunks.len(), 1);
+
+        let hunk = &hunks[0];
+        assert_eq!(hunk.old_start, 1);
+        assert_eq!(hunk.old_count, 3);
+        assert_eq!(hunk.new_start, 1);
+        assert_eq!(hunk.new_count, 4);
+        assert_eq!(hunk.lines.len(), 5);
+
+        // Check line types
+        assert_eq!(hunk.lines[0].change_type, DiffLineType::Context);
+        assert_eq!(hunk.lines[1].change_type, DiffLineType::Remove);
+        assert_eq!(hunk.lines[2].change_type, DiffLineType::Add);
+        assert_eq!(hunk.lines[3].change_type, DiffLineType::Add);
+        assert_eq!(hunk.lines[4].change_type, DiffLineType::Context);
+
+        // Check line numbers
+        assert_eq!(hunk.lines[0].old_line, Some(1));
+        assert_eq!(hunk.lines[0].new_line, Some(1));
+        assert_eq!(hunk.lines[1].old_line, Some(2));
+        assert_eq!(hunk.lines[1].new_line, None);
+        assert_eq!(hunk.lines[2].old_line, None);
+        assert_eq!(hunk.lines[2].new_line, Some(2));
+    }
+
+    #[test]
+    fn test_diff_hunks() {
+        let temp = init_test_repo();
+        let repo = GitRepo::open(temp.path()).unwrap();
+
+        // Modify file and commit
+        std::fs::write(temp.path().join("test.txt"), "hello\nworld\n").unwrap();
+        Command::new("git")
+            .current_dir(temp.path())
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(temp.path())
+            .args(["commit", "-m", "Add world"])
+            .output()
+            .unwrap();
+
+        // Get hunks between commits
+        let hunks = repo.diff_hunks("HEAD~1", "HEAD", Some("test.txt")).unwrap();
+        assert!(!hunks.is_empty());
+
+        // Verify we got structured data
+        let hunk = &hunks[0];
+        assert!(hunk.old_start > 0);
+        assert!(!hunk.header.is_empty());
+    }
+
+    #[test]
+    fn test_uncommitted_hunks() {
+        let temp = init_test_repo();
+        let repo = GitRepo::open(temp.path()).unwrap();
+
+        // Make uncommitted change
+        std::fs::write(temp.path().join("test.txt"), "modified content").unwrap();
+
+        let hunks = repo.uncommitted_hunks(Some("test.txt")).unwrap();
+        assert!(!hunks.is_empty());
+
+        // Should have some changes
+        let total_changes: usize = hunks.iter().map(|h| h.lines.len()).sum();
+        assert!(total_changes > 0);
     }
 }

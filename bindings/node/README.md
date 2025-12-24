@@ -257,6 +257,13 @@ interface PackOptions {
   includeTests?: boolean;    // Include test files (default: false)
   securityThreshold?: string;// Minimum severity to block: "critical", "high", "medium", "low"
   tokenBudget?: number;      // Limit total output tokens (0 = no limit)
+  // Git-based filtering options (PR review integration)
+  changedOnly?: boolean;     // Only include files changed in git
+  baseSha?: string;          // Base SHA/ref for diff comparison (e.g., "main", "HEAD~5")
+  headSha?: string;          // Head SHA/ref for diff comparison (default: working tree)
+  stagedOnly?: boolean;      // Include staged changes only
+  includeRelated?: boolean;  // Include related files (importers/dependencies)
+  relatedDepth?: number;     // Depth for related file traversal (1-3, default: 1)
 }
 ```
 
@@ -352,6 +359,30 @@ interface GitBlameLine {
   author: string;     // Author who wrote the line
   date: string;       // Date when line was written
   lineNumber: number; // Line number (1-indexed)
+}
+```
+
+#### `GitDiffLine`
+
+```typescript
+interface GitDiffLine {
+  changeType: string; // "add", "remove", or "context"
+  oldLine?: number;   // Line number in old file (for remove/context)
+  newLine?: number;   // Line number in new file (for add/context)
+  content: string;    // Line content (without +/- prefix)
+}
+```
+
+#### `GitDiffHunk`
+
+```typescript
+interface GitDiffHunk {
+  oldStart: number;   // Starting line in old file
+  oldCount: number;   // Number of lines in old file
+  newStart: number;   // Starting line in new file
+  newCount: number;   // Number of lines in new file
+  header: string;     // Hunk header (e.g., "@@ -1,5 +1,6 @@ function name")
+  lines: GitDiffLine[]; // Lines in this hunk
 }
 ```
 
@@ -498,6 +529,75 @@ Get file change frequency in recent days.
 - `days` - Number of days to look back (default: 30)
 
 **Returns:** Number of commits that modified the file in the period
+
+#### `fileAtRef(path: string, gitRef: string): string`
+
+Get file content at a specific git ref (commit, branch, tag).
+
+**Parameters:**
+- `path` - File path relative to repo root
+- `gitRef` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+
+**Returns:** File content as string
+
+```javascript
+const repo = new GitRepo('./my-project');
+const oldVersion = repo.fileAtRef('src/main.js', 'HEAD~5');
+const mainVersion = repo.fileAtRef('src/main.js', 'main');
+```
+
+#### `diffHunks(fromRef: string, toRef: string, path?: string): GitDiffHunk[]`
+
+Parse diff between two refs into structured hunks with line-level changes.
+Useful for PR review tools that need to post comments at specific lines.
+
+**Parameters:**
+- `fromRef` - Starting ref (e.g., "main", "HEAD~5", commit hash)
+- `toRef` - Ending ref (e.g., "HEAD", "feature-branch")
+- `path` - Optional file path to filter to a single file
+
+**Returns:** Array of diff hunks with line-level change information
+
+```javascript
+const repo = new GitRepo('./my-project');
+const hunks = repo.diffHunks('main', 'HEAD', 'src/index.js');
+for (const hunk of hunks) {
+  console.log(`Hunk at old:${hunk.oldStart} new:${hunk.newStart}`);
+  for (const line of hunk.lines) {
+    console.log(`${line.changeType}: ${line.content}`);
+  }
+}
+```
+
+#### `uncommittedHunks(path?: string): GitDiffHunk[]`
+
+Parse uncommitted changes (working tree vs HEAD) into structured hunks.
+
+**Parameters:**
+- `path` - Optional file path to filter to a single file
+
+**Returns:** Array of diff hunks for uncommitted changes
+
+```javascript
+const repo = new GitRepo('./my-project');
+const hunks = repo.uncommittedHunks('src/index.js');
+console.log(`${hunks.length} hunks with uncommitted changes`);
+```
+
+#### `stagedHunks(path?: string): GitDiffHunk[]`
+
+Parse staged changes into structured hunks.
+
+**Parameters:**
+- `path` - Optional file path to filter to a single file
+
+**Returns:** Array of diff hunks for staged changes only
+
+```javascript
+const repo = new GitRepo('./my-project');
+const hunks = repo.stagedHunks('src/index.js');
+console.log(`${hunks.length} hunks staged for commit`);
+```
 
 **Example:**
 

@@ -341,6 +341,67 @@ Get file change frequency in recent days.
 
 **Returns:** int - Number of commits that modified the file in the period
 
+##### `file_at_ref(path, git_ref)`
+
+Get file content at a specific git ref (commit, branch, tag).
+
+**Parameters:**
+- `path` (str): File path relative to repo root
+- `git_ref` (str): Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+
+**Returns:** str - File content
+
+```python
+repo = GitRepo("/path/to/repo")
+old_version = repo.file_at_ref("src/main.py", "HEAD~5")
+main_version = repo.file_at_ref("src/main.py", "main")
+```
+
+##### `diff_hunks(from_ref, to_ref, path=None)`
+
+Parse diff between two refs into structured hunks with line-level changes.
+Useful for PR review tools that need to post comments at specific lines.
+
+**Parameters:**
+- `from_ref` (str): Starting ref (e.g., "main", "HEAD~5", commit hash)
+- `to_ref` (str): Ending ref (e.g., "HEAD", "feature-branch")
+- `path` (str, optional): File path to filter to a single file
+
+**Returns:** list[dict] - List of diff hunks with:
+- `old_start`: Starting line in old file
+- `old_count`: Number of lines in old file
+- `new_start`: Starting line in new file
+- `new_count`: Number of lines in new file
+- `header`: Hunk header
+- `lines`: List of line dicts with `change_type`, `old_line`, `new_line`, `content`
+
+```python
+repo = GitRepo("/path/to/repo")
+hunks = repo.diff_hunks("main", "HEAD", "src/index.py")
+for hunk in hunks:
+    print(f"Hunk at old:{hunk['old_start']} new:{hunk['new_start']}")
+    for line in hunk['lines']:
+        print(f"{line['change_type']}: {line['content']}")
+```
+
+##### `uncommitted_hunks(path=None)`
+
+Parse uncommitted changes (working tree vs HEAD) into structured hunks.
+
+**Parameters:**
+- `path` (str, optional): File path to filter to a single file
+
+**Returns:** list[dict] - List of diff hunks for uncommitted changes
+
+##### `staged_hunks(path=None)`
+
+Parse staged changes into structured hunks.
+
+**Parameters:**
+- `path` (str, optional): File path to filter to a single file
+
+**Returns:** list[dict] - List of diff hunks for staged changes only
+
 **Example:**
 
 ```python
@@ -371,6 +432,42 @@ if is_git_repo("/path/to/repo"):
         diff = repo.uncommitted_diff("src/main.py")
         print(diff)
 ```
+
+### Async Functions
+
+Infiniloom provides async versions of the main functions for use in async/await contexts.
+These use a thread pool executor to avoid blocking the event loop.
+
+```python
+import asyncio
+import infiniloom
+
+async def main():
+    # Pack repository asynchronously
+    context = await infiniloom.pack_async("/path/to/repo", format="xml", model="claude")
+
+    # Scan repository asynchronously
+    stats = await infiniloom.scan_async("/path/to/repo")
+
+    # Count tokens asynchronously
+    tokens = await infiniloom.count_tokens_async("Hello, world!", model="claude")
+
+    # Scan security asynchronously
+    findings = await infiniloom.scan_security_async("/path/to/repo")
+
+    # Semantic compress asynchronously
+    compressed = await infiniloom.semantic_compress_async(long_text, budget_ratio=0.3)
+
+asyncio.run(main())
+```
+
+#### Available Async Functions
+
+- `pack_async(path, format="xml", model="claude", compression="balanced", ...)` - Async pack
+- `scan_async(path, include_hidden=False, respect_gitignore=True)` - Async scan
+- `count_tokens_async(text, model="claude")` - Async token counting
+- `scan_security_async(path)` - Async security scanning
+- `semantic_compress_async(text, similarity_threshold=0.7, budget_ratio=0.5)` - Async compression
 
 ## Formats
 

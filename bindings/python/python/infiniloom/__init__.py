@@ -184,34 +184,73 @@ Integration with LLM APIs:
 """
 
 from ._infiniloom import (
+    # Core functions
     pack,
     scan,
     count_tokens,
     scan_security,
     semantic_compress,
     is_git_repo,
+    # Index API
+    build_index,
+    index_status,
+    # Chunk API
+    chunk,
+    # Impact & Diff Context API
+    analyze_impact,
+    get_diff_context,
+    # Classes
     Infiniloom,
     GitRepo,
+    # Exceptions
     InfiniloomError,
+    # Version
     __version__,
 )
 
+from ._async import (
+    pack_async,
+    scan_async,
+    count_tokens_async,
+    scan_security_async,
+    semantic_compress_async,
+    build_index_async,
+    chunk_async,
+    analyze_impact_async,
+    get_diff_context_async,
+)
+
 __all__ = [
-    # Functions
+    # Core functions
     "pack",
     "scan",
     "count_tokens",
     "scan_security",
     "semantic_compress",
     "is_git_repo",
-
+    # Index API
+    "build_index",
+    "index_status",
+    # Chunk API
+    "chunk",
+    # Impact & Diff Context API
+    "analyze_impact",
+    "get_diff_context",
+    # Async functions
+    "pack_async",
+    "scan_async",
+    "count_tokens_async",
+    "scan_security_async",
+    "semantic_compress_async",
+    "build_index_async",
+    "chunk_async",
+    "analyze_impact_async",
+    "get_diff_context_async",
     # Classes
     "Infiniloom",
     "GitRepo",
-
     # Exceptions
     "InfiniloomError",
-
     # Version
     "__version__",
 ]

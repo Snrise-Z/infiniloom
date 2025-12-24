@@ -3,7 +3,10 @@
 use infiniloom_engine::{
     count_symbol_references,
     default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
-    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus},
+    git::{
+        GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile,
+        DiffHunk as EngineGitDiffHunk,
+    },
     rank_files, sort_files_by_importance,
     CompressionLevel, OutputFormat, OutputFormatter, RepoMapGenerator, Repository, SecurityScanner,
     SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel, Symbol,
@@ -13,11 +16,10 @@ use infiniloom_engine::{
         IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
         DiffChange, ChangeType,
     },
-    // Git module
-    git::ChangedFile,
     // Chunking module
     Chunker, ChunkStrategy,
 };
+use std::collections::HashSet;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::path::PathBuf;
@@ -54,6 +56,18 @@ pub struct PackOptions {
     pub security_threshold: Option<String>,
     /// Token budget for total output (0 = no limit). Files are included by importance until budget is reached.
     pub token_budget: Option<u32>,
+    /// Only include files changed in git (requires baseSha or uses uncommitted changes)
+    pub changed_only: Option<bool>,
+    /// Base SHA/ref for diff comparison (e.g., "main", "HEAD~5", commit hash)
+    pub base_sha: Option<String>,
+    /// Head SHA/ref for diff comparison (default: working tree or HEAD)
+    pub head_sha: Option<String>,
+    /// Include staged changes only (if changedOnly is true and no refs specified)
+    pub staged_only: Option<bool>,
+    /// Include related files (importers/dependencies of changed files)
+    pub include_related: Option<bool>,
+    /// Depth for related file traversal (1-3, default: 1)
+    pub related_depth: Option<u32>,
 }
 
 /// Statistics from scanning a repository
@@ -139,6 +153,12 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
         include_tests: None,
         security_threshold: None,
         token_budget: None,
+        changed_only: None,
+        base_sha: None,
+        head_sha: None,
+        staged_only: None,
+        include_related: None,
+        related_depth: None,
     });
 
     // Parse options
@@ -153,6 +173,9 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
     let include_tests = opts.include_tests.unwrap_or(false);
     let security_threshold = parse_security_threshold(opts.security_threshold.as_deref())?;
     let token_budget = opts.token_budget.unwrap_or(0); // 0 = no limit
+    let changed_only = opts.changed_only.unwrap_or(false);
+    let include_related = opts.include_related.unwrap_or(false);
+    let related_depth = opts.related_depth.unwrap_or(1).clamp(1, 3);
 
     // Scan repository (with contents for packing)
     let mut repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
@@ -175,6 +198,105 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
     if let Some(ref exclude_patterns) = opts.exclude {
         let patterns: Vec<&str> = exclude_patterns.iter().map(|s| s.as_str()).collect();
         repo.files.retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
+    }
+
+    // Filter to changed files only (if enabled)
+    if changed_only {
+        let path_buf = PathBuf::from(&path);
+        if EngineGitRepo::is_git_repo(&path_buf) {
+            let git_repo = EngineGitRepo::open(&path_buf)
+                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+
+            // Get changed file paths
+            let changed_paths: HashSet<String> = if opts.staged_only.unwrap_or(false) {
+                // Only staged changes - status() returns all changes
+                // For staged-only, we'd need to parse status output more carefully
+                // For now, we include all changed files
+                git_repo.status()
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+                    .into_iter()
+                    .map(|f| f.path)
+                    .collect()
+            } else if let (Some(ref base), Some(ref head)) = (&opts.base_sha, &opts.head_sha) {
+                // Diff between two refs
+                git_repo.diff_files(base, head)
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+                    .into_iter()
+                    .map(|f| f.path)
+                    .collect()
+            } else if let Some(ref base) = opts.base_sha {
+                // Diff from base to HEAD
+                git_repo.diff_files(base, "HEAD")
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+                    .into_iter()
+                    .map(|f| f.path)
+                    .collect()
+            } else {
+                // Uncommitted changes (default)
+                git_repo.status()
+                    .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+                    .into_iter()
+                    .map(|f| f.path)
+                    .collect()
+            };
+
+            // Filter repo files to only include changed files
+            repo.files.retain(|f| changed_paths.contains(&f.relative_path));
+        }
+    }
+
+    // Expand to include related files (if enabled)
+    if include_related && !repo.files.is_empty() {
+        let path_buf = PathBuf::from(&path);
+        let storage = IndexStorage::new(&path_buf);
+
+        // Try to load index for dependency information
+        if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
+            let depth = match related_depth {
+                1 => ContextDepth::L1,
+                2 => ContextDepth::L2,
+                _ => ContextDepth::L3,
+            };
+
+            let expander = ContextExpander::new(&index, &graph);
+
+            // Get current file paths
+            let changed_paths: Vec<String> = repo.files.iter().map(|f| f.relative_path.clone()).collect();
+
+            // Convert to DiffChange for expander
+            let changes: Vec<DiffChange> = changed_paths.iter().map(|p| DiffChange {
+                file_path: p.clone(),
+                old_path: None,
+                line_ranges: vec![],
+                change_type: ChangeType::Modified,
+                diff_content: None,
+            }).collect();
+
+            // Expand context
+            let context = expander.expand(&changes, depth, token_budget);
+
+            // Collect related file paths
+            let mut related_paths: HashSet<String> = HashSet::new();
+            for f in &context.dependent_files {
+                related_paths.insert(f.path.clone());
+            }
+            for f in &context.related_tests {
+                related_paths.insert(f.path.clone());
+            }
+
+            // Re-scan to include related files that weren't in the original set
+            if !related_paths.is_empty() {
+                let full_repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
+                for file in full_repo.files {
+                    if related_paths.contains(&file.relative_path) {
+                        // Check if we already have this file
+                        if !repo.files.iter().any(|f| f.relative_path == file.relative_path) {
+                            repo.files.push(file);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Count cross-file symbol references (populates Symbol.references field)
@@ -673,6 +795,12 @@ impl Infiniloom {
             include_tests: None,
             security_threshold: None,
             token_budget: None,
+            changed_only: None,
+            base_sha: None,
+            head_sha: None,
+            staged_only: None,
+            include_related: None,
+            related_depth: None,
         });
 
         let format = parse_format(opts.format.as_deref())?;
@@ -1283,6 +1411,36 @@ pub struct GitBlameLine {
     pub line_number: u32,
 }
 
+/// A single line change within a diff hunk
+#[napi(object)]
+pub struct GitDiffLine {
+    /// Type of change: "add", "remove", or "context"
+    pub change_type: String,
+    /// Line number in the old file (null for additions)
+    pub old_line: Option<u32>,
+    /// Line number in the new file (null for deletions)
+    pub new_line: Option<u32>,
+    /// The actual line content (without +/- prefix)
+    pub content: String,
+}
+
+/// A diff hunk representing a contiguous block of changes
+#[napi(object)]
+pub struct GitDiffHunk {
+    /// Starting line in the old file
+    pub old_start: u32,
+    /// Number of lines in the old file section
+    pub old_count: u32,
+    /// Starting line in the new file
+    pub new_start: u32,
+    /// Number of lines in the new file section
+    pub new_count: u32,
+    /// Header line (e.g., "@@ -1,5 +1,7 @@ function name")
+    pub header: String,
+    /// Individual line changes within this hunk
+    pub lines: Vec<GitDiffLine>,
+}
+
 /// Git repository wrapper for Node.js
 ///
 /// Provides access to git operations like status, diff, log, and blame.
@@ -1547,6 +1705,135 @@ impl GitRepo {
     pub fn file_change_frequency(&self, path: String, days: Option<u32>) -> Result<u32> {
         self.inner.file_change_frequency(&path, days.unwrap_or(30))
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Get file content at a specific git ref (commit, branch, tag)
+    ///
+    /// Uses `git show <ref>:<path>` to retrieve file content at that revision.
+    ///
+    /// # Arguments
+    /// * `path` - File path (relative to repo root)
+    /// * `git_ref` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+    ///
+    /// # Returns
+    /// File content as string
+    ///
+    /// # Example
+    /// ```javascript
+    /// const { GitRepo } = require('infiniloom-node');
+    ///
+    /// const repo = new GitRepo('./my-project');
+    /// const oldVersion = repo.fileAtRef('src/main.ts', 'HEAD~5');
+    /// const mainVersion = repo.fileAtRef('src/main.ts', 'main');
+    /// ```
+    #[napi]
+    pub fn file_at_ref(&self, path: String, git_ref: String) -> Result<String> {
+        self.inner.file_at_ref(&path, &git_ref)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Parse diff between two refs into structured hunks
+    ///
+    /// Returns detailed hunk information including line numbers for each change.
+    /// Useful for PR review tools that need to post comments at specific lines.
+    ///
+    /// # Arguments
+    /// * `from_ref` - Starting ref (e.g., "main", "HEAD~5", commit hash)
+    /// * `to_ref` - Ending ref (e.g., "HEAD", "feature-branch")
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Array of diff hunks with line-level information
+    ///
+    /// # Example
+    /// ```javascript
+    /// const { GitRepo } = require('infiniloom-node');
+    ///
+    /// const repo = new GitRepo('./my-project');
+    /// const hunks = repo.diffHunks('main', 'HEAD', 'src/index.ts');
+    /// for (const hunk of hunks) {
+    ///   console.log(`Hunk at old:${hunk.oldStart} new:${hunk.newStart}`);
+    ///   for (const line of hunk.lines) {
+    ///     console.log(`${line.changeType}: ${line.content}`);
+    ///   }
+    /// }
+    /// ```
+    #[napi]
+    pub fn diff_hunks(
+        &self,
+        from_ref: String,
+        to_ref: String,
+        path: Option<String>,
+    ) -> Result<Vec<GitDiffHunk>> {
+        let hunks = self.inner.diff_hunks(&from_ref, &to_ref, path.as_deref())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        Ok(hunks.into_iter().map(convert_hunk).collect())
+    }
+
+    /// Parse uncommitted changes (working tree vs HEAD) into structured hunks
+    ///
+    /// # Arguments
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Array of diff hunks for uncommitted changes
+    ///
+    /// # Example
+    /// ```javascript
+    /// const { GitRepo } = require('infiniloom-node');
+    ///
+    /// const repo = new GitRepo('./my-project');
+    /// const hunks = repo.uncommittedHunks('src/index.ts');
+    /// console.log(`${hunks.length} hunks with uncommitted changes`);
+    /// ```
+    #[napi]
+    pub fn uncommitted_hunks(&self, path: Option<String>) -> Result<Vec<GitDiffHunk>> {
+        let hunks = self.inner.uncommitted_hunks(path.as_deref())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        Ok(hunks.into_iter().map(convert_hunk).collect())
+    }
+
+    /// Parse staged changes into structured hunks
+    ///
+    /// # Arguments
+    /// * `path` - Optional file path to filter to a single file
+    ///
+    /// # Returns
+    /// Array of diff hunks for staged changes only
+    ///
+    /// # Example
+    /// ```javascript
+    /// const { GitRepo } = require('infiniloom-node');
+    ///
+    /// const repo = new GitRepo('./my-project');
+    /// const hunks = repo.stagedHunks('src/index.ts');
+    /// console.log(`${hunks.length} hunks staged for commit`);
+    /// ```
+    #[napi]
+    pub fn staged_hunks(&self, path: Option<String>) -> Result<Vec<GitDiffHunk>> {
+        let hunks = self.inner.staged_hunks(path.as_deref())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+        Ok(hunks.into_iter().map(convert_hunk).collect())
+    }
+}
+
+/// Convert engine DiffHunk to JS GitDiffHunk
+fn convert_hunk(hunk: EngineGitDiffHunk) -> GitDiffHunk {
+    GitDiffHunk {
+        old_start: hunk.old_start,
+        old_count: hunk.old_count,
+        new_start: hunk.new_start,
+        new_count: hunk.new_count,
+        header: hunk.header,
+        lines: hunk.lines.into_iter().map(|l| GitDiffLine {
+            change_type: l.change_type.as_str().to_owned(),
+            old_line: l.old_line,
+            new_line: l.new_line,
+            content: l.content,
+        }).collect(),
     }
 }
 

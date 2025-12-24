@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use infiniloom_engine::{
     count_symbol_references,
     default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
-    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile},
+    git::{GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile, DiffHunk as EngineGitDiffHunk},
     rank_files, sort_files_by_importance,
     tokenizer::TokenModel, CompressionLevel, HeuristicCompressor, OutputFormat, OutputFormatter,
     RepoMapGenerator, Repository, SecurityScanner, SemanticCompressor, SemanticConfig, Tokenizer,
@@ -1139,9 +1139,139 @@ impl GitRepo {
         self.inner.file_change_frequency(path, days).map_err(to_py_err)
     }
 
+    /// Get file content at a specific git ref (commit, branch, tag)
+    ///
+    /// Uses `git show <ref>:<path>` to retrieve file content at that revision.
+    ///
+    /// Args:
+    ///     path: File path (relative to repo root)
+    ///     git_ref: Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+    ///
+    /// Returns:
+    ///     File content as string
+    ///
+    /// Example:
+    ///     >>> repo = GitRepo("/path/to/repo")
+    ///     >>> old_version = repo.file_at_ref("src/main.py", "HEAD~5")
+    ///     >>> main_version = repo.file_at_ref("src/main.py", "main")
+    #[pyo3(signature = (path, git_ref))]
+    fn file_at_ref(&self, path: &str, git_ref: &str) -> PyResult<String> {
+        self.inner.file_at_ref(path, git_ref).map_err(to_py_err)
+    }
+
+    /// Parse diff between two refs into structured hunks
+    ///
+    /// Returns detailed hunk information including line numbers for each change.
+    /// Useful for PR review tools that need to post comments at specific lines.
+    ///
+    /// Args:
+    ///     from_ref: Starting ref (e.g., "main", "HEAD~5", commit hash)
+    ///     to_ref: Ending ref (e.g., "HEAD", "feature-branch")
+    ///     path: Optional file path to filter to a single file
+    ///
+    /// Returns:
+    ///     List of dicts with: old_start, old_count, new_start, new_count, header, lines
+    ///     Each line has: change_type ("add"/"remove"/"context"), old_line, new_line, content
+    ///
+    /// Example:
+    ///     >>> repo = GitRepo("/path/to/repo")
+    ///     >>> hunks = repo.diff_hunks("main", "HEAD", "src/index.py")
+    ///     >>> for hunk in hunks:
+    ///     ...     print(f"Hunk at old:{hunk['old_start']} new:{hunk['new_start']}")
+    ///     ...     for line in hunk['lines']:
+    ///     ...         print(f"{line['change_type']}: {line['content']}")
+    #[pyo3(signature = (from_ref, to_ref, path=None))]
+    fn diff_hunks(&self, py: Python, from_ref: &str, to_ref: &str, path: Option<&str>) -> PyResult<PyObject> {
+        let hunks = self.inner.diff_hunks(from_ref, to_ref, path).map_err(to_py_err)?;
+
+        let result = PyList::new(
+            py,
+            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
+        );
+
+        Ok(result.into())
+    }
+
+    /// Parse uncommitted changes (working tree vs HEAD) into structured hunks
+    ///
+    /// Args:
+    ///     path: Optional file path to filter to a single file
+    ///
+    /// Returns:
+    ///     List of diff hunks for uncommitted changes
+    ///
+    /// Example:
+    ///     >>> repo = GitRepo("/path/to/repo")
+    ///     >>> hunks = repo.uncommitted_hunks("src/index.py")
+    ///     >>> print(f"{len(hunks)} hunks with uncommitted changes")
+    #[pyo3(signature = (path=None))]
+    fn uncommitted_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
+        let hunks = self.inner.uncommitted_hunks(path).map_err(to_py_err)?;
+
+        let result = PyList::new(
+            py,
+            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
+        );
+
+        Ok(result.into())
+    }
+
+    /// Parse staged changes into structured hunks
+    ///
+    /// Args:
+    ///     path: Optional file path to filter to a single file
+    ///
+    /// Returns:
+    ///     List of diff hunks for staged changes only
+    ///
+    /// Example:
+    ///     >>> repo = GitRepo("/path/to/repo")
+    ///     >>> hunks = repo.staged_hunks("src/index.py")
+    ///     >>> print(f"{len(hunks)} hunks staged for commit")
+    #[pyo3(signature = (path=None))]
+    fn staged_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
+        let hunks = self.inner.staged_hunks(path).map_err(to_py_err)?;
+
+        let result = PyList::new(
+            py,
+            hunks.iter().map(|h| convert_hunk_to_py(py, h)),
+        );
+
+        Ok(result.into())
+    }
+
     fn __repr__(&self) -> String {
         "GitRepo(<git repository>)".to_string()
     }
+}
+
+/// Convert an engine DiffHunk to a Python dict
+fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py pyo3::types::PyDict {
+    let dict = PyDict::new(py);
+    dict.set_item("old_start", hunk.old_start).unwrap();
+    dict.set_item("old_count", hunk.old_count).unwrap();
+    dict.set_item("new_start", hunk.new_start).unwrap();
+    dict.set_item("new_count", hunk.new_count).unwrap();
+    dict.set_item("header", &hunk.header).unwrap();
+
+    let lines = PyList::new(
+        py,
+        hunk.lines.iter().map(|l| {
+            let line_dict = PyDict::new(py);
+            line_dict.set_item("change_type", l.change_type.as_str()).unwrap();
+            if let Some(old_line) = l.old_line {
+                line_dict.set_item("old_line", old_line).unwrap();
+            }
+            if let Some(new_line) = l.new_line {
+                line_dict.set_item("new_line", new_line).unwrap();
+            }
+            line_dict.set_item("content", &l.content).unwrap();
+            line_dict
+        }),
+    );
+    dict.set_item("lines", lines).unwrap();
+
+    dict
 }
 
 fn signature_lines(content: &str) -> String {
