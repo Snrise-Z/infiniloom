@@ -258,30 +258,30 @@ export interface GitBlameLine {
   /** Line number (1-indexed) */
   lineNumber: number
 }
-/** Diff line information for structured diff parsing */
+/** A single line change within a diff hunk */
 export interface GitDiffLine {
-  /** Change type: "add", "remove", or "context" */
+  /** Type of change: "add", "remove", or "context" */
   changeType: string
-  /** Line number in old file (for remove/context lines) */
+  /** Line number in the old file (null for additions) */
   oldLine?: number
-  /** Line number in new file (for add/context lines) */
+  /** Line number in the new file (null for deletions) */
   newLine?: number
-  /** Line content (without +/- prefix) */
+  /** The actual line content (without +/- prefix) */
   content: string
 }
-/** Diff hunk information for structured diff parsing */
+/** A diff hunk representing a contiguous block of changes */
 export interface GitDiffHunk {
-  /** Starting line in old file */
+  /** Starting line in the old file */
   oldStart: number
-  /** Number of lines in old file */
+  /** Number of lines in the old file section */
   oldCount: number
-  /** Starting line in new file */
+  /** Starting line in the new file */
   newStart: number
-  /** Number of lines in new file */
+  /** Number of lines in the new file section */
   newCount: number
-  /** Hunk header (e.g., "@@ -1,5 +1,6 @@ function name") */
+  /** Header line (e.g., "@@ -1,5 +1,7 @@ function name") */
   header: string
-  /** Lines in this hunk */
+  /** Individual line changes within this hunk */
   lines: Array<GitDiffLine>
 }
 /** Security finding information */
@@ -317,6 +317,732 @@ export interface SecurityFinding {
  * ```
  */
 export declare function scanSecurity(path: string): Array<SecurityFinding>
+/** Options for building an index */
+export interface IndexOptions {
+  /** Force full rebuild even if index exists */
+  force?: boolean
+  /** Include test files in index */
+  includeTests?: boolean
+  /** Maximum file size to index (bytes) */
+  maxFileSize?: number
+}
+/** Index status information */
+export interface IndexStatus {
+  /** Whether an index exists */
+  exists: boolean
+  /** Number of files indexed */
+  fileCount: number
+  /** Number of symbols indexed */
+  symbolCount: number
+  /** Last build timestamp (ISO 8601) */
+  lastBuilt?: string
+  /** Index version */
+  version?: string
+}
+/**
+ * Build or update the symbol index for a repository
+ *
+ * The index enables fast diff-to-context lookups and impact analysis.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional index build options
+ *
+ * # Returns
+ * Index status after building
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndex } = require('infiniloom-node');
+ *
+ * const status = buildIndex('./my-repo');
+ * console.log(`Indexed ${status.symbolCount} symbols`);
+ *
+ * // Force rebuild
+ * const status2 = buildIndex('./my-repo', { force: true });
+ * ```
+ */
+export declare function buildIndex(path: string, options?: IndexOptions | undefined | null): IndexStatus
+/**
+ * Get the status of an existing index
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ *
+ * # Returns
+ * Index status information
+ *
+ * # Example
+ * ```javascript
+ * const { indexStatus } = require('infiniloom-node');
+ *
+ * const status = indexStatus('./my-repo');
+ * if (status.exists) {
+ *   console.log(`Index has ${status.symbolCount} symbols`);
+ * } else {
+ *   console.log('No index found, run buildIndex first');
+ * }
+ * ```
+ */
+export declare function indexStatus(path: string): IndexStatus
+/** Information about a symbol in the call graph */
+export interface SymbolInfo {
+  /** Symbol ID */
+  id: number
+  /** Symbol name */
+  name: string
+  /** Symbol kind (function, class, method, etc.) */
+  kind: string
+  /** File path containing the symbol */
+  file: string
+  /** Start line number */
+  line: number
+  /** End line number */
+  endLine: number
+  /** Function/method signature */
+  signature?: string
+  /** Visibility (public, private, etc.) */
+  visibility: string
+}
+/** A reference to a symbol with context */
+export interface ReferenceInfo {
+  /** Symbol making the reference */
+  symbol: SymbolInfo
+  /** Reference kind (call, import, inherit, implement) */
+  kind: string
+  /** File path containing the reference (convenience field, same as symbol.file) */
+  file: string
+  /** Line number of the reference (convenience field, same as symbol.line) */
+  line: number
+}
+/** An edge in the call graph */
+export interface CallGraphEdge {
+  /** Caller symbol ID */
+  callerId: number
+  /** Callee symbol ID */
+  calleeId: number
+  /** Caller symbol name */
+  caller: string
+  /** Callee symbol name */
+  callee: string
+  /** File containing the call site */
+  file: string
+  /** Line number of the call */
+  line: number
+}
+/** Call graph statistics */
+export interface CallGraphStats {
+  /** Total number of symbols */
+  totalSymbols: number
+  /** Total number of call edges */
+  totalCalls: number
+  /** Number of functions/methods */
+  functions: number
+  /** Number of classes/structs */
+  classes: number
+}
+/** Complete call graph with nodes and edges */
+export interface CallGraph {
+  /** All symbols (nodes) */
+  nodes: Array<SymbolInfo>
+  /** Call relationships (edges) */
+  edges: Array<CallGraphEdge>
+  /** Summary statistics */
+  stats: CallGraphStats
+}
+/** Options for call graph queries */
+export interface CallGraphOptions {
+  /** Maximum number of nodes to return (default: unlimited) */
+  maxNodes?: number
+  /** Maximum number of edges to return (default: unlimited) */
+  maxEdges?: number
+}
+/**
+ * Find a symbol by name
+ *
+ * Searches the index for all symbols matching the given name.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `name` - Symbol name to search for
+ *
+ * # Returns
+ * Array of matching symbols
+ *
+ * # Example
+ * ```javascript
+ * const { findSymbol, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const symbols = findSymbol('./my-repo', 'processRequest');
+ * console.log(`Found ${symbols.length} symbols named processRequest`);
+ * ```
+ */
+export declare function findSymbol(path: string, name: string): Array<SymbolInfo>
+/**
+ * Get all callers of a symbol
+ *
+ * Returns symbols that call any symbol with the given name.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find callers for
+ *
+ * # Returns
+ * Array of symbols that call the target symbol
+ *
+ * # Example
+ * ```javascript
+ * const { getCallers, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callers = getCallers('./my-repo', 'authenticate');
+ * console.log(`authenticate is called by ${callers.length} functions`);
+ * for (const c of callers) {
+ *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+ * }
+ * ```
+ */
+export declare function getCallers(path: string, symbolName: string): Array<SymbolInfo>
+/**
+ * Get all callees of a symbol
+ *
+ * Returns symbols that are called by any symbol with the given name.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find callees for
+ *
+ * # Returns
+ * Array of symbols that the target symbol calls
+ *
+ * # Example
+ * ```javascript
+ * const { getCallees, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callees = getCallees('./my-repo', 'main');
+ * console.log(`main calls ${callees.length} functions`);
+ * for (const c of callees) {
+ *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
+ * }
+ * ```
+ */
+export declare function getCallees(path: string, symbolName: string): Array<SymbolInfo>
+/**
+ * Get all references to a symbol
+ *
+ * Returns all locations where a symbol is referenced (calls, imports, inheritance).
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find references for
+ *
+ * # Returns
+ * Array of reference information including the referencing symbol and kind
+ *
+ * # Example
+ * ```javascript
+ * const { getReferences, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const refs = getReferences('./my-repo', 'UserService');
+ * console.log(`UserService is referenced ${refs.length} times`);
+ * for (const r of refs) {
+ *   console.log(`  ${r.kind}: ${r.symbol.name} at ${r.symbol.file}:${r.symbol.line}`);
+ * }
+ * ```
+ */
+export declare function getReferences(path: string, symbolName: string): Array<ReferenceInfo>
+/**
+ * Get the complete call graph
+ *
+ * Returns all symbols and their call relationships.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional filtering options
+ *
+ * # Returns
+ * Call graph with nodes (symbols), edges (calls), and statistics
+ *
+ * # Example
+ * ```javascript
+ * const { getCallGraph, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const graph = getCallGraph('./my-repo');
+ * console.log(`Call graph: ${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
+ *
+ * // Find most called functions
+ * const callCounts = new Map();
+ * for (const edge of graph.edges) {
+ *   callCounts.set(edge.callee, (callCounts.get(edge.callee) || 0) + 1);
+ * }
+ * const sorted = [...callCounts.entries()].sort((a, b) => b[1] - a[1]);
+ * console.log('Most called functions:', sorted.slice(0, 10));
+ * ```
+ */
+export declare function getCallGraph(path: string, options?: CallGraphOptions | undefined | null): CallGraph
+/** Async version of findSymbol */
+export declare function findSymbolAsync(path: string, name: string): Promise<Array<SymbolInfo>>
+/** Async version of getCallers */
+export declare function getCallersAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
+/** Async version of getCallees */
+export declare function getCalleesAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
+/** Async version of getReferences */
+export declare function getReferencesAsync(path: string, symbolName: string): Promise<Array<ReferenceInfo>>
+/** Async version of getCallGraph */
+export declare function getCallGraphAsync(path: string, options?: CallGraphOptions | undefined | null): Promise<CallGraph>
+/** Options for chunking a repository */
+export interface ChunkOptions {
+  /** Chunking strategy: "fixed", "file", "module", "symbol", "semantic", "dependency" */
+  strategy?: string
+  /** Maximum tokens per chunk (default: 8000) */
+  maxTokens?: number
+  /** Token overlap between chunks (default: 0) */
+  overlap?: number
+  /** Target model for token counting (default: "claude") */
+  model?: string
+  /** Output format: "xml", "markdown", "json" (default: "xml") */
+  format?: string
+  /** Sort chunks by priority (core modules first) */
+  priorityFirst?: boolean
+}
+/** A chunk of repository content */
+export interface RepoChunk {
+  /** Chunk index (0-based) */
+  index: number
+  /** Total number of chunks */
+  total: number
+  /** Primary focus/topic of this chunk */
+  focus: string
+  /** Estimated token count */
+  tokens: number
+  /** Files included in this chunk */
+  files: Array<string>
+  /** Formatted content of the chunk */
+  content: string
+}
+/**
+ * Split a repository into chunks for incremental processing
+ *
+ * Useful for processing large repositories that exceed LLM context limits.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `options` - Optional chunking options
+ *
+ * # Returns
+ * Array of repository chunks
+ *
+ * # Example
+ * ```javascript
+ * const { chunk } = require('infiniloom-node');
+ *
+ * const chunks = chunk('./large-repo', {
+ *   strategy: 'module',
+ *   maxTokens: 50000,
+ *   model: 'claude'
+ * });
+ *
+ * for (const c of chunks) {
+ *   console.log(`Chunk ${c.index}/${c.total}: ${c.focus} (${c.tokens} tokens)`);
+ *   // Process c.content with LLM
+ * }
+ * ```
+ */
+export declare function chunk(path: string, options?: ChunkOptions | undefined | null): Array<RepoChunk>
+/** Options for impact analysis */
+export interface ImpactOptions {
+  /** Depth of dependency traversal (1-3, default: 2) */
+  depth?: number
+  /** Include test files in analysis */
+  includeTests?: boolean
+}
+/** Symbol affected by a change */
+export interface AffectedSymbol {
+  /** Symbol name */
+  name: string
+  /** Symbol kind (function, class, etc.) */
+  kind: string
+  /** File containing the symbol */
+  file: string
+  /** Line number */
+  line: number
+  /** How the symbol is affected: "direct", "caller", "callee", "dependent" */
+  impactType: string
+}
+/** Impact analysis result */
+export interface ImpactResult {
+  /** Files directly changed */
+  changedFiles: Array<string>
+  /** Files that depend on changed files */
+  dependentFiles: Array<string>
+  /** Related test files */
+  testFiles: Array<string>
+  /** Symbols affected by the changes */
+  affectedSymbols: Array<AffectedSymbol>
+  /** Overall impact level: "low", "medium", "high", "critical" */
+  impactLevel: string
+  /** Summary of the impact */
+  summary: string
+}
+/**
+ * Analyze the impact of changes to files or symbols
+ *
+ * Requires an index to be built first (use buildIndex).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `files` - Files to analyze (can be paths or globs)
+ * * `options` - Optional analysis options
+ *
+ * # Returns
+ * Impact analysis result
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndex, analyzeImpact } = require('infiniloom-node');
+ *
+ * // Build index first
+ * buildIndex('./my-repo');
+ *
+ * // Analyze impact of changes
+ * const impact = analyzeImpact('./my-repo', ['src/auth.ts']);
+ * console.log(`Impact level: ${impact.impactLevel}`);
+ * console.log(`Affected files: ${impact.dependentFiles.length}`);
+ * ```
+ */
+export declare function analyzeImpact(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): ImpactResult
+/** Options for diff context */
+export interface DiffContextOptions {
+  /** Depth of context expansion (1-3, default: 2) */
+  depth?: number
+  /** Token budget for context (default: 50000) */
+  budget?: number
+  /** Include the actual diff content (default: false) */
+  includeDiff?: boolean
+  /** Output format: "xml", "markdown", "json" (default: "xml") */
+  format?: string
+}
+/** Context-aware diff result */
+export interface DiffContextResult {
+  /** Changed files with context */
+  changedFiles: Array<DiffFileContext>
+  /** Related symbols and their context */
+  contextSymbols: Array<ContextSymbolInfo>
+  /** Related test files */
+  relatedTests: Array<string>
+  /** Formatted output (if format specified) */
+  formattedOutput?: string
+  /** Total token count */
+  totalTokens: number
+}
+/** A changed file with surrounding context */
+export interface DiffFileContext {
+  /** File path */
+  path: string
+  /** Change type: "Added", "Modified", "Deleted", "Renamed" */
+  changeType: string
+  /** Lines added */
+  additions: number
+  /** Lines deleted */
+  deletions: number
+  /** Unified diff content (if include_diff is true) */
+  diff?: string
+  /** Relevant code context around changes */
+  contextSnippets: Array<string>
+}
+/** Symbol context information */
+export interface ContextSymbolInfo {
+  /** Symbol name */
+  name: string
+  /** Symbol kind */
+  kind: string
+  /** File containing symbol */
+  file: string
+  /** Line number */
+  line: number
+  /** Why this symbol is included: "changed", "caller", "callee", "dependent" */
+  reason: string
+  /** Symbol signature/definition */
+  signature?: string
+}
+/**
+ * Get context-aware diff with surrounding symbols and dependencies
+ *
+ * Unlike basic diffFiles, this provides semantic context around changes.
+ * Requires an index (will build on-the-fly if not present).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `from_ref` - Starting commit/branch (use "" for unstaged changes)
+ * * `to_ref` - Ending commit/branch (use "HEAD" for staged, "" for working tree)
+ * * `options` - Optional context options
+ *
+ * # Returns
+ * Context-aware diff result with related symbols
+ *
+ * # Example
+ * ```javascript
+ * const { getDiffContext } = require('infiniloom-node');
+ *
+ * // Get context for last commit
+ * const context = getDiffContext('./my-repo', 'HEAD~1', 'HEAD', {
+ *   depth: 2,
+ *   budget: 50000,
+ *   includeDiff: true
+ * });
+ *
+ * console.log(`Changed: ${context.changedFiles.length} files`);
+ * console.log(`Related symbols: ${context.contextSymbols.length}`);
+ * console.log(`Related tests: ${context.relatedTests.length}`);
+ * ```
+ */
+export declare function getDiffContext(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): DiffContextResult
+/**
+ * Async version of pack
+ *
+ * # Example
+ * ```javascript
+ * const { packAsync } = require('infiniloom-node');
+ *
+ * const context = await packAsync('./my-repo', { format: 'xml' });
+ * ```
+ */
+export declare function packAsync(path: string, options?: PackOptions | undefined | null): Promise<string>
+/**
+ * Async version of scan
+ *
+ * # Example
+ * ```javascript
+ * const { scanAsync } = require('infiniloom-node');
+ *
+ * const stats = await scanAsync('./my-repo', 'claude');
+ * ```
+ */
+export declare function scanAsync(path: string, model?: string | undefined | null): Promise<ScanStats>
+/**
+ * Async version of buildIndex
+ *
+ * # Example
+ * ```javascript
+ * const { buildIndexAsync } = require('infiniloom-node');
+ *
+ * const status = await buildIndexAsync('./my-repo', { force: true });
+ * ```
+ */
+export declare function buildIndexAsync(path: string, options?: IndexOptions | undefined | null): Promise<IndexStatus>
+/**
+ * Async version of chunk
+ *
+ * # Example
+ * ```javascript
+ * const { chunkAsync } = require('infiniloom-node');
+ *
+ * const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
+ * ```
+ */
+export declare function chunkAsync(path: string, options?: ChunkOptions | undefined | null): Promise<Array<RepoChunk>>
+/**
+ * Async version of analyzeImpact
+ *
+ * # Example
+ * ```javascript
+ * const { analyzeImpactAsync } = require('infiniloom-node');
+ *
+ * const impact = await analyzeImpactAsync('./my-repo', ['src/auth.ts']);
+ * ```
+ */
+export declare function analyzeImpactAsync(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): Promise<ImpactResult>
+/**
+ * Async version of getDiffContext
+ *
+ * # Example
+ * ```javascript
+ * const { getDiffContextAsync } = require('infiniloom-node');
+ *
+ * const context = await getDiffContextAsync('./my-repo', 'HEAD~1', 'HEAD');
+ * ```
+ */
+export declare function getDiffContextAsync(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): Promise<DiffContextResult>
+/** Options for filtering symbols */
+export interface SymbolFilter {
+  /** Filter by symbol kind: "function", "class", "method", etc. */
+  kind?: string
+  /** Filter by visibility: "public", "private", "protected" */
+  visibility?: string
+}
+/** A call site where a symbol is called */
+export interface CallSite {
+  /** Name of the calling function/method */
+  caller: string
+  /** Name of the function/method being called */
+  callee: string
+  /** File containing the call */
+  file: string
+  /** Line number of the call (1-indexed) */
+  line: number
+  /** Column number of the call (0-indexed, if available) */
+  column?: number
+  /** Caller symbol ID */
+  callerId: number
+  /** Callee symbol ID */
+  calleeId: number
+}
+/**
+ * Get all symbols in a specific file
+ *
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `file_path` - Relative path to the file within the repository
+ * * `filter` - Optional filter for symbol kind/visibility
+ *
+ * # Returns
+ * Array of symbols defined in the file
+ *
+ * # Example
+ * ```javascript
+ * const { getSymbolsInFile, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const symbols = getSymbolsInFile('./my-repo', 'src/auth.ts');
+ * console.log(`Found ${symbols.length} symbols in auth.ts`);
+ * for (const s of symbols) {
+ *   console.log(`  ${s.kind}: ${s.name} at line ${s.line}`);
+ * }
+ * ```
+ */
+export declare function getSymbolsInFile(path: string, filePath: string, filter?: SymbolFilter | undefined | null): Array<SymbolInfo>
+/**
+ * Get the source code of a symbol
+ *
+ * Reads the file and extracts the source code for the specified symbol.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to get source for
+ * * `file_path` - Optional file path to disambiguate when multiple symbols have the same name
+ *
+ * # Returns
+ * Source code of the symbol (or the first matching symbol if multiple exist)
+ *
+ * # Example
+ * ```javascript
+ * const { getSymbolSource, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const source = getSymbolSource('./my-repo', 'authenticate', 'src/auth.ts');
+ * console.log(source);
+ * ```
+ */
+export declare function getSymbolSource(path: string, symbolName: string, filePath?: string | undefined | null): string
+/**
+ * Get symbols that were changed in a diff
+ *
+ * Parses the diff between two refs and identifies which symbols were modified.
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `from_ref` - Starting commit/branch (e.g., "main", "HEAD~1")
+ * * `to_ref` - Ending commit/branch (e.g., "HEAD", "feature-branch")
+ *
+ * # Returns
+ * Array of symbols that were modified in the diff
+ *
+ * # Example
+ * ```javascript
+ * const { getChangedSymbols, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const changed = getChangedSymbols('./my-repo', 'main', 'HEAD');
+ * console.log(`${changed.length} symbols were modified`);
+ * for (const s of changed) {
+ *   console.log(`  ${s.kind}: ${s.name} in ${s.file}`);
+ * }
+ * ```
+ */
+export declare function getChangedSymbols(path: string, fromRef: string, toRef: string): Array<SymbolInfo>
+/**
+ * Get test files related to a source file
+ *
+ * Finds test files that:
+ * 1. Import the specified file
+ * 2. Match common test naming conventions (e.g., foo.ts -> foo.test.ts, test_foo.py)
+ *
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `file_path` - Relative path to the source file
+ *
+ * # Returns
+ * Array of test file paths related to the source file
+ *
+ * # Example
+ * ```javascript
+ * const { getTestsForFile, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const tests = getTestsForFile('./my-repo', 'src/auth.ts');
+ * console.log(`Found ${tests.length} test files for auth.ts`);
+ * for (const t of tests) {
+ *   console.log(`  ${t}`);
+ * }
+ * ```
+ */
+export declare function getTestsForFile(path: string, filePath: string): Array<string>
+/**
+ * Get call sites where a symbol is called
+ *
+ * Returns the locations where a function/method is called, with exact line numbers.
+ * This is useful for PR review tools that need to post inline comments.
+ *
+ * The function scans the caller's body to find the actual line where the callee is called,
+ * rather than just returning the caller's definition line.
+ *
+ * Requires an index to be built first (use `buildIndex`).
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find call sites for
+ *
+ * # Returns
+ * Array of call sites with caller information and line numbers
+ *
+ * # Example
+ * ```javascript
+ * const { getCallSites, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callSites = getCallSites('./my-repo', 'authenticate');
+ * console.log(`authenticate is called from ${callSites.length} locations`);
+ * for (const site of callSites) {
+ *   console.log(`  ${site.caller} in ${site.file}:${site.line}`);
+ * }
+ * ```
+ */
+export declare function getCallSites(path: string, symbolName: string): Array<CallSite>
+/** Async version of getSymbolsInFile */
+export declare function getSymbolsInFileAsync(path: string, filePath: string, filter?: SymbolFilter | undefined | null): Promise<Array<SymbolInfo>>
+/** Async version of getSymbolSource */
+export declare function getSymbolSourceAsync(path: string, symbolName: string, filePath?: string | undefined | null): Promise<string>
+/** Async version of getChangedSymbols */
+export declare function getChangedSymbolsAsync(path: string, fromRef: string, toRef: string): Promise<Array<SymbolInfo>>
+/** Async version of getTestsForFile */
+export declare function getTestsForFileAsync(path: string, filePath: string): Promise<Array<string>>
+/** Async version of getCallSites */
+export declare function getCallSitesAsync(path: string, symbolName: string): Promise<Array<CallSite>>
 /** Infiniloom class for advanced usage */
 export declare class Infiniloom {
   /**
@@ -518,16 +1244,18 @@ export declare class GitRepo {
    *
    * # Arguments
    * * `path` - File path (relative to repo root)
-   * * `gitRef` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
+   * * `git_ref` - Git ref (commit hash, branch name, tag, HEAD~n, etc.)
    *
    * # Returns
    * File content as string
    *
    * # Example
    * ```javascript
+   * const { GitRepo } = require('infiniloom-node');
+   *
    * const repo = new GitRepo('./my-project');
-   * const oldVersion = repo.fileAtRef('src/main.js', 'HEAD~5');
-   * const mainVersion = repo.fileAtRef('src/main.js', 'main');
+   * const oldVersion = repo.fileAtRef('src/main.ts', 'HEAD~5');
+   * const mainVersion = repo.fileAtRef('src/main.ts', 'main');
    * ```
    */
   fileAtRef(path: string, gitRef: string): string
@@ -538,17 +1266,19 @@ export declare class GitRepo {
    * Useful for PR review tools that need to post comments at specific lines.
    *
    * # Arguments
-   * * `fromRef` - Starting ref (e.g., "main", "HEAD~5", commit hash)
-   * * `toRef` - Ending ref (e.g., "HEAD", "feature-branch")
+   * * `from_ref` - Starting ref (e.g., "main", "HEAD~5", commit hash)
+   * * `to_ref` - Ending ref (e.g., "HEAD", "feature-branch")
    * * `path` - Optional file path to filter to a single file
    *
    * # Returns
-   * Array of diff hunks with line-level change information
+   * Array of diff hunks with line-level information
    *
    * # Example
    * ```javascript
+   * const { GitRepo } = require('infiniloom-node');
+   *
    * const repo = new GitRepo('./my-project');
-   * const hunks = repo.diffHunks('main', 'HEAD', 'src/index.js');
+   * const hunks = repo.diffHunks('main', 'HEAD', 'src/index.ts');
    * for (const hunk of hunks) {
    *   console.log(`Hunk at old:${hunk.oldStart} new:${hunk.newStart}`);
    *   for (const line of hunk.lines) {
@@ -569,8 +1299,10 @@ export declare class GitRepo {
    *
    * # Example
    * ```javascript
+   * const { GitRepo } = require('infiniloom-node');
+   *
    * const repo = new GitRepo('./my-project');
-   * const hunks = repo.uncommittedHunks('src/index.js');
+   * const hunks = repo.uncommittedHunks('src/index.ts');
    * console.log(`${hunks.length} hunks with uncommitted changes`);
    * ```
    */
@@ -586,627 +1318,12 @@ export declare class GitRepo {
    *
    * # Example
    * ```javascript
+   * const { GitRepo } = require('infiniloom-node');
+   *
    * const repo = new GitRepo('./my-project');
-   * const hunks = repo.stagedHunks('src/index.js');
+   * const hunks = repo.stagedHunks('src/index.ts');
    * console.log(`${hunks.length} hunks staged for commit`);
    * ```
    */
   stagedHunks(path?: string | undefined | null): Array<GitDiffHunk>
 }
-
-// ============================================================================
-// Index API - Build and query symbol indexes
-// ============================================================================
-
-/** Options for building an index */
-export interface IndexOptions {
-  /** Force full rebuild even if index exists */
-  force?: boolean
-  /** Include test files in index */
-  includeTests?: boolean
-  /** Maximum file size to index (bytes) */
-  maxFileSize?: number
-}
-
-/** Index status information */
-export interface IndexStatus {
-  /** Whether an index exists */
-  exists: boolean
-  /** Number of files indexed */
-  fileCount: number
-  /** Number of symbols indexed */
-  symbolCount: number
-  /** Last build timestamp (ISO 8601) */
-  lastBuilt?: string
-  /** Index version */
-  version?: string
-}
-
-/**
- * Build or update the symbol index for a repository
- *
- * The index enables fast diff-to-context lookups and impact analysis.
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `options` - Optional index build options
- *
- * # Returns
- * Index status after building
- *
- * # Example
- * ```javascript
- * const { buildIndex } = require('infiniloom-node');
- *
- * const status = buildIndex('./my-repo');
- * console.log(`Indexed ${status.symbolCount} symbols`);
- *
- * // Force rebuild
- * const status2 = buildIndex('./my-repo', { force: true });
- * ```
- */
-export declare function buildIndex(path: string, options?: IndexOptions | undefined | null): IndexStatus
-
-/**
- * Get the status of an existing index
- *
- * # Arguments
- * * `path` - Path to repository root
- *
- * # Returns
- * Index status information
- *
- * # Example
- * ```javascript
- * const { indexStatus } = require('infiniloom-node');
- *
- * const status = indexStatus('./my-repo');
- * if (status.exists) {
- *   console.log(`Index has ${status.symbolCount} symbols`);
- * } else {
- *   console.log('No index found, run buildIndex first');
- * }
- * ```
- */
-export declare function indexStatus(path: string): IndexStatus
-
-// ============================================================================
-// Call Graph API - Query symbol relationships
-// ============================================================================
-
-/** Information about a symbol in the call graph */
-export interface SymbolInfo {
-  /** Symbol ID */
-  id: number
-  /** Symbol name */
-  name: string
-  /** Symbol kind (function, class, method, etc.) */
-  kind: string
-  /** File path containing the symbol */
-  file: string
-  /** Start line number */
-  line: number
-  /** End line number */
-  endLine: number
-  /** Function/method signature */
-  signature?: string
-  /** Visibility (public, private, etc.) */
-  visibility: string
-}
-
-/** A reference to a symbol with context */
-export interface ReferenceInfo {
-  /** Symbol making the reference */
-  symbol: SymbolInfo
-  /** Reference kind (call, import, inherit, implement) */
-  kind: string
-  /** File path containing the reference (convenience field, same as symbol.file) */
-  file: string
-  /** Line number of the reference (convenience field, same as symbol.line) */
-  line: number
-}
-
-/** An edge in the call graph */
-export interface CallGraphEdge {
-  /** Caller symbol ID */
-  callerId: number
-  /** Callee symbol ID */
-  calleeId: number
-  /** Caller symbol name */
-  caller: string
-  /** Callee symbol name */
-  callee: string
-  /** File containing the call site */
-  file: string
-  /** Line number of the call */
-  line: number
-}
-
-/** Call graph statistics */
-export interface CallGraphStats {
-  /** Total number of symbols */
-  totalSymbols: number
-  /** Total number of call edges */
-  totalCalls: number
-  /** Number of functions/methods */
-  functions: number
-  /** Number of classes/structs */
-  classes: number
-}
-
-/** Complete call graph with nodes and edges */
-export interface CallGraph {
-  /** All symbols (nodes) */
-  nodes: Array<SymbolInfo>
-  /** Call relationships (edges) */
-  edges: Array<CallGraphEdge>
-  /** Summary statistics */
-  stats: CallGraphStats
-}
-
-/** Options for call graph queries */
-export interface CallGraphOptions {
-  /** Maximum number of nodes to return (default: unlimited) */
-  maxNodes?: number
-  /** Maximum number of edges to return (default: unlimited) */
-  maxEdges?: number
-}
-
-/**
- * Find a symbol by name
- *
- * Searches the index for all symbols matching the given name.
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `name` - Symbol name to search for
- *
- * # Returns
- * Array of matching symbols
- *
- * # Example
- * ```javascript
- * const { findSymbol, buildIndex } = require('infiniloom-node');
- *
- * buildIndex('./my-repo');
- * const symbols = findSymbol('./my-repo', 'processRequest');
- * console.log(`Found ${symbols.length} symbols named processRequest`);
- * ```
- */
-export declare function findSymbol(path: string, name: string): Array<SymbolInfo>
-
-/**
- * Get all callers of a symbol
- *
- * Returns symbols that call any symbol with the given name.
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `symbolName` - Name of the symbol to find callers for
- *
- * # Returns
- * Array of symbols that call the target symbol
- *
- * # Example
- * ```javascript
- * const { getCallers, buildIndex } = require('infiniloom-node');
- *
- * buildIndex('./my-repo');
- * const callers = getCallers('./my-repo', 'authenticate');
- * console.log(`authenticate is called by ${callers.length} functions`);
- * for (const c of callers) {
- *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
- * }
- * ```
- */
-export declare function getCallers(path: string, symbolName: string): Array<SymbolInfo>
-
-/**
- * Get all callees of a symbol
- *
- * Returns symbols that are called by any symbol with the given name.
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `symbolName` - Name of the symbol to find callees for
- *
- * # Returns
- * Array of symbols that the target symbol calls
- *
- * # Example
- * ```javascript
- * const { getCallees, buildIndex } = require('infiniloom-node');
- *
- * buildIndex('./my-repo');
- * const callees = getCallees('./my-repo', 'main');
- * console.log(`main calls ${callees.length} functions`);
- * for (const c of callees) {
- *   console.log(`  ${c.name} at ${c.file}:${c.line}`);
- * }
- * ```
- */
-export declare function getCallees(path: string, symbolName: string): Array<SymbolInfo>
-
-/**
- * Get all references to a symbol
- *
- * Returns all locations where a symbol is referenced (calls, imports, inheritance).
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `symbolName` - Name of the symbol to find references for
- *
- * # Returns
- * Array of reference information including the referencing symbol and kind
- *
- * # Example
- * ```javascript
- * const { getReferences, buildIndex } = require('infiniloom-node');
- *
- * buildIndex('./my-repo');
- * const refs = getReferences('./my-repo', 'UserService');
- * console.log(`UserService is referenced ${refs.length} times`);
- * for (const r of refs) {
- *   console.log(`  ${r.kind}: ${r.symbol.name} at ${r.symbol.file}:${r.symbol.line}`);
- * }
- * ```
- */
-export declare function getReferences(path: string, symbolName: string): Array<ReferenceInfo>
-
-/**
- * Get the complete call graph
- *
- * Returns all symbols and their call relationships.
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `options` - Optional filtering options
- *
- * # Returns
- * Call graph with nodes (symbols), edges (calls), and statistics
- *
- * # Example
- * ```javascript
- * const { getCallGraph, buildIndex } = require('infiniloom-node');
- *
- * buildIndex('./my-repo');
- * const graph = getCallGraph('./my-repo');
- * console.log(`Call graph: ${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} calls`);
- *
- * // Find most called functions
- * const callCounts = new Map();
- * for (const edge of graph.edges) {
- *   callCounts.set(edge.callee, (callCounts.get(edge.callee) || 0) + 1);
- * }
- * const sorted = [...callCounts.entries()].sort((a, b) => b[1] - a[1]);
- * console.log('Most called functions:', sorted.slice(0, 10));
- * ```
- */
-export declare function getCallGraph(path: string, options?: CallGraphOptions | undefined | null): CallGraph
-
-/** Async version of findSymbol */
-export declare function findSymbolAsync(path: string, name: string): Promise<Array<SymbolInfo>>
-
-/** Async version of getCallers */
-export declare function getCallersAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
-
-/** Async version of getCallees */
-export declare function getCalleesAsync(path: string, symbolName: string): Promise<Array<SymbolInfo>>
-
-/** Async version of getReferences */
-export declare function getReferencesAsync(path: string, symbolName: string): Promise<Array<ReferenceInfo>>
-
-/** Async version of getCallGraph */
-export declare function getCallGraphAsync(path: string, options?: CallGraphOptions | undefined | null): Promise<CallGraph>
-
-// ============================================================================
-// Chunk API - Split repositories into manageable pieces
-// ============================================================================
-
-/** Options for chunking a repository */
-export interface ChunkOptions {
-  /** Chunking strategy: "fixed", "file", "module", "symbol", "semantic", "dependency" */
-  strategy?: string
-  /** Maximum tokens per chunk (default: 8000) */
-  maxTokens?: number
-  /** Token overlap between chunks (default: 0) */
-  overlap?: number
-  /** Target model for token counting (default: "claude") */
-  model?: string
-  /** Output format: "xml", "markdown", "json" (default: "xml") */
-  format?: string
-  /** Sort chunks by priority (core modules first) */
-  priorityFirst?: boolean
-}
-
-/** A chunk of repository content */
-export interface RepoChunk {
-  /** Chunk index (0-based) */
-  index: number
-  /** Total number of chunks */
-  total: number
-  /** Primary focus/topic of this chunk */
-  focus: string
-  /** Estimated token count */
-  tokens: number
-  /** Files included in this chunk */
-  files: Array<string>
-  /** Formatted content of the chunk */
-  content: string
-}
-
-/**
- * Split a repository into chunks for incremental processing
- *
- * Useful for processing large repositories that exceed LLM context limits.
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `options` - Optional chunking options
- *
- * # Returns
- * Array of repository chunks
- *
- * # Example
- * ```javascript
- * const { chunk } = require('infiniloom-node');
- *
- * const chunks = chunk('./large-repo', {
- *   strategy: 'module',
- *   maxTokens: 50000,
- *   model: 'claude'
- * });
- *
- * for (const c of chunks) {
- *   console.log(`Chunk ${c.index}/${c.total}: ${c.focus} (${c.tokens} tokens)`);
- *   // Process c.content with LLM
- * }
- * ```
- */
-export declare function chunk(path: string, options?: ChunkOptions | undefined | null): Array<RepoChunk>
-
-// ============================================================================
-// Impact API - Analyze change impact
-// ============================================================================
-
-/** Options for impact analysis */
-export interface ImpactOptions {
-  /** Depth of dependency traversal (1-3, default: 2) */
-  depth?: number
-  /** Include test files in analysis */
-  includeTests?: boolean
-}
-
-/** Symbol affected by a change */
-export interface AffectedSymbol {
-  /** Symbol name */
-  name: string
-  /** Symbol kind (function, class, etc.) */
-  kind: string
-  /** File containing the symbol */
-  file: string
-  /** Line number */
-  line: number
-  /** How the symbol is affected: "direct", "caller", "callee", "dependent" */
-  impactType: string
-}
-
-/** Impact analysis result */
-export interface ImpactResult {
-  /** Files directly changed */
-  changedFiles: Array<string>
-  /** Files that depend on changed files */
-  dependentFiles: Array<string>
-  /** Related test files */
-  testFiles: Array<string>
-  /** Symbols affected by the changes */
-  affectedSymbols: Array<AffectedSymbol>
-  /** Overall impact level: "low", "medium", "high", "critical" */
-  impactLevel: string
-  /** Summary of the impact */
-  summary: string
-}
-
-/**
- * Analyze the impact of changes to files or symbols
- *
- * Requires an index to be built first (use buildIndex).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `files` - Files to analyze (can be paths or globs)
- * * `options` - Optional analysis options
- *
- * # Returns
- * Impact analysis result
- *
- * # Example
- * ```javascript
- * const { buildIndex, analyzeImpact } = require('infiniloom-node');
- *
- * // Build index first
- * buildIndex('./my-repo');
- *
- * // Analyze impact of changes
- * const impact = analyzeImpact('./my-repo', ['src/auth.ts']);
- * console.log(`Impact level: ${impact.impactLevel}`);
- * console.log(`Affected files: ${impact.dependentFiles.length}`);
- * ```
- */
-export declare function analyzeImpact(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): ImpactResult
-
-// ============================================================================
-// Diff Context API - Get context-aware diffs
-// ============================================================================
-
-/** Options for diff context */
-export interface DiffContextOptions {
-  /** Depth of context expansion (1-3, default: 2) */
-  depth?: number
-  /** Token budget for context (default: 50000) */
-  budget?: number
-  /** Include the actual diff content (default: false) */
-  includeDiff?: boolean
-  /** Output format: "xml", "markdown", "json" (default: "xml") */
-  format?: string
-}
-
-/** A changed file with surrounding context */
-export interface DiffFileContext {
-  /** File path */
-  path: string
-  /** Change type: "Added", "Modified", "Deleted", "Renamed" */
-  changeType: string
-  /** Lines added */
-  additions: number
-  /** Lines deleted */
-  deletions: number
-  /** Unified diff content (if includeDiff is true) */
-  diff?: string
-  /** Relevant code context around changes */
-  contextSnippets: Array<string>
-}
-
-/** Symbol context information */
-export interface ContextSymbolInfo {
-  /** Symbol name */
-  name: string
-  /** Symbol kind */
-  kind: string
-  /** File containing symbol */
-  file: string
-  /** Line number */
-  line: number
-  /** Why this symbol is included: "changed", "caller", "callee", "dependent" */
-  reason: string
-  /** Symbol signature/definition */
-  signature?: string
-}
-
-/** Context-aware diff result */
-export interface DiffContextResult {
-  /** Changed files with context */
-  changedFiles: Array<DiffFileContext>
-  /** Related symbols and their context */
-  contextSymbols: Array<ContextSymbolInfo>
-  /** Related test files */
-  relatedTests: Array<string>
-  /** Formatted output (if format specified) */
-  formattedOutput?: string
-  /** Total token count */
-  totalTokens: number
-}
-
-/**
- * Get context-aware diff with surrounding symbols and dependencies
- *
- * Unlike basic diffFiles, this provides semantic context around changes.
- * Requires an index (will build on-the-fly if not present).
- *
- * # Arguments
- * * `path` - Path to repository root
- * * `fromRef` - Starting commit/branch (use "" for unstaged changes)
- * * `toRef` - Ending commit/branch (use "HEAD" for staged, "" for working tree)
- * * `options` - Optional context options
- *
- * # Returns
- * Context-aware diff result with related symbols
- *
- * # Example
- * ```javascript
- * const { getDiffContext } = require('infiniloom-node');
- *
- * // Get context for last commit
- * const context = getDiffContext('./my-repo', 'HEAD~1', 'HEAD', {
- *   depth: 2,
- *   budget: 50000,
- *   includeDiff: true
- * });
- *
- * console.log(`Changed: ${context.changedFiles.length} files`);
- * console.log(`Related symbols: ${context.contextSymbols.length}`);
- * console.log(`Related tests: ${context.relatedTests.length}`);
- * ```
- */
-export declare function getDiffContext(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): DiffContextResult
-
-// ============================================================================
-// Async API - Async versions of key functions
-// ============================================================================
-
-/**
- * Async version of pack
- *
- * # Example
- * ```javascript
- * const { packAsync } = require('infiniloom-node');
- *
- * const context = await packAsync('./my-repo', { format: 'xml' });
- * ```
- */
-export declare function packAsync(path: string, options?: PackOptions | undefined | null): Promise<string>
-
-/**
- * Async version of scan
- *
- * # Example
- * ```javascript
- * const { scanAsync } = require('infiniloom-node');
- *
- * const stats = await scanAsync('./my-repo', 'claude');
- * ```
- */
-export declare function scanAsync(path: string, model?: string | undefined | null): Promise<ScanStats>
-
-/**
- * Async version of buildIndex
- *
- * # Example
- * ```javascript
- * const { buildIndexAsync } = require('infiniloom-node');
- *
- * const status = await buildIndexAsync('./my-repo', { force: true });
- * ```
- */
-export declare function buildIndexAsync(path: string, options?: IndexOptions | undefined | null): Promise<IndexStatus>
-
-/**
- * Async version of chunk
- *
- * # Example
- * ```javascript
- * const { chunkAsync } = require('infiniloom-node');
- *
- * const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
- * ```
- */
-export declare function chunkAsync(path: string, options?: ChunkOptions | undefined | null): Promise<Array<RepoChunk>>
-
-/**
- * Async version of analyzeImpact
- *
- * # Example
- * ```javascript
- * const { analyzeImpactAsync } = require('infiniloom-node');
- *
- * const impact = await analyzeImpactAsync('./my-repo', ['src/auth.ts']);
- * ```
- */
-export declare function analyzeImpactAsync(path: string, files: Array<string>, options?: ImpactOptions | undefined | null): Promise<ImpactResult>
-
-/**
- * Async version of getDiffContext
- *
- * # Example
- * ```javascript
- * const { getDiffContextAsync } = require('infiniloom-node');
- *
- * const context = await getDiffContextAsync('./my-repo', 'HEAD~1', 'HEAD');
- * ```
- */
-export declare function getDiffContextAsync(path: string, fromRef: string, toRef: string, options?: DiffContextOptions | undefined | null): Promise<DiffContextResult>

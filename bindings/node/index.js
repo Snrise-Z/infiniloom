@@ -310,89 +310,45 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const {
-  // Core functions
-  pack,
-  scan,
-  scanWithOptions,
-  countTokens,
-  semanticCompress,
-  isGitRepo,
-  scanSecurity,
-  // Index API
-  buildIndex,
-  indexStatus,
-  // Call graph API
-  findSymbol,
-  getCallers,
-  getCallees,
-  getReferences,
-  getCallGraph,
-  // Chunk API
-  chunk,
-  // Impact API
-  analyzeImpact,
-  // Diff context API
-  getDiffContext,
-  // Async versions
-  packAsync,
-  scanAsync,
-  buildIndexAsync,
-  findSymbolAsync,
-  getCallersAsync,
-  getCalleesAsync,
-  getReferencesAsync,
-  getCallGraphAsync,
-  chunkAsync,
-  analyzeImpactAsync,
-  getDiffContextAsync,
-  // Classes
-  Infiniloom,
-  GitRepo
-} = nativeBinding
+const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync } = nativeBinding
 
-// Core functions
 module.exports.pack = pack
 module.exports.scan = scan
 module.exports.scanWithOptions = scanWithOptions
 module.exports.countTokens = countTokens
+module.exports.Infiniloom = Infiniloom
 module.exports.semanticCompress = semanticCompress
 module.exports.isGitRepo = isGitRepo
+module.exports.GitRepo = GitRepo
 module.exports.scanSecurity = scanSecurity
-
-// Index API
 module.exports.buildIndex = buildIndex
 module.exports.indexStatus = indexStatus
-
-// Call graph API
 module.exports.findSymbol = findSymbol
 module.exports.getCallers = getCallers
 module.exports.getCallees = getCallees
 module.exports.getReferences = getReferences
 module.exports.getCallGraph = getCallGraph
-
-// Chunk API
-module.exports.chunk = chunk
-
-// Impact API
-module.exports.analyzeImpact = analyzeImpact
-
-// Diff context API
-module.exports.getDiffContext = getDiffContext
-
-// Async versions
-module.exports.packAsync = packAsync
-module.exports.scanAsync = scanAsync
-module.exports.buildIndexAsync = buildIndexAsync
 module.exports.findSymbolAsync = findSymbolAsync
 module.exports.getCallersAsync = getCallersAsync
 module.exports.getCalleesAsync = getCalleesAsync
 module.exports.getReferencesAsync = getReferencesAsync
 module.exports.getCallGraphAsync = getCallGraphAsync
+module.exports.chunk = chunk
+module.exports.analyzeImpact = analyzeImpact
+module.exports.getDiffContext = getDiffContext
+module.exports.packAsync = packAsync
+module.exports.scanAsync = scanAsync
+module.exports.buildIndexAsync = buildIndexAsync
 module.exports.chunkAsync = chunkAsync
 module.exports.analyzeImpactAsync = analyzeImpactAsync
 module.exports.getDiffContextAsync = getDiffContextAsync
-
-// Classes
-module.exports.Infiniloom = Infiniloom
-module.exports.GitRepo = GitRepo
+module.exports.getSymbolsInFile = getSymbolsInFile
+module.exports.getSymbolSource = getSymbolSource
+module.exports.getChangedSymbols = getChangedSymbols
+module.exports.getTestsForFile = getTestsForFile
+module.exports.getCallSites = getCallSites
+module.exports.getSymbolsInFileAsync = getSymbolsInFileAsync
+module.exports.getSymbolSourceAsync = getSymbolSourceAsync
+module.exports.getChangedSymbolsAsync = getChangedSymbolsAsync
+module.exports.getTestsForFileAsync = getTestsForFileAsync
+module.exports.getCallSitesAsync = getCallSitesAsync

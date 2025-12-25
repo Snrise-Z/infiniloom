@@ -2287,10 +2287,75 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
         .map(|f| f.path.clone())
         .collect();
 
-    let test_files: Vec<String> = context.related_tests
+    let mut test_files: Vec<String> = context.related_tests
         .iter()
         .map(|f| f.path.clone())
         .collect();
+
+    // Bug #4 fix: If no related tests found via expander, try direct test detection
+    if test_files.is_empty() {
+        let mut seen_tests: HashSet<String> = HashSet::new();
+
+        // Helper to check if a file is a test file
+        let is_test_file = |path: &str| -> bool {
+            let path_lower = path.to_lowercase();
+            path_lower.contains("test")
+                || path_lower.contains("spec")
+                || path_lower.contains("__tests__")
+                || path_lower.ends_with("_test.rs")
+                || path_lower.ends_with("_test.go")
+                || path_lower.ends_with("_test.py")
+                || path_lower.ends_with(".test.ts")
+                || path_lower.ends_with(".test.js")
+                || path_lower.ends_with(".spec.ts")
+                || path_lower.ends_with(".spec.js")
+        };
+
+        for changed_path in &files {
+            // Method 1: Find test files that import the changed file
+            if let Some(file_entry) = index.get_file(changed_path) {
+                let importers = graph.get_importers(file_entry.id.as_u32());
+                for importer_id in importers {
+                    if let Some(importer_file) = index.get_file_by_id(importer_id) {
+                        if is_test_file(&importer_file.path) && seen_tests.insert(importer_file.path.clone()) {
+                            test_files.push(importer_file.path.clone());
+                        }
+                    }
+                }
+            }
+
+            // Method 2: Find test files by naming convention
+            let path_lower = changed_path.to_lowercase();
+            let base_name = std::path::Path::new(&path_lower)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+
+            if !base_name.is_empty() {
+                let test_patterns = [
+                    format!("{}_test.", base_name),
+                    format!("test_{}", base_name),
+                    format!("{}.test.", base_name),
+                    format!("{}.spec.", base_name),
+                    format!("test/{}", base_name),
+                    format!("tests/{}", base_name),
+                    format!("__tests__/{}", base_name),
+                ];
+
+                for indexed_file in &index.files {
+                    if is_test_file(&indexed_file.path) {
+                        let file_lower = indexed_file.path.to_lowercase();
+                        for pattern in &test_patterns {
+                            if file_lower.contains(pattern) && seen_tests.insert(indexed_file.path.clone()) {
+                                test_files.push(indexed_file.path.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Combine changed and dependent symbols
     let affected_symbols: Vec<AffectedSymbol> = context.changed_symbols
@@ -2547,48 +2612,157 @@ pub fn get_diff_context(
         };
 
         let expander = ContextExpander::new(&index, &graph);
-        let changes: Vec<DiffChange> = changed.iter().map(|f| DiffChange {
-            file_path: f.path.clone(),
-            old_path: f.old_path.clone(),
-            line_ranges: file_line_ranges.get(&f.path).cloned().unwrap_or_default(),
-            change_type: match f.status {
-                EngineFileStatus::Added => ChangeType::Added,
-                EngineFileStatus::Deleted => ChangeType::Deleted,
-                _ => ChangeType::Modified,
-            },
-            diff_content: file_diff_contents.get(&f.path).cloned(),
+        let changes: Vec<DiffChange> = changed.iter().map(|f| {
+            // Get line ranges from diff hunks
+            let mut line_ranges = file_line_ranges.get(&f.path).cloned().unwrap_or_default();
+
+            // Bug #1 fix: If no line ranges found but file exists in index, include all lines
+            // This ensures we capture symbols even when hunk parsing fails or for new files
+            if line_ranges.is_empty() {
+                if let Some(file_entry) = index.get_file(&f.path) {
+                    // For added files, include all lines
+                    if f.status == EngineFileStatus::Added {
+                        line_ranges = vec![(1, file_entry.lines)];
+                    } else if f.status != EngineFileStatus::Deleted {
+                        // For modified files with no hunks, include all symbol ranges
+                        let symbols = index.get_file_symbols(file_entry.id);
+                        line_ranges = symbols.iter()
+                            .map(|s| (s.span.start_line, s.span.end_line))
+                            .collect();
+                    }
+                }
+            }
+
+            DiffChange {
+                file_path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                line_ranges,
+                change_type: match f.status {
+                    EngineFileStatus::Added => ChangeType::Added,
+                    EngineFileStatus::Deleted => ChangeType::Deleted,
+                    _ => ChangeType::Modified,
+                },
+                diff_content: file_diff_contents.get(&f.path).cloned(),
+            }
         }).collect();
 
         let token_budget = opts.budget.unwrap_or(50000);
         let context = expander.expand(&changes, depth, token_budget);
-        {
-            // Combine changed and dependent symbols
-            context_symbols = context.changed_symbols
-                .iter()
-                .chain(context.dependent_symbols.iter())
-                .map(|s| ContextSymbolInfo {
-                    name: s.name.clone(),
-                    kind: s.kind.clone(),
-                    file: s.file_path.clone(),
-                    line: s.start_line,
-                    reason: s.relevance_reason.clone(),
-                    signature: s.signature.clone(),
-                })
-                .collect();
 
-            related_tests = context.related_tests
-                .iter()
-                .map(|f| f.path.clone())
-                .collect();
+        // Combine changed and dependent symbols
+        context_symbols = context.changed_symbols
+            .iter()
+            .chain(context.dependent_symbols.iter())
+            .map(|s| ContextSymbolInfo {
+                name: s.name.clone(),
+                kind: s.kind.clone(),
+                file: s.file_path.clone(),
+                line: s.start_line,
+                reason: s.relevance_reason.clone(),
+                signature: s.signature.clone(),
+            })
+            .collect();
 
-            // Collect snippets from changed_files context (extract content strings)
-            for cf in &context.changed_files {
-                if !cf.snippets.is_empty() {
-                    let snippet_contents: Vec<String> = cf.snippets
-                        .iter()
-                        .map(|s| s.content.clone())
-                        .collect();
-                    file_snippets.insert(cf.path.clone(), snippet_contents);
+        related_tests = context.related_tests
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+
+        // Bug #2 fix: If no related tests found via expander, try direct test detection
+        if related_tests.is_empty() {
+            let mut seen_tests: HashSet<String> = HashSet::new();
+
+            // Helper to check if a file is a test file
+            let is_test_file = |path: &str| -> bool {
+                let path_lower = path.to_lowercase();
+                path_lower.contains("test")
+                    || path_lower.contains("spec")
+                    || path_lower.contains("__tests__")
+                    || path_lower.ends_with("_test.rs")
+                    || path_lower.ends_with("_test.go")
+                    || path_lower.ends_with("_test.py")
+                    || path_lower.ends_with(".test.ts")
+                    || path_lower.ends_with(".test.js")
+                    || path_lower.ends_with(".spec.ts")
+                    || path_lower.ends_with(".spec.js")
+            };
+
+            for changed_file in &changed {
+                // Method 1: Find test files that import the changed file
+                if let Some(file_entry) = index.get_file(&changed_file.path) {
+                    let importers = graph.get_importers(file_entry.id.as_u32());
+                    for importer_id in importers {
+                        if let Some(importer_file) = index.get_file_by_id(importer_id) {
+                            if is_test_file(&importer_file.path) && seen_tests.insert(importer_file.path.clone()) {
+                                related_tests.push(importer_file.path.clone());
+                            }
+                        }
+                    }
+                }
+
+                // Method 2: Find test files by naming convention
+                let path_lower = changed_file.path.to_lowercase();
+                let base_name = std::path::Path::new(&path_lower)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+
+                if !base_name.is_empty() {
+                    let test_patterns = [
+                        format!("{}_test.", base_name),
+                        format!("test_{}", base_name),
+                        format!("{}.test.", base_name),
+                        format!("{}.spec.", base_name),
+                        format!("test/{}", base_name),
+                        format!("tests/{}", base_name),
+                        format!("__tests__/{}", base_name),
+                    ];
+
+                    for indexed_file in &index.files {
+                        if is_test_file(&indexed_file.path) {
+                            let file_lower = indexed_file.path.to_lowercase();
+                            for pattern in &test_patterns {
+                                if file_lower.contains(pattern) && seen_tests.insert(indexed_file.path.clone()) {
+                                    related_tests.push(indexed_file.path.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate snippets for changed files (Bug #3 fix: snippets were always empty)
+        // Read file content and extract context around changed lines
+        for cf in &context.changed_files {
+            if !cf.relevant_sections.is_empty() {
+                let full_path = path_buf.join(&cf.path);
+                if let Ok(content) = std::fs::read_to_string(&full_path) {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let mut snippets = Vec::new();
+
+                    // Generate snippet for each changed section with context
+                    for (start, end) in &cf.relevant_sections {
+                        let context_lines = 3; // Lines of context before/after
+                        let snippet_start = (*start as usize).saturating_sub(context_lines + 1);
+                        let snippet_end = ((*end as usize) + context_lines).min(lines.len());
+
+                        if snippet_start < lines.len() {
+                            let snippet_content = lines[snippet_start..snippet_end].join("\n");
+                            if !snippet_content.is_empty() {
+                                snippets.push(format!(
+                                    "// Lines {}-{}\n{}",
+                                    snippet_start + 1, snippet_end,
+                                    snippet_content
+                                ));
+                            }
+                        }
+                    }
+
+                    if !snippets.is_empty() {
+                        file_snippets.insert(cf.path.clone(), snippets);
+                    }
                 }
             }
         }
@@ -2720,6 +2894,619 @@ pub async fn get_diff_context_async(
     options: Option<DiffContextOptions>,
 ) -> Result<DiffContextResult> {
     tokio::task::spawn_blocking(move || get_diff_context(path, from_ref, to_ref, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+// ============================================================================
+// New High-Priority Features for PR Review
+// ============================================================================
+
+/// Options for filtering symbols
+#[napi(object)]
+pub struct SymbolFilter {
+    /// Filter by symbol kind: "function", "class", "method", etc.
+    pub kind: Option<String>,
+    /// Filter by visibility: "public", "private", "protected"
+    pub visibility: Option<String>,
+}
+
+/// A call site where a symbol is called
+#[napi(object)]
+pub struct CallSite {
+    /// Name of the calling function/method
+    pub caller: String,
+    /// Name of the function/method being called
+    pub callee: String,
+    /// File containing the call
+    pub file: String,
+    /// Line number of the call (1-indexed)
+    pub line: u32,
+    /// Column number of the call (0-indexed, if available)
+    pub column: Option<u32>,
+    /// Caller symbol ID
+    pub caller_id: u32,
+    /// Callee symbol ID
+    pub callee_id: u32,
+}
+
+/// Get all symbols in a specific file
+///
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `file_path` - Relative path to the file within the repository
+/// * `filter` - Optional filter for symbol kind/visibility
+///
+/// # Returns
+/// Array of symbols defined in the file
+///
+/// # Example
+/// ```javascript
+/// const { getSymbolsInFile, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const symbols = getSymbolsInFile('./my-repo', 'src/auth.ts');
+/// console.log(`Found ${symbols.length} symbols in auth.ts`);
+/// for (const s of symbols) {
+///   console.log(`  ${s.kind}: ${s.name} at line ${s.line}`);
+/// }
+/// ```
+#[napi]
+pub fn get_symbols_in_file(
+    path: String,
+    file_path: String,
+    filter: Option<SymbolFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    // Get file entry
+    let file = index.get_file(&file_path)
+        .ok_or_else(|| Error::new(Status::GenericFailure, format!("File not found in index: {}", file_path)))?;
+
+    // Get all symbols in this file
+    let symbols = index.get_file_symbols(file.id);
+
+    // Filter and convert to SymbolInfo
+    let mut results: Vec<SymbolInfo> = symbols
+        .iter()
+        .filter(|s| {
+            if let Some(ref f) = filter {
+                // Filter by kind
+                if let Some(ref kind) = f.kind {
+                    if s.kind.name() != kind.as_str() {
+                        return false;
+                    }
+                }
+                // Filter by visibility
+                if let Some(ref vis) = f.visibility {
+                    let sym_vis = match s.visibility {
+                        infiniloom_engine::index::Visibility::Public => "public",
+                        infiniloom_engine::index::Visibility::Private => "private",
+                        infiniloom_engine::index::Visibility::Protected => "protected",
+                        infiniloom_engine::index::Visibility::Internal => "internal",
+                    };
+                    if sym_vis != vis.as_str() {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .map(|sym| {
+            use infiniloom_engine::index::query::SymbolInfo as EngineSymbolInfo;
+            EngineSymbolInfo::from_index_symbol(sym, &index).into()
+        })
+        .collect();
+
+    // Sort by line number
+    results.sort_by_key(|s| s.line);
+    Ok(results)
+}
+
+/// Get the source code of a symbol
+///
+/// Reads the file and extracts the source code for the specified symbol.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to get source for
+/// * `file_path` - Optional file path to disambiguate when multiple symbols have the same name
+///
+/// # Returns
+/// Source code of the symbol (or the first matching symbol if multiple exist)
+///
+/// # Example
+/// ```javascript
+/// const { getSymbolSource, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const source = getSymbolSource('./my-repo', 'authenticate', 'src/auth.ts');
+/// console.log(source);
+/// ```
+#[napi]
+pub fn get_symbol_source(
+    path: String,
+    symbol_name: String,
+    file_path: Option<String>,
+) -> Result<String> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    // Find the symbol
+    let symbols = index.find_symbols(&symbol_name);
+    if symbols.is_empty() {
+        return Err(Error::new(Status::GenericFailure, format!("Symbol not found: {}", symbol_name)));
+    }
+
+    // Filter by file path if specified
+    let symbol = if let Some(ref fp) = file_path {
+        symbols.iter().find(|s| {
+            index.get_file_by_id(s.file_id.as_u32())
+                .is_some_and(|f| f.path == *fp)
+        }).or_else(|| symbols.first())
+    } else {
+        symbols.first()
+    };
+
+    let symbol = symbol.ok_or_else(|| Error::new(Status::GenericFailure, format!("Symbol not found: {}", symbol_name)))?;
+
+    // Get file path
+    let file = index.get_file_by_id(symbol.file_id.as_u32())
+        .ok_or_else(|| Error::new(Status::GenericFailure, "File not found in index"))?;
+
+    // Read file content
+    let full_path = path_buf.join(&file.path);
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to read file: {}", e)))?;
+
+    // Extract the symbol source (lines are 1-indexed)
+    let lines: Vec<&str> = content.lines().collect();
+    let start = (symbol.span.start_line as usize).saturating_sub(1);
+    let end = (symbol.span.end_line as usize).min(lines.len());
+
+    if start >= lines.len() {
+        return Err(Error::new(Status::GenericFailure, "Symbol line numbers out of range"));
+    }
+
+    let source = lines[start..end].join("\n");
+    Ok(source)
+}
+
+/// Get symbols that were changed in a diff
+///
+/// Parses the diff between two refs and identifies which symbols were modified.
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `from_ref` - Starting commit/branch (e.g., "main", "HEAD~1")
+/// * `to_ref` - Ending commit/branch (e.g., "HEAD", "feature-branch")
+///
+/// # Returns
+/// Array of symbols that were modified in the diff
+///
+/// # Example
+/// ```javascript
+/// const { getChangedSymbols, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const changed = getChangedSymbols('./my-repo', 'main', 'HEAD');
+/// console.log(`${changed.length} symbols were modified`);
+/// for (const s of changed) {
+///   console.log(`  ${s.kind}: ${s.name} in ${s.file}`);
+/// }
+/// ```
+#[napi]
+pub fn get_changed_symbols(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+
+    // Open git repo
+    let git_repo = EngineGitRepo::open(&path_buf)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+
+    // Load index
+    let storage = IndexStorage::new(&path_buf);
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    // Get changed files
+    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
+
+    let changed_files = git_repo.diff_files(from, to)
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+    let mut changed_symbols: Vec<SymbolInfo> = Vec::new();
+    let mut seen_ids: HashSet<u32> = HashSet::new();
+
+    for file in changed_files {
+        // Get diff hunks to find changed lines
+        let hunks = git_repo.diff_hunks(from, to, Some(&file.path)).unwrap_or_default();
+
+        // Get file from index
+        let file_entry = match index.get_file(&file.path) {
+            Some(f) => f,
+            None => continue, // File might be new or not indexed
+        };
+
+        // Find symbols that overlap with changed lines
+        for hunk in hunks {
+            if hunk.new_count == 0 {
+                continue;
+            }
+
+            let start_line = hunk.new_start;
+            let end_line = hunk.new_start + hunk.new_count;
+
+            // Find symbols that overlap with this hunk
+            for sym in index.get_file_symbols(file_entry.id) {
+                // Check if symbol overlaps with changed lines
+                let sym_overlaps = sym.span.start_line <= end_line && sym.span.end_line >= start_line;
+
+                if sym_overlaps && !seen_ids.contains(&sym.id.as_u32()) {
+                    seen_ids.insert(sym.id.as_u32());
+                    use infiniloom_engine::index::query::SymbolInfo as EngineSymbolInfo;
+                    changed_symbols.push(EngineSymbolInfo::from_index_symbol(sym, &index).into());
+                }
+            }
+        }
+    }
+
+    // Sort by file and line
+    changed_symbols.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+    Ok(changed_symbols)
+}
+
+/// Get test files related to a source file
+///
+/// Finds test files that:
+/// 1. Import the specified file
+/// 2. Match common test naming conventions (e.g., foo.ts -> foo.test.ts, test_foo.py)
+///
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `file_path` - Relative path to the source file
+///
+/// # Returns
+/// Array of test file paths related to the source file
+///
+/// # Example
+/// ```javascript
+/// const { getTestsForFile, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const tests = getTestsForFile('./my-repo', 'src/auth.ts');
+/// console.log(`Found ${tests.length} test files for auth.ts`);
+/// for (const t of tests) {
+///   console.log(`  ${t}`);
+/// }
+/// ```
+#[napi]
+pub fn get_tests_for_file(
+    path: String,
+    file_path: String,
+) -> Result<Vec<String>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    // Get file entry
+    let file = index.get_file(&file_path);
+    let file_id = file.map(|f| f.id.as_u32());
+
+    let mut test_files: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Helper to check if a file is a test file
+    let is_test_file = |path: &str| -> bool {
+        let path_lower = path.to_lowercase();
+        path_lower.contains("test")
+            || path_lower.contains("spec")
+            || path_lower.contains("__tests__")
+            || path_lower.ends_with("_test.rs")
+            || path_lower.ends_with("_test.go")
+            || path_lower.ends_with("_test.py")
+            || path_lower.ends_with(".test.ts")
+            || path_lower.ends_with(".test.js")
+            || path_lower.ends_with(".spec.ts")
+            || path_lower.ends_with(".spec.js")
+    };
+
+    // Method 1: Find test files that import this file
+    if let Some(fid) = file_id {
+        let importers = graph.get_importers(fid);
+        for importer_id in importers {
+            if let Some(importer_file) = index.get_file_by_id(importer_id) {
+                if is_test_file(&importer_file.path) && seen.insert(importer_file.path.clone()) {
+                    test_files.push(importer_file.path.clone());
+                }
+            }
+        }
+    }
+
+    // Method 2: Find test files by naming convention
+    let path_lower = file_path.to_lowercase();
+    let base_name = std::path::Path::new(&path_lower)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    if !base_name.is_empty() {
+        let test_patterns = [
+            format!("{}_test.", base_name),
+            format!("test_{}", base_name),
+            format!("{}.test.", base_name),
+            format!("{}.spec.", base_name),
+            format!("test/{}", base_name),
+            format!("tests/{}", base_name),
+            format!("__tests__/{}", base_name),
+        ];
+
+        for indexed_file in &index.files {
+            if is_test_file(&indexed_file.path) {
+                let file_lower = indexed_file.path.to_lowercase();
+                for pattern in &test_patterns {
+                    if file_lower.contains(pattern) && seen.insert(indexed_file.path.clone()) {
+                        test_files.push(indexed_file.path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(test_files)
+}
+
+/// Get call sites where a symbol is called
+///
+/// Returns the locations where a function/method is called, with exact line numbers.
+/// This is useful for PR review tools that need to post inline comments.
+///
+/// The function scans the caller's body to find the actual line where the callee is called,
+/// rather than just returning the caller's definition line.
+///
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find call sites for
+///
+/// # Returns
+/// Array of call sites with caller information and line numbers
+///
+/// # Example
+/// ```javascript
+/// const { getCallSites, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const callSites = getCallSites('./my-repo', 'authenticate');
+/// console.log(`authenticate is called from ${callSites.length} locations`);
+/// for (const site of callSites) {
+///   console.log(`  ${site.caller} in ${site.file}:${site.line}`);
+/// }
+/// ```
+#[napi]
+pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let mut call_sites: Vec<CallSite> = Vec::new();
+
+    // Cache file contents to avoid re-reading
+    let mut file_cache: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+
+    // Find all symbols with this name
+    for sym in index.find_symbols(&symbol_name) {
+        let callee_id = sym.id.as_u32();
+
+        // Get all callers of this symbol
+        for caller_id in graph.get_callers(callee_id) {
+            if let Some(caller_sym) = index.get_symbol(caller_id) {
+                let file_path = index
+                    .get_file_by_id(caller_sym.file_id.as_u32())
+                    .map(|f| f.path.clone())
+                    .unwrap_or_else(|| "<unknown>".to_owned());
+
+                // Try to find exact call site by scanning the caller's body
+                let (call_line, call_col) = find_call_site_in_body(
+                    &path_buf,
+                    &file_path,
+                    caller_sym.span.start_line,
+                    caller_sym.span.end_line,
+                    &symbol_name,
+                    &mut file_cache,
+                );
+
+                call_sites.push(CallSite {
+                    caller: caller_sym.name.clone(),
+                    callee: sym.name.clone(),
+                    file: file_path,
+                    line: call_line,
+                    column: call_col,
+                    caller_id,
+                    callee_id,
+                });
+            }
+        }
+    }
+
+    // Sort by file and line
+    call_sites.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+    Ok(call_sites)
+}
+
+/// Helper function to find the actual call site within a caller's body
+fn find_call_site_in_body(
+    repo_root: &PathBuf,
+    file_path: &str,
+    start_line: u32,
+    end_line: u32,
+    callee_name: &str,
+    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
+) -> (u32, Option<u32>) {
+    // Try to load file content
+    let lines = if let Some(cached) = file_cache.get(file_path) {
+        cached.clone()
+    } else {
+        let full_path = repo_root.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                file_cache.insert(file_path.to_string(), lines.clone());
+                lines
+            }
+            Err(_) => return (start_line, None), // Fall back to definition line
+        }
+    };
+
+    // Search for the callee name within the caller's body
+    // Skip the first line (function signature) and look for actual calls
+    let search_start = (start_line as usize).saturating_sub(1);
+    let search_end = (end_line as usize).min(lines.len());
+
+    for line_idx in search_start..search_end {
+        let line = &lines[line_idx];
+
+        // Look for the callee name followed by ( to indicate a call
+        // This is a heuristic - not perfect but covers most cases
+        if let Some(col) = find_call_in_line(line, callee_name) {
+            return ((line_idx + 1) as u32, Some(col as u32));
+        }
+    }
+
+    // Fall back to the caller's start line if we can't find the exact call
+    (start_line, None)
+}
+
+/// Find a function call in a line of code
+/// Returns the column position if found
+fn find_call_in_line(line: &str, callee_name: &str) -> Option<usize> {
+    // Pattern: identifier followed by ( but not preceded by "def ", "fn ", "function ", etc.
+    let mut search_pos = 0;
+
+    while let Some(pos) = line[search_pos..].find(callee_name) {
+        let abs_pos = search_pos + pos;
+
+        // Check if this is actually a call (followed by parenthesis)
+        let after_name = abs_pos + callee_name.len();
+        if after_name < line.len() {
+            let rest = &line[after_name..];
+            let next_non_ws = rest.trim_start();
+            if next_non_ws.starts_with('(') {
+                // Check it's not a definition (preceded by def/fn/function/etc.)
+                let before = &line[..abs_pos];
+                let before_trimmed = before.trim_end();
+
+                // Skip if this is a function definition
+                let is_definition = before_trimmed.ends_with("def ")
+                    || before_trimmed.ends_with("fn ")
+                    || before_trimmed.ends_with("function ")
+                    || before_trimmed.ends_with("func ")
+                    || before_trimmed.ends_with("async def ")
+                    || before_trimmed.ends_with("pub fn ")
+                    || before_trimmed.ends_with("async fn ");
+
+                if !is_definition {
+                    // Also verify it's a standalone identifier (not part of a larger word)
+                    let is_word_boundary_before = abs_pos == 0
+                        || !line.chars().nth(abs_pos - 1).is_some_and(|c| c.is_alphanumeric() || c == '_');
+                    let is_word_boundary_after = !callee_name.chars().next_back().is_some_and(|_| {
+                        line.chars().nth(after_name).is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    });
+
+                    if is_word_boundary_before && is_word_boundary_after {
+                        return Some(abs_pos);
+                    }
+                }
+            }
+        }
+
+        search_pos = abs_pos + 1;
+    }
+
+    None
+}
+
+/// Async version of getSymbolsInFile
+#[napi]
+pub async fn get_symbols_in_file_async(
+    path: String,
+    file_path: String,
+    filter: Option<SymbolFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_symbols_in_file(path, file_path, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getSymbolSource
+#[napi]
+pub async fn get_symbol_source_async(
+    path: String,
+    symbol_name: String,
+    file_path: Option<String>,
+) -> Result<String> {
+    tokio::task::spawn_blocking(move || get_symbol_source(path, symbol_name, file_path))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getChangedSymbols
+#[napi]
+pub async fn get_changed_symbols_async(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_changed_symbols(path, from_ref, to_ref))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getTestsForFile
+#[napi]
+pub async fn get_tests_for_file_async(
+    path: String,
+    file_path: String,
+) -> Result<Vec<String>> {
+    tokio::task::spawn_blocking(move || get_tests_for_file(path, file_path))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallSites
+#[napi]
+pub async fn get_call_sites_async(
+    path: String,
+    symbol_name: String,
+) -> Result<Vec<CallSite>> {
+    tokio::task::spawn_blocking(move || get_call_sites(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }
