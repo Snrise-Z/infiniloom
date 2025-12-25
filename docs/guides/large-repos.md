@@ -81,10 +81,13 @@ infiniloom pack . --compression extreme
 
 | Level | Removes |
 |-------|---------|
+| `none` | Nothing |
 | `minimal` | Empty lines, trailing whitespace |
 | `balanced` | + Comments, redundant whitespace |
 | `aggressive` | + Docstrings, inline comments |
 | `extreme` | + Function bodies (signatures only) |
+| `focused` | Everything except key symbols + small context |
+| `semantic` | Uses code understanding for smart compression |
 
 ### Combine with Filtering
 
@@ -106,23 +109,35 @@ infiniloom chunk . --max-tokens 50000
 
 ### Chunking Strategies
 
-**Directory-based (default):**
-```bash
-infiniloom chunk . --strategy directory
-```
-Groups files by directory.
-
-**Semantic:**
+**Semantic (default):**
 ```bash
 infiniloom chunk . --strategy semantic
 ```
-Groups related files (imports/dependencies).
+Groups files by semantic similarity using character frequency heuristics.
+
+**Module-based:**
+```bash
+infiniloom chunk . --strategy module
+```
+Groups files by directory/module structure.
+
+**Dependency-based:**
+```bash
+infiniloom chunk . --strategy dependency
+```
+Groups files that import each other.
 
 **File-based:**
 ```bash
 infiniloom chunk . --strategy file
 ```
 One file per chunk (for very large files).
+
+**Fixed-size:**
+```bash
+infiniloom chunk . --strategy fixed
+```
+Split at token boundaries regardless of file structure.
 
 ### Overlap for Continuity
 

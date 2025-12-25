@@ -25,7 +25,11 @@ pub fn cmd_scan(
     security_check: bool,
     sample: Option<usize>,
     sample_percent: Option<f64>,
+    exclude: Vec<String>,
+    include_patterns: Vec<String>,
+    include_tests: bool,
 ) -> Result<()> {
+    use infiniloom_engine::default_ignores::{matches_any, TEST_IGNORES};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
@@ -41,6 +45,43 @@ pub fn cmd_scan(
     };
 
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
+
+    // Apply exclude patterns if provided
+    if !exclude.is_empty() {
+        repo.files.retain(|f| {
+            !exclude.iter().any(|pattern| {
+                f.relative_path.contains(pattern)
+                    || f.relative_path.starts_with(pattern)
+                    || f.relative_path
+                        .split('/')
+                        .any(|part| part == pattern)
+            })
+        });
+    }
+
+    // Apply include patterns if provided (only keep matching files)
+    if !include_patterns.is_empty() {
+        repo.files.retain(|f| {
+            include_patterns.iter().any(|pattern| {
+                // Support glob-like patterns
+                if pattern.contains('*') {
+                    glob::Pattern::new(pattern)
+                        .is_ok_and(|p| p.matches(&f.relative_path))
+                } else {
+                    f.relative_path.contains(pattern)
+                        || f.relative_path.ends_with(pattern)
+                }
+            })
+        });
+    }
+
+    // Exclude test files unless include_tests is true
+    if !include_tests {
+        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    }
+
+    // Update metadata after filtering
+    repo.metadata.total_files = repo.files.len() as u32;
 
     // Apply sampling if requested
     let (is_sampled, sample_size, original_count) = if let Some(n) = sample {

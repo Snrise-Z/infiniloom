@@ -198,8 +198,8 @@ Compress text using semantic compression while preserving important content.
 
 **Parameters:**
 - `text` - Text to compress
-- `similarityThreshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7)
-- `budgetRatio` - Target size as ratio of original (0.0-1.0, default: 0.5)
+- `similarityThreshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7). Note: Only affects output when built with "embeddings" feature.
+- `budgetRatio` - Target size as ratio of original (0.0-1.0, default: 0.5). Lower values = more aggressive compression.
 
 **Returns:** Compressed text
 
@@ -422,6 +422,9 @@ for (const sym of impact.affectedSymbols) {
 interface ImpactOptions {
   depth?: number;         // Depth of dependency traversal (1-3, default: 2)
   includeTests?: boolean; // Include test files in analysis (default: false)
+  model?: string;         // Target model for token counting (default: "claude")
+  exclude?: string[];     // Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+  include?: string[];     // Glob patterns to include (e.g., ["src/**/*.ts"])
 }
 ```
 
@@ -495,6 +498,10 @@ interface DiffContextOptions {
   depth?: number;       // Context expansion depth (1-3, default: 2)
   budget?: number;      // Token budget for context (default: 50000)
   includeDiff?: boolean; // Include actual diff content (default: false)
+  format?: string;      // Output format: "xml", "markdown", "json" (default: "xml")
+  model?: string;       // Target model for token counting (default: "claude")
+  exclude?: string[];   // Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+  include?: string[];   // Glob patterns to include (e.g., ["src/**/*.ts"])
 }
 ```
 

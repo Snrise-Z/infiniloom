@@ -67,12 +67,24 @@ make pre-commit     # Quick pre-commit checks
 ```bash
 # Pack repository into XML (Claude-optimized)
 infiniloom pack /path/to/repo --format xml
+infiniloom pack . --model gpt4o --compression aggressive
+infiniloom pack . -i "src/**/*.rs" -e "tests/*"  # Include/exclude patterns
+infiniloom pack . --include-tests               # Include test files
+infiniloom pack . --security-check              # Scan for secrets
+infiniloom pack . --redact-secrets              # Redact detected secrets
 
 # Scan repository and show statistics
 infiniloom scan /path/to/repo
+infiniloom scan . --model gpt4o                 # Token counts for specific model
+infiniloom scan . -v                            # Verbose file list
+infiniloom scan . --json                        # JSON output
+infiniloom scan . -i "src/**" -e "vendor/*"     # Include/exclude patterns
+infiniloom scan . --include-tests               # Include test files
 
 # Generate repository map with key symbols
 infiniloom map /path/to/repo --budget 2000
+infiniloom map . -m gpt4o -v                    # Verbose with model
+infiniloom map . -i "src/**" --include-tests    # With patterns
 
 # Show version and configuration info
 infiniloom info
@@ -82,22 +94,39 @@ infiniloom init
 
 # Build/update symbol index for fast diff context
 infiniloom index /path/to/repo
-infiniloom index --force              # Force full rebuild
-infiniloom index --status             # Show index stats
+infiniloom index --force                        # Force full rebuild
+infiniloom index --status                       # Show index stats
+infiniloom index --incremental                  # Only re-index changed files
+infiniloom index -i "src/**" -e "vendor/*"      # Include/exclude patterns
+infiniloom index --include-tests                # Include test files
 
 # Get context for a diff (changed files, dependents, tests)
-infiniloom diff                       # Unstaged changes
-infiniloom diff --staged              # Staged changes
-infiniloom diff HEAD~1                # Last commit
-infiniloom diff main..feature         # Branch comparison
-infiniloom diff --depth 2             # Context depth (1-3, default: 2)
-infiniloom diff --budget 50000        # Token budget limit
-infiniloom diff --include-diff        # Include actual diff content (+/- lines)
-infiniloom diff --format json         # Output format (xml/json/markdown)
+infiniloom diff                                 # Unstaged changes
+infiniloom diff --staged                        # Staged changes
+infiniloom diff HEAD~1                          # Last commit
+infiniloom diff main..feature                   # Branch comparison
+infiniloom diff --depth 2                       # Context depth (1-3, default: 2)
+infiniloom diff --budget 50000                  # Token budget limit
+infiniloom diff --include-diff                  # Include actual diff content (+/- lines)
+infiniloom diff --format json                   # Output format (xml/json/markdown/yaml)
+infiniloom diff -m gpt4o                        # Token counting model
+infiniloom diff -i "src/**" -e "vendor/*"       # Include/exclude patterns
+infiniloom diff --include-tests                 # Include test files
 
 # Analyze impact of changes
-infiniloom impact src/auth.rs         # What depends on this file?
-infiniloom impact --symbol "foo"      # What calls this symbol?
+infiniloom impact src/auth.rs                   # What depends on this file?
+infiniloom impact --symbol "foo"                # What calls this symbol?
+infiniloom impact . src/auth.rs --depth 3       # Full transitive analysis
+infiniloom impact . --call-graph                # Show call graph
+infiniloom impact . src/auth.rs -m gpt4o        # Token counting model
+infiniloom impact . -i "src/**" --include-tests # With patterns
+
+# Chunk repository for multi-turn conversations
+infiniloom chunk /path/to/repo
+infiniloom chunk . --strategy module            # Group by module/directory
+infiniloom chunk . --max-tokens 4000            # Smaller chunks
+infiniloom chunk . --overlap 500                # Overlap for context continuity
+infiniloom chunk . -i "src/**" --include-tests  # With patterns
 ```
 
 ## Code Architecture

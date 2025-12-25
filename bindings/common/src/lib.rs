@@ -7,7 +7,6 @@ use infiniloom_engine::{
     security::Severity, CompressionLevel, OutputFormat, Symbol, SymbolKind, TokenizerModel,
     Visibility,
 };
-use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 
 // Re-export scanner module for use by bindings
@@ -486,11 +485,66 @@ pub fn severity_at_or_above(severity: &Severity, threshold: &Severity) -> bool {
 /// * `timestamp` - Unix timestamp in seconds
 ///
 /// # Returns
-/// ISO 8601 formatted date string
+/// ISO 8601 formatted date string (e.g., "2024-01-01T00:00:00Z")
 pub fn format_timestamp(timestamp: u64) -> String {
-    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    // Simple ISO 8601 format
-    format!("{:?}", datetime)
+    // Convert Unix timestamp to ISO 8601 format
+    // timestamp is seconds since 1970-01-01 00:00:00 UTC
+    let secs_per_min = 60u64;
+    let secs_per_hour = 3600u64;
+    let secs_per_day = 86400u64;
+
+    // Days since epoch
+    let mut remaining = timestamp;
+    let days = remaining / secs_per_day;
+    remaining %= secs_per_day;
+
+    // Time of day
+    let hours = remaining / secs_per_hour;
+    remaining %= secs_per_hour;
+    let minutes = remaining / secs_per_min;
+    let seconds = remaining % secs_per_min;
+
+    // Calculate year, month, day from days since epoch
+    // Using a simplified algorithm for Gregorian calendar
+    let mut year = 1970i32;
+    let mut remaining_days = days as i64;
+
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        year += 1;
+    }
+
+    // Calculate month and day
+    let leap = is_leap_year(year);
+    let days_in_months: [i64; 12] = if leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1u32;
+    for days_in_month in days_in_months {
+        if remaining_days < days_in_month {
+            break;
+        }
+        remaining_days -= days_in_month;
+        month += 1;
+    }
+    let day = remaining_days as u32 + 1;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 #[cfg(test)]
@@ -594,13 +648,19 @@ class MyClass:
 
     #[test]
     fn test_format_timestamp() {
+        // Unix epoch - 1970-01-01T00:00:00Z
         let ts = format_timestamp(0);
-        // Unix epoch - should return non-empty string representing the time
-        assert!(!ts.is_empty());
+        assert_eq!(ts, "1970-01-01T00:00:00Z");
 
         // Test a recent timestamp (2024-01-01 00:00:00 UTC = 1704067200)
         let ts2 = format_timestamp(1704067200);
-        assert!(!ts2.is_empty());
-        assert_ne!(ts, ts2); // Different timestamps should produce different output
+        assert_eq!(ts2, "2024-01-01T00:00:00Z");
+
+        // Test with time components (2024-06-15 14:10:45 UTC)
+        let ts3 = format_timestamp(1718460645);
+        assert_eq!(ts3, "2024-06-15T14:10:45Z");
+
+        // Different timestamps should produce different output
+        assert_ne!(ts, ts2);
     }
 }

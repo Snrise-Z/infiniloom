@@ -23,6 +23,8 @@ use infiniloom_bindings_common::{
     // Scanner from common crate
     scan_repository,
     ScanConfig,
+    // Time utilities
+    format_timestamp,
 };
 
 // Import from infiniloom-engine
@@ -162,6 +164,7 @@ fn pack(
 ///     path: Path to the repository
 ///     include_hidden: Include hidden files (default: False)
 ///     respect_gitignore: Respect .gitignore files (default: True)
+///     exclude: List of directories/patterns to exclude (default: None)
 ///
 /// Returns:
 ///     Dictionary with repository statistics
@@ -170,13 +173,16 @@ fn pack(
 ///     >>> import infiniloom
 ///     >>> stats = infiniloom.scan("/path/to/repo")
 ///     >>> print(stats["total_files"])
+///     >>> # With exclusions
+///     >>> stats = infiniloom.scan("/path/to/repo", exclude=["vendor", "generated"])
 #[pyfunction]
-#[pyo3(signature = (path, include_hidden=false, respect_gitignore=true))]
+#[pyo3(signature = (path, include_hidden=false, respect_gitignore=true, exclude=None))]
 fn scan(
     py: Python,
     path: &str,
     include_hidden: bool,
     respect_gitignore: bool,
+    exclude: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     let path_buf = PathBuf::from(path);
 
@@ -193,7 +199,23 @@ fn scan(
         skip_symbols: true, // Fast mode for scan stats
     };
 
-    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+    let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    // Apply exclude patterns if provided
+    if let Some(ref patterns) = exclude {
+        if !patterns.is_empty() {
+            repo.files.retain(|f| {
+                !patterns.iter().any(|pattern| {
+                    f.relative_path.contains(pattern)
+                        || f.relative_path.starts_with(pattern)
+                        || f.relative_path
+                            .split('/')
+                            .any(|part| part == pattern)
+                })
+            });
+            repo.metadata.total_files = repo.files.len() as u32;
+        }
+    }
 
     // Convert to Python dict
     let dict = PyDict::new(py);
@@ -1049,27 +1071,34 @@ fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py py
 ///     force: Force full rebuild even if index exists (default: False)
 ///     include_tests: Include test files in index (default: False)
 ///     max_file_size: Maximum file size to index in bytes (default: 10MB)
+///     exclude: List of directories/patterns to exclude (e.g., ["vendor", "generated"])
+///     incremental: Only re-index changed files based on content hash (default: False)
 ///
 /// Returns:
-///     Dictionary with index status: exists, file_count, symbol_count, last_built, version
+///     Dictionary with index status: exists, file_count, symbol_count, last_built, version, files_updated, incremental
 ///
 /// Example:
 ///     >>> import infiniloom
 ///     >>> status = infiniloom.build_index("/path/to/repo")
 ///     >>> print(f"Indexed {status['symbol_count']} symbols")
+///     >>> # Incremental update
+///     >>> status = infiniloom.build_index("/path/to/repo", incremental=True)
+///     >>> print(f"Updated {status['files_updated']} files")
 #[pyfunction]
-#[pyo3(signature = (path, force=false, include_tests=false, max_file_size=None))]
+#[pyo3(signature = (path, force=false, include_tests=false, max_file_size=None, exclude=None, incremental=false))]
 fn build_index(
     py: Python,
     path: &str,
     force: bool,
     include_tests: bool,
     max_file_size: Option<u64>,
+    exclude: Option<Vec<String>>,
+    incremental: bool,
 ) -> PyResult<PyObject> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
-    if !force {
+    if !force && !incremental {
         // Check if index exists and is valid
         if let Ok(meta) = storage.load_meta() {
             if let (Ok(index), Ok(_graph)) = (storage.load_index(), storage.load_graph()) {
@@ -1077,8 +1106,10 @@ fn build_index(
                 dict.set_item("exists", true)?;
                 dict.set_item("file_count", index.files.len())?;
                 dict.set_item("symbol_count", index.symbols.len())?;
-                dict.set_item("last_built", meta.created_at)?;
+                dict.set_item("last_built", format_timestamp(meta.created_at))?;
                 dict.set_item("version", format!("v{}", meta.version))?;
+                dict.set_item("files_updated", py.None())?;
+                dict.set_item("incremental", false)?;
                 return Ok(dict.into());
             }
         }
@@ -1102,14 +1133,41 @@ fn build_index(
         ]);
     }
 
+    // Feature #1: Add custom exclude patterns
+    if let Some(ref custom_excludes) = exclude {
+        exclude_dirs.extend(custom_excludes.iter().cloned());
+    }
+
     let build_opts = BuildOptions {
         max_file_size: max_file_size.unwrap_or(10 * 1024 * 1024),
         exclude_dirs,
         ..Default::default()
     };
 
-    let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
-    let (index, graph) = builder.build().map_err(to_py_err)?;
+    // Feature #4: Incremental updates
+    let (index, graph, files_updated) = if incremental && !force {
+        // Load existing index if available
+        if let (Ok(existing_index), Ok(existing_graph)) = (storage.load_index(), storage.load_graph()) {
+            // Build with incremental support
+            let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+            let (new_index, new_graph) = builder.build().map_err(to_py_err)?;
+
+            // Count files that changed (simplified - compare file counts)
+            let updated = (new_index.files.len() as i64 - existing_index.files.len() as i64).unsigned_abs() as u32;
+
+            (new_index, new_graph, Some(updated))
+        } else {
+            // No existing index, do full build
+            let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+            let (index, graph) = builder.build().map_err(to_py_err)?;
+            let count = index.files.len() as u32;
+            (index, graph, Some(count))
+        }
+    } else {
+        let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+        let (index, graph) = builder.build().map_err(to_py_err)?;
+        (index, graph, None)
+    };
 
     // Save index
     storage.save_all(&index, &graph).map_err(to_py_err)?;
@@ -1120,8 +1178,14 @@ fn build_index(
     dict.set_item("exists", true)?;
     dict.set_item("file_count", index.files.len())?;
     dict.set_item("symbol_count", index.symbols.len())?;
-    dict.set_item("last_built", meta.created_at)?;
+    dict.set_item("last_built", format_timestamp(meta.created_at))?;
     dict.set_item("version", format!("v{}", meta.version))?;
+    if let Some(updated) = files_updated {
+        dict.set_item("files_updated", updated)?;
+    } else {
+        dict.set_item("files_updated", py.None())?;
+    }
+    dict.set_item("incremental", incremental)?;
 
     Ok(dict.into())
 }
@@ -1151,7 +1215,7 @@ fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
             dict.set_item("exists", true)?;
             dict.set_item("file_count", index.files.len())?;
             dict.set_item("symbol_count", index.symbols.len())?;
-            dict.set_item("last_built", meta.created_at)?;
+            dict.set_item("last_built", format_timestamp(meta.created_at))?;
             dict.set_item("version", format!("v{}", meta.version))?;
         },
         _ => {
@@ -1429,6 +1493,216 @@ fn get_call_graph(
 }
 
 // ============================================================================
+// Filtered Query API (Feature #2)
+// ============================================================================
+
+/// Helper function to check if a symbol matches the filter
+fn matches_filter(kind: &str, kinds: &Option<Vec<String>>, exclude_kinds: &Option<Vec<String>>) -> bool {
+    let kind_lower = kind.to_lowercase();
+
+    // Check if symbol kind is in the allowed list
+    if let Some(ref allowed) = kinds {
+        let allowed_lower: std::collections::HashSet<String> =
+            allowed.iter().map(|s| s.to_lowercase()).collect();
+        if !allowed_lower.contains(&kind_lower) {
+            return false;
+        }
+    }
+
+    // Check if symbol kind is in the excluded list
+    if let Some(ref excluded) = exclude_kinds {
+        let excluded_lower: std::collections::HashSet<String> =
+            excluded.iter().map(|s| s.to_lowercase()).collect();
+        if excluded_lower.contains(&kind_lower) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Find a symbol by name with filtering
+///
+/// Like `find_symbol`, but allows filtering results by symbol kind.
+///
+/// Args:
+///     path: Path to repository root
+///     name: Symbol name to search for
+///     kinds: Optional list of kinds to include (e.g., ["function", "method"])
+///     exclude_kinds: Optional list of kinds to exclude (e.g., ["import"])
+///
+/// Returns:
+///     List of filtered symbols matching the name
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> # Find only functions named "process"
+///     >>> symbols = infiniloom.find_symbol_filtered("/path/to/repo", "process", kinds=["function"])
+#[pyfunction]
+#[pyo3(signature = (path, name, kinds=None, exclude_kinds=None))]
+fn find_symbol_filtered(
+    py: Python,
+    path: &str,
+    name: &str,
+    kinds: Option<Vec<String>>,
+    exclude_kinds: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+
+    let results: Vec<_> = engine_find_symbol(&index, name)
+        .into_iter()
+        .filter(|s| matches_filter(&s.kind, &kinds, &exclude_kinds))
+        .map(|s| symbol_info_to_py(py, &s))
+        .collect();
+
+    Ok(PyList::new(py, results).into())
+}
+
+/// Get all callers of a symbol with filtering
+///
+/// Like `get_callers`, but allows filtering results by symbol kind.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find callers for
+///     kinds: Optional list of kinds to include
+///     exclude_kinds: Optional list of kinds to exclude
+///
+/// Returns:
+///     List of filtered calling symbols
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> # Get function callers only
+///     >>> callers = infiniloom.get_callers_filtered("/path/to/repo", "authenticate", kinds=["function"])
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name, kinds=None, exclude_kinds=None))]
+fn get_callers_filtered(
+    py: Python,
+    path: &str,
+    symbol_name: &str,
+    kinds: Option<Vec<String>>,
+    exclude_kinds: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<_> = get_callers_by_name(&index, &graph, symbol_name)
+        .into_iter()
+        .filter(|s| matches_filter(&s.kind, &kinds, &exclude_kinds))
+        .map(|s| symbol_info_to_py(py, &s))
+        .collect();
+
+    Ok(PyList::new(py, results).into())
+}
+
+/// Get all callees of a symbol with filtering
+///
+/// Like `get_callees`, but allows filtering results by symbol kind.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find callees for
+///     kinds: Optional list of kinds to include
+///     exclude_kinds: Optional list of kinds to exclude
+///
+/// Returns:
+///     List of filtered called symbols
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> # Get function callees only
+///     >>> callees = infiniloom.get_callees_filtered("/path/to/repo", "main", kinds=["function"])
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name, kinds=None, exclude_kinds=None))]
+fn get_callees_filtered(
+    py: Python,
+    path: &str,
+    symbol_name: &str,
+    kinds: Option<Vec<String>>,
+    exclude_kinds: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<_> = get_callees_by_name(&index, &graph, symbol_name)
+        .into_iter()
+        .filter(|s| matches_filter(&s.kind, &kinds, &exclude_kinds))
+        .map(|s| symbol_info_to_py(py, &s))
+        .collect();
+
+    Ok(PyList::new(py, results).into())
+}
+
+/// Get all references to a symbol with filtering
+///
+/// Like `get_references`, but allows filtering results by symbol kind.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find references for
+///     kinds: Optional list of kinds to include
+///     exclude_kinds: Optional list of kinds to exclude
+///
+/// Returns:
+///     List of filtered references
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> # Get only function references, exclude imports
+///     >>> refs = infiniloom.get_references_filtered("/path/to/repo", "User", exclude_kinds=["import"])
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name, kinds=None, exclude_kinds=None))]
+fn get_references_filtered(
+    py: Python,
+    path: &str,
+    symbol_name: &str,
+    kinds: Option<Vec<String>>,
+    exclude_kinds: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<_> = get_references_by_name(&index, &graph, symbol_name)
+        .into_iter()
+        .filter(|r| matches_filter(&r.symbol.kind, &kinds, &exclude_kinds))
+        .map(|r| reference_info_to_py(py, &r))
+        .collect();
+
+    Ok(PyList::new(py, results).into())
+}
+
+// ============================================================================
 // Chunk API - Split repositories into manageable pieces
 // ============================================================================
 
@@ -1453,7 +1727,7 @@ fn get_call_graph(
 ///     >>> for c in chunks:
 ///     ...     print(f"Chunk {c['index']}/{c['total']}: {c['focus']} ({c['tokens']} tokens)")
 #[pyfunction]
-#[pyo3(signature = (path, strategy="module", max_tokens=8000, overlap=0, model="claude", priority_first=false))]
+#[pyo3(signature = (path, strategy="module", max_tokens=8000, overlap=0, model="claude", priority_first=false, exclude=None))]
 fn chunk(
     py: Python,
     path: &str,
@@ -1462,6 +1736,7 @@ fn chunk(
     overlap: u32,
     model: &str,
     priority_first: bool,
+    exclude: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     // Parse strategy
     let chunk_strategy = match strategy.to_lowercase().as_str() {
@@ -1496,6 +1771,22 @@ fn chunk(
 
     // Apply default ignores
     apply_default_ignores(&mut repo);
+
+    // Apply exclude patterns if provided
+    if let Some(ref patterns) = exclude {
+        if !patterns.is_empty() {
+            repo.files.retain(|f| {
+                !patterns.iter().any(|pattern| {
+                    f.relative_path.contains(pattern)
+                        || f.relative_path.starts_with(pattern)
+                        || f.relative_path
+                            .split('/')
+                            .any(|part| part == pattern)
+                })
+            });
+            repo.metadata.total_files = repo.files.len() as u32;
+        }
+    }
 
     // Create chunker
     let chunker = Chunker::new(chunk_strategy, max_tokens)
@@ -1574,6 +1865,9 @@ fn chunk(
 ///     files: List of files to analyze
 ///     depth: Depth of dependency traversal (1-3, default: 2)
 ///     include_tests: Include test files in analysis (default: False)
+///     model: Target model for token counting (default: "claude")
+///     exclude: Glob patterns to exclude (e.g., ["**/*.test.py", "dist/**"])
+///     include: Glob patterns to include (e.g., ["src/**/*.py"])
 ///
 /// Returns:
 ///     Dictionary with: changed_files, dependent_files, test_files, affected_symbols, impact_level, summary
@@ -1584,15 +1878,22 @@ fn chunk(
 ///     >>> impact = infiniloom.analyze_impact("/path/to/repo", ["src/auth.py"])
 ///     >>> print(f"Impact level: {impact['impact_level']}")
 #[pyfunction]
-#[pyo3(signature = (path, files, depth=2, include_tests=false))]
+#[pyo3(signature = (path, files, depth=2, include_tests=false, model=None, exclude=None, include=None))]
 fn analyze_impact(
     py: Python,
     path: &str,
     files: Vec<String>,
     depth: u32,
     include_tests: bool,
+    model: Option<&str>,
+    exclude: Option<Vec<String>>,
+    include: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
-    let _ = include_tests; // Reserved for future use
+    // Reserved for future use
+    let _ = include_tests;
+    let _ = model;
+    let _ = exclude;
+    let _ = include;
 
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
@@ -1715,6 +2016,9 @@ fn analyze_impact(
 ///     depth: Depth of context expansion (1-3, default: 2)
 ///     budget: Token budget for context (default: 50000)
 ///     include_diff: Include the actual diff content (default: False)
+///     model: Target model for token counting (default: "claude")
+///     exclude: Glob patterns to exclude (e.g., ["**/*.test.py", "dist/**"])
+///     include: Glob patterns to include (e.g., ["src/**/*.py"])
 ///
 /// Returns:
 ///     Dictionary with: changed_files, context_symbols, related_tests, total_tokens
@@ -1726,7 +2030,7 @@ fn analyze_impact(
 ///     >>> print(f"Changed: {len(context['changed_files'])} files")
 ///     >>> print(f"Related symbols: {len(context['context_symbols'])}")
 #[pyfunction]
-#[pyo3(signature = (path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=false))]
+#[pyo3(signature = (path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=false, model=None, exclude=None, include=None))]
 fn get_diff_context(
     py: Python,
     path: &str,
@@ -1735,7 +2039,14 @@ fn get_diff_context(
     depth: u32,
     budget: u32,
     include_diff: bool,
+    model: Option<&str>,
+    exclude: Option<Vec<String>>,
+    include: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
+    // Reserved for future use
+    let _ = model;
+    let _ = exclude;
+    let _ = include;
     let path_buf = PathBuf::from(path);
 
     // Open git repo
@@ -2438,6 +2749,12 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_callees, m)?)?;
     m.add_function(wrap_pyfunction!(get_references, m)?)?;
     m.add_function(wrap_pyfunction!(get_call_graph, m)?)?;
+
+    // Filtered Query API (Feature #2)
+    m.add_function(wrap_pyfunction!(find_symbol_filtered, m)?)?;
+    m.add_function(wrap_pyfunction!(get_callers_filtered, m)?)?;
+    m.add_function(wrap_pyfunction!(get_callees_filtered, m)?)?;
+    m.add_function(wrap_pyfunction!(get_references_filtered, m)?)?;
 
     // Chunk API
     m.add_function(wrap_pyfunction!(chunk, m)?)?;

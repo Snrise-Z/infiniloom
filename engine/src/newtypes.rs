@@ -473,8 +473,12 @@ impl std::hash::Hash for ImportanceScore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
+    // ==========================================================================
     // TokenCount tests
+    // ==========================================================================
+
     #[test]
     fn test_token_count_operations() {
         let a = TokenCount::new(100);
@@ -501,7 +505,107 @@ mod tests {
         assert_eq!(sum.get(), 60);
     }
 
+    #[test]
+    fn test_token_count_zero() {
+        let zero = TokenCount::zero();
+        assert_eq!(zero.get(), 0);
+        assert!(zero.is_zero());
+    }
+
+    #[test]
+    fn test_token_count_is_zero() {
+        assert!(TokenCount::new(0).is_zero());
+        assert!(!TokenCount::new(1).is_zero());
+        assert!(!TokenCount::new(100).is_zero());
+    }
+
+    #[test]
+    fn test_token_count_saturating_add() {
+        let a = TokenCount::new(u32::MAX - 10);
+        let b = TokenCount::new(20);
+        let result = a.saturating_add(b);
+        assert_eq!(result.get(), u32::MAX);
+    }
+
+    #[test]
+    fn test_token_count_add_assign() {
+        let mut count = TokenCount::new(100);
+        count += TokenCount::new(50);
+        assert_eq!(count.get(), 150);
+    }
+
+    #[test]
+    fn test_token_count_sub_assign() {
+        let mut count = TokenCount::new(100);
+        count -= TokenCount::new(30);
+        assert_eq!(count.get(), 70);
+    }
+
+    #[test]
+    fn test_token_count_from_u32() {
+        let count: TokenCount = 42u32.into();
+        assert_eq!(count.get(), 42);
+    }
+
+    #[test]
+    fn test_token_count_into_u32() {
+        let count = TokenCount::new(42);
+        let value: u32 = count.into();
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_token_count_default() {
+        let count = TokenCount::default();
+        assert_eq!(count.get(), 0);
+        assert!(count.is_zero());
+    }
+
+    #[test]
+    fn test_token_count_clone_copy() {
+        let a = TokenCount::new(100);
+        let b = a; // Copy
+        let c = a.clone(); // Clone
+        assert_eq!(a.get(), b.get());
+        assert_eq!(a.get(), c.get());
+    }
+
+    #[test]
+    fn test_token_count_ord() {
+        let a = TokenCount::new(100);
+        let b = TokenCount::new(200);
+        assert!(a < b);
+        assert!(b > a);
+        assert_eq!(a.cmp(&a), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_token_count_hash() {
+        let mut set = HashSet::new();
+        set.insert(TokenCount::new(100));
+        set.insert(TokenCount::new(200));
+        set.insert(TokenCount::new(100)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_token_count_debug() {
+        let count = TokenCount::new(42);
+        let debug_str = format!("{:?}", count);
+        assert!(debug_str.contains("42"));
+    }
+
+    #[test]
+    fn test_token_count_sum_empty() {
+        let counts: Vec<TokenCount> = vec![];
+        let sum: TokenCount = counts.into_iter().sum();
+        assert_eq!(sum.get(), 0);
+    }
+
+    // ==========================================================================
     // LineNumber tests
+    // ==========================================================================
+
     #[test]
     fn test_line_number_indexing() {
         let line = LineNumber::new(10);
@@ -519,7 +623,93 @@ mod tests {
         assert_eq!(end.lines_to(start), 1); // Invalid range returns 1
     }
 
+    #[test]
+    fn test_line_number_first() {
+        let first = LineNumber::first();
+        assert_eq!(first.get(), 1);
+    }
+
+    #[test]
+    fn test_line_number_is_valid() {
+        assert!(!LineNumber::new(0).is_valid());
+        assert!(LineNumber::new(1).is_valid());
+        assert!(LineNumber::new(100).is_valid());
+    }
+
+    #[test]
+    fn test_line_number_to_zero_indexed_edge() {
+        assert_eq!(LineNumber::new(0).to_zero_indexed(), 0); // Saturating
+        assert_eq!(LineNumber::new(1).to_zero_indexed(), 0);
+    }
+
+    #[test]
+    fn test_line_number_from_zero_indexed() {
+        assert_eq!(LineNumber::from_zero_indexed(0).get(), 1);
+        assert_eq!(LineNumber::from_zero_indexed(99).get(), 100);
+    }
+
+    #[test]
+    fn test_line_number_from_u32() {
+        let line: LineNumber = 42u32.into();
+        assert_eq!(line.get(), 42);
+    }
+
+    #[test]
+    fn test_line_number_into_u32() {
+        let line = LineNumber::new(42);
+        let value: u32 = line.into();
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_line_number_default() {
+        let line = LineNumber::default();
+        assert_eq!(line.get(), 0);
+    }
+
+    #[test]
+    fn test_line_number_clone_copy() {
+        let a = LineNumber::new(10);
+        let b = a;
+        let c = a.clone();
+        assert_eq!(a.get(), b.get());
+        assert_eq!(a.get(), c.get());
+    }
+
+    #[test]
+    fn test_line_number_ord() {
+        let a = LineNumber::new(10);
+        let b = LineNumber::new(20);
+        assert!(a < b);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn test_line_number_hash() {
+        let mut set = HashSet::new();
+        set.insert(LineNumber::new(10));
+        set.insert(LineNumber::new(20));
+        set.insert(LineNumber::new(10)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_line_number_debug() {
+        let line = LineNumber::new(42);
+        let debug_str = format!("{:?}", line);
+        assert!(debug_str.contains("42"));
+    }
+
+    #[test]
+    fn test_line_number_lines_to_same() {
+        let line = LineNumber::new(5);
+        assert_eq!(line.lines_to(line), 1);
+    }
+
+    // ==========================================================================
     // ByteOffset tests
+    // ==========================================================================
+
     #[test]
     fn test_byte_offset() {
         let offset = ByteOffset::new(1024);
@@ -527,7 +717,68 @@ mod tests {
         assert_eq!(ByteOffset::zero().get(), 0);
     }
 
+    #[test]
+    fn test_byte_offset_from_usize() {
+        let offset: ByteOffset = 1024usize.into();
+        assert_eq!(offset.get(), 1024);
+    }
+
+    #[test]
+    fn test_byte_offset_into_usize() {
+        let offset = ByteOffset::new(1024);
+        let value: usize = offset.into();
+        assert_eq!(value, 1024);
+    }
+
+    #[test]
+    fn test_byte_offset_default() {
+        let offset = ByteOffset::default();
+        assert_eq!(offset.get(), 0);
+    }
+
+    #[test]
+    fn test_byte_offset_clone_copy() {
+        let a = ByteOffset::new(1024);
+        let b = a;
+        let c = a.clone();
+        assert_eq!(a.get(), b.get());
+        assert_eq!(a.get(), c.get());
+    }
+
+    #[test]
+    fn test_byte_offset_ord() {
+        let a = ByteOffset::new(100);
+        let b = ByteOffset::new(200);
+        assert!(a < b);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn test_byte_offset_hash() {
+        let mut set = HashSet::new();
+        set.insert(ByteOffset::new(100));
+        set.insert(ByteOffset::new(200));
+        set.insert(ByteOffset::new(100)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_byte_offset_debug() {
+        let offset = ByteOffset::new(1024);
+        let debug_str = format!("{:?}", offset);
+        assert!(debug_str.contains("1024"));
+    }
+
+    #[test]
+    fn test_byte_offset_display() {
+        let offset = ByteOffset::new(1024);
+        assert_eq!(offset.to_string(), "@1024");
+    }
+
+    // ==========================================================================
     // SymbolId tests
+    // ==========================================================================
+
     #[test]
     fn test_symbol_id_validity() {
         assert!(!SymbolId::unknown().is_valid());
@@ -535,7 +786,76 @@ mod tests {
         assert!(!SymbolId::new(0).is_valid());
     }
 
+    #[test]
+    fn test_symbol_id_unknown() {
+        let unknown = SymbolId::unknown();
+        assert_eq!(unknown.get(), 0);
+        assert!(!unknown.is_valid());
+    }
+
+    #[test]
+    fn test_symbol_id_from_u32() {
+        let id: SymbolId = 42u32.into();
+        assert_eq!(id.get(), 42);
+    }
+
+    #[test]
+    fn test_symbol_id_into_u32() {
+        let id = SymbolId::new(42);
+        let value: u32 = id.into();
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_symbol_id_default() {
+        let id = SymbolId::default();
+        assert_eq!(id.get(), 0);
+        assert!(!id.is_valid());
+    }
+
+    #[test]
+    fn test_symbol_id_clone_copy() {
+        let a = SymbolId::new(42);
+        let b = a;
+        let c = a.clone();
+        assert_eq!(a.get(), b.get());
+        assert_eq!(a.get(), c.get());
+    }
+
+    #[test]
+    fn test_symbol_id_ord() {
+        let a = SymbolId::new(10);
+        let b = SymbolId::new(20);
+        assert!(a < b);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn test_symbol_id_hash() {
+        let mut set = HashSet::new();
+        set.insert(SymbolId::new(10));
+        set.insert(SymbolId::new(20));
+        set.insert(SymbolId::new(10)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_symbol_id_debug() {
+        let id = SymbolId::new(42);
+        let debug_str = format!("{:?}", id);
+        assert!(debug_str.contains("42"));
+    }
+
+    #[test]
+    fn test_symbol_id_display() {
+        let id = SymbolId::new(42);
+        assert_eq!(id.to_string(), "#42");
+    }
+
+    // ==========================================================================
     // FileSize tests
+    // ==========================================================================
+
     #[test]
     fn test_file_size_conversions() {
         let size = FileSize::new(1024 * 1024 + 512 * 1024); // 1.5 MB
@@ -551,7 +871,94 @@ mod tests {
         assert_eq!(FileSize::new(1024 * 1024).to_string(), "1.0 MB");
     }
 
+    #[test]
+    fn test_file_size_zero() {
+        let zero = FileSize::zero();
+        assert_eq!(zero.bytes(), 0);
+    }
+
+    #[test]
+    fn test_file_size_bytes() {
+        let size = FileSize::new(12345);
+        assert_eq!(size.bytes(), 12345);
+    }
+
+    #[test]
+    fn test_file_size_exceeds() {
+        let size = FileSize::new(1000);
+        let limit = FileSize::new(500);
+        assert!(size.exceeds(limit));
+        assert!(!limit.exceeds(size));
+        assert!(!size.exceeds(size)); // Equal doesn't exceed
+    }
+
+    #[test]
+    fn test_file_size_from_u64() {
+        let size: FileSize = 1024u64.into();
+        assert_eq!(size.bytes(), 1024);
+    }
+
+    #[test]
+    fn test_file_size_into_u64() {
+        let size = FileSize::new(1024);
+        let value: u64 = size.into();
+        assert_eq!(value, 1024);
+    }
+
+    #[test]
+    fn test_file_size_default() {
+        let size = FileSize::default();
+        assert_eq!(size.bytes(), 0);
+    }
+
+    #[test]
+    fn test_file_size_clone_copy() {
+        let a = FileSize::new(1024);
+        let b = a;
+        let c = a.clone();
+        assert_eq!(a.bytes(), b.bytes());
+        assert_eq!(a.bytes(), c.bytes());
+    }
+
+    #[test]
+    fn test_file_size_ord() {
+        let a = FileSize::new(100);
+        let b = FileSize::new(200);
+        assert!(a < b);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn test_file_size_hash() {
+        let mut set = HashSet::new();
+        set.insert(FileSize::new(100));
+        set.insert(FileSize::new(200));
+        set.insert(FileSize::new(100)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_file_size_debug() {
+        let size = FileSize::new(1024);
+        let debug_str = format!("{:?}", size);
+        assert!(debug_str.contains("1024"));
+    }
+
+    #[test]
+    fn test_file_size_display_edge_cases() {
+        // Just under 1KB
+        assert_eq!(FileSize::new(1023).to_string(), "1023 bytes");
+        // Exactly 1KB
+        assert_eq!(FileSize::new(1024).to_string(), "1.0 KB");
+        // Just under 1MB
+        let just_under_mb = 1024 * 1024 - 1;
+        assert!(FileSize::new(just_under_mb).to_string().contains("KB"));
+    }
+
+    // ==========================================================================
     // ImportanceScore tests
+    // ==========================================================================
+
     #[test]
     fn test_importance_score_clamping() {
         assert_eq!(ImportanceScore::new(-0.5).get(), 0.0);
@@ -567,12 +974,192 @@ mod tests {
         assert!(!ImportanceScore::new(0.5).is_low());
     }
 
+    #[test]
+    fn test_importance_score_zero() {
+        let zero = ImportanceScore::zero();
+        assert_eq!(zero.get(), 0.0);
+        assert!(zero.is_low());
+    }
+
+    #[test]
+    fn test_importance_score_max() {
+        let max = ImportanceScore::max();
+        assert_eq!(max.get(), 1.0);
+        assert!(max.is_high());
+    }
+
+    #[test]
+    fn test_importance_score_default_score() {
+        let default = ImportanceScore::default_score();
+        assert_eq!(default.get(), 0.5);
+        assert!(!default.is_high());
+        assert!(!default.is_low());
+    }
+
+    #[test]
+    fn test_importance_score_from_f32() {
+        let score: ImportanceScore = 0.75f32.into();
+        assert_eq!(score.get(), 0.75);
+    }
+
+    #[test]
+    fn test_importance_score_from_f32_clamped() {
+        let score: ImportanceScore = 2.0f32.into();
+        assert_eq!(score.get(), 1.0);
+    }
+
+    #[test]
+    fn test_importance_score_into_f32() {
+        let score = ImportanceScore::new(0.75);
+        let value: f32 = score.into();
+        assert_eq!(value, 0.75);
+    }
+
+    #[test]
+    fn test_importance_score_default() {
+        let score = ImportanceScore::default();
+        assert_eq!(score.get(), 0.0);
+    }
+
+    #[test]
+    fn test_importance_score_clone_copy() {
+        let a = ImportanceScore::new(0.5);
+        let b = a;
+        let c = a.clone();
+        assert_eq!(a.get(), b.get());
+        assert_eq!(a.get(), c.get());
+    }
+
+    #[test]
+    fn test_importance_score_ord() {
+        let a = ImportanceScore::new(0.3);
+        let b = ImportanceScore::new(0.7);
+        assert!(a < b);
+        assert!(b > a);
+        assert_eq!(a.cmp(&a), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_importance_score_partial_ord() {
+        let a = ImportanceScore::new(0.3);
+        let b = ImportanceScore::new(0.7);
+        assert!(a.partial_cmp(&b) == Some(std::cmp::Ordering::Less));
+        assert!(b.partial_cmp(&a) == Some(std::cmp::Ordering::Greater));
+    }
+
+    #[test]
+    fn test_importance_score_eq() {
+        let a = ImportanceScore::new(0.5);
+        let b = ImportanceScore::new(0.5);
+        let c = ImportanceScore::new(0.6);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_importance_score_hash() {
+        let mut set = HashSet::new();
+        set.insert(ImportanceScore::new(0.3));
+        set.insert(ImportanceScore::new(0.7));
+        set.insert(ImportanceScore::new(0.3)); // Duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_importance_score_debug() {
+        let score = ImportanceScore::new(0.5);
+        let debug_str = format!("{:?}", score);
+        assert!(debug_str.contains("0.5"));
+    }
+
+    #[test]
+    fn test_importance_score_display() {
+        let score = ImportanceScore::new(0.5);
+        assert_eq!(score.to_string(), "0.50");
+    }
+
+    #[test]
+    fn test_importance_score_boundary_high() {
+        // Exactly at boundary
+        assert!(!ImportanceScore::new(0.7).is_high()); // Not strictly > 0.7
+        assert!(ImportanceScore::new(0.71).is_high());
+    }
+
+    #[test]
+    fn test_importance_score_boundary_low() {
+        // Exactly at boundary
+        assert!(!ImportanceScore::new(0.3).is_low()); // Not strictly < 0.3
+        assert!(ImportanceScore::new(0.29).is_low());
+    }
+
+    // ==========================================================================
     // Display tests
+    // ==========================================================================
+
     #[test]
     fn test_display_formatting() {
         assert_eq!(TokenCount::new(100).to_string(), "100 tokens");
         assert_eq!(LineNumber::new(42).to_string(), "L42");
         assert_eq!(ByteOffset::new(1000).to_string(), "@1000");
         assert_eq!(SymbolId::new(5).to_string(), "#5");
+    }
+
+    #[test]
+    fn test_importance_score_display_precision() {
+        assert_eq!(ImportanceScore::new(0.123).to_string(), "0.12");
+        assert_eq!(ImportanceScore::new(0.999).to_string(), "1.00"); // Clamped
+        assert_eq!(ImportanceScore::zero().to_string(), "0.00");
+    }
+
+    // ==========================================================================
+    // Serde tests
+    // ==========================================================================
+
+    #[test]
+    fn test_token_count_serde() {
+        let count = TokenCount::new(100);
+        let json = serde_json::to_string(&count).unwrap();
+        let parsed: TokenCount = serde_json::from_str(&json).unwrap();
+        assert_eq!(count, parsed);
+    }
+
+    #[test]
+    fn test_line_number_serde() {
+        let line = LineNumber::new(42);
+        let json = serde_json::to_string(&line).unwrap();
+        let parsed: LineNumber = serde_json::from_str(&json).unwrap();
+        assert_eq!(line, parsed);
+    }
+
+    #[test]
+    fn test_byte_offset_serde() {
+        let offset = ByteOffset::new(1024);
+        let json = serde_json::to_string(&offset).unwrap();
+        let parsed: ByteOffset = serde_json::from_str(&json).unwrap();
+        assert_eq!(offset, parsed);
+    }
+
+    #[test]
+    fn test_symbol_id_serde() {
+        let id = SymbolId::new(42);
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: SymbolId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_file_size_serde() {
+        let size = FileSize::new(1024);
+        let json = serde_json::to_string(&size).unwrap();
+        let parsed: FileSize = serde_json::from_str(&json).unwrap();
+        assert_eq!(size, parsed);
+    }
+
+    #[test]
+    fn test_importance_score_serde() {
+        let score = ImportanceScore::new(0.75);
+        let json = serde_json::to_string(&score).unwrap();
+        let parsed: ImportanceScore = serde_json::from_str(&json).unwrap();
+        assert_eq!(score, parsed);
     }
 }

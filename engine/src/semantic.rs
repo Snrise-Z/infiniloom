@@ -530,10 +530,37 @@ impl SemanticCompressor {
     }
 
     /// Compress using heuristic methods (fallback when embeddings unavailable)
+    ///
+    /// Bug #4 fix: Make budget_ratio more effective for all content types
     fn compress_heuristic(&self, content: &str) -> Result<String> {
         let chunks = self.split_into_chunks(content);
 
+        // Bug #4 fix: When no chunks can be created but content is large enough,
+        // apply character-level truncation based on budget_ratio.
+        // Only truncate if:
+        // 1. No chunks could be created
+        // 2. Content is larger than min_chunk_size (so small content passes through)
+        // 3. budget_ratio would actually reduce the size meaningfully
         if chunks.is_empty() {
+            // Only apply truncation for content larger than min_chunk_size
+            // Small content should pass through unchanged
+            if content.len() > self.config.min_chunk_size && self.config.budget_ratio < 1.0 {
+                let target_len = (content.len() as f32 * self.config.budget_ratio) as usize;
+                if target_len > 0 && target_len < content.len() {
+                    // Find a safe truncation point (word/line boundary)
+                    let truncate_at = find_safe_truncation_point(content, target_len);
+                    if truncate_at < content.len() {
+                        let truncated = &content[..truncate_at];
+                        return Ok(format!(
+                            "{}\n/* ... truncated to {:.0}% ({} of {} chars) ... */",
+                            truncated.trim_end(),
+                            self.config.budget_ratio * 100.0,
+                            truncate_at,
+                            content.len()
+                        ));
+                    }
+                }
+            }
             return Ok(content.to_owned());
         }
 
@@ -680,6 +707,40 @@ pub type HeuristicCompressionConfig = SemanticConfig;
 // ============================================================================
 // Utility Functions
 // ============================================================================
+
+/// Find a safe truncation point in content (word or line boundary)
+///
+/// Used by compress_heuristic to ensure we don't cut in the middle of a word
+/// or multi-byte UTF-8 character.
+fn find_safe_truncation_point(content: &str, target_len: usize) -> usize {
+    if target_len >= content.len() {
+        return content.len();
+    }
+
+    // First, ensure we're at a valid UTF-8 boundary
+    let mut truncate_at = target_len;
+    while truncate_at > 0 && !content.is_char_boundary(truncate_at) {
+        truncate_at -= 1;
+    }
+
+    // Try to find a line boundary (newline) near the target
+    if let Some(newline_pos) = content[..truncate_at].rfind('\n') {
+        if newline_pos > target_len / 2 {
+            // Found a newline that's not too far back
+            return newline_pos;
+        }
+    }
+
+    // Fall back to word boundary (space)
+    if let Some(space_pos) = content[..truncate_at].rfind(' ') {
+        if space_pos > target_len / 2 {
+            return space_pos;
+        }
+    }
+
+    // No good boundary found, use the UTF-8 safe position
+    truncate_at
+}
 
 /// Compute cosine similarity between two vectors
 ///
@@ -947,5 +1008,549 @@ mod tests {
 
         let result = compressor.compress(&content).unwrap();
         assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    // ==========================================================================
+    // Additional coverage tests
+    // ==========================================================================
+
+    #[test]
+    fn test_semantic_error_display() {
+        let err1 = SemanticError::ModelLoadError("test error".to_string());
+        assert!(err1.to_string().contains("Model loading failed"));
+        assert!(err1.to_string().contains("test error"));
+
+        let err2 = SemanticError::EmbeddingError("embed fail".to_string());
+        assert!(err2.to_string().contains("Embedding generation failed"));
+
+        let err3 = SemanticError::ClusteringError("cluster fail".to_string());
+        assert!(err3.to_string().contains("Clustering failed"));
+
+        let err4 = SemanticError::FeatureNotEnabled;
+        assert!(err4.to_string().contains("embeddings feature not enabled"));
+    }
+
+    #[test]
+    fn test_semantic_error_debug() {
+        let err = SemanticError::ModelLoadError("debug test".to_string());
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("ModelLoadError"));
+    }
+
+    #[test]
+    fn test_semantic_analyzer_default() {
+        let analyzer = SemanticAnalyzer::default();
+        // Should work same as new()
+        let result = analyzer.embed("test");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_semantic_analyzer_debug() {
+        let analyzer = SemanticAnalyzer::new();
+        let debug_str = format!("{:?}", analyzer);
+        assert!(debug_str.contains("SemanticAnalyzer"));
+    }
+
+    #[test]
+    fn test_semantic_analyzer_embed_empty() {
+        let analyzer = SemanticAnalyzer::new();
+        let result = analyzer.embed("").unwrap();
+        assert_eq!(result.len(), 384);
+    }
+
+    #[test]
+    fn test_semantic_analyzer_embed_produces_384_dims() {
+        let analyzer = SemanticAnalyzer::new();
+        let result = analyzer.embed("some code content").unwrap();
+        assert_eq!(result.len(), 384);
+    }
+
+    #[test]
+    fn test_semantic_analyzer_similarity_same_content() {
+        let analyzer = SemanticAnalyzer::new();
+        let result = analyzer.similarity("hello world", "hello world").unwrap();
+        // Same content should have high similarity (1.0 in embeddings mode, 0.0 in fallback)
+        #[cfg(feature = "embeddings")]
+        assert!((result - 1.0).abs() < 0.01);
+        #[cfg(not(feature = "embeddings"))]
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_semantic_analyzer_similarity_different_content() {
+        let analyzer = SemanticAnalyzer::new();
+        let result = analyzer.similarity("hello", "goodbye").unwrap();
+        // Result should be valid (0.0 in fallback mode)
+        #[cfg(not(feature = "embeddings"))]
+        assert_eq!(result, 0.0);
+        #[cfg(feature = "embeddings")]
+        assert!(result >= -1.0 && result <= 1.0);
+    }
+
+    #[test]
+    fn test_semantic_config_custom() {
+        let config = SemanticConfig {
+            similarity_threshold: 0.9,
+            min_chunk_size: 50,
+            max_chunk_size: 5000,
+            budget_ratio: 0.3,
+        };
+        assert_eq!(config.similarity_threshold, 0.9);
+        assert_eq!(config.min_chunk_size, 50);
+        assert_eq!(config.max_chunk_size, 5000);
+        assert_eq!(config.budget_ratio, 0.3);
+    }
+
+    #[test]
+    fn test_semantic_config_clone() {
+        let config = SemanticConfig::default();
+        let cloned = config.clone();
+        assert_eq!(cloned.similarity_threshold, config.similarity_threshold);
+        assert_eq!(cloned.budget_ratio, config.budget_ratio);
+    }
+
+    #[test]
+    fn test_semantic_config_debug() {
+        let config = SemanticConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("SemanticConfig"));
+        assert!(debug_str.contains("similarity_threshold"));
+    }
+
+    #[test]
+    fn test_code_chunk_debug() {
+        let chunk = CodeChunk {
+            content: "test content".to_string(),
+            start: 0,
+            end: 12,
+            embedding: None,
+            cluster_id: None,
+        };
+        let debug_str = format!("{:?}", chunk);
+        assert!(debug_str.contains("CodeChunk"));
+        assert!(debug_str.contains("test content"));
+    }
+
+    #[test]
+    fn test_code_chunk_clone() {
+        let chunk = CodeChunk {
+            content: "original".to_string(),
+            start: 0,
+            end: 8,
+            embedding: Some(vec![0.1, 0.2, 0.3]),
+            cluster_id: Some(5),
+        };
+        let cloned = chunk.clone();
+        assert_eq!(cloned.content, "original");
+        assert_eq!(cloned.start, 0);
+        assert_eq!(cloned.end, 8);
+        assert_eq!(cloned.embedding, Some(vec![0.1, 0.2, 0.3]));
+        assert_eq!(cloned.cluster_id, Some(5));
+    }
+
+    #[test]
+    fn test_semantic_compressor_default() {
+        let compressor = SemanticCompressor::default();
+        let result = compressor.compress("test").unwrap();
+        assert_eq!(result, "test");
+    }
+
+    #[test]
+    fn test_split_into_chunks_single_newline_fallback() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 5,
+            max_chunk_size: 1000,
+            ..Default::default()
+        });
+
+        // Content with only single newlines (no \n\n)
+        let content = "Line 1 with content\nLine 2 with content\nLine 3 with content";
+        let chunks = compressor.split_into_chunks(content);
+        // Should use single newline fallback
+        assert!(!chunks.is_empty() || content.len() < 5);
+    }
+
+    #[test]
+    fn test_split_into_chunks_sentence_fallback() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 10,
+            max_chunk_size: 1000,
+            ..Default::default()
+        });
+
+        // Content with sentences but no newlines
+        let content = "First sentence here. Second sentence here. Third sentence here.";
+        let chunks = compressor.split_into_chunks(content);
+        // Should use sentence boundary fallback
+        assert!(!chunks.is_empty() || content.len() < 10);
+    }
+
+    #[test]
+    fn test_split_into_chunks_force_split() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 100, // Higher than content length so normal chunking fails
+            max_chunk_size: 20,  // Lower than content length to trigger force split
+            ..Default::default()
+        });
+
+        // Content without any splitting characters, longer than max_chunk_size
+        // but shorter than min_chunk_size (so normal chunking produces empty result)
+        let content = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let chunks = compressor.split_into_chunks(content);
+        // Should force split by max_chunk_size when no other splitting works
+        assert!(chunks.len() >= 2, "Expected at least 2 chunks from force split, got {}", chunks.len());
+    }
+
+    #[test]
+    fn test_split_into_chunks_empty() {
+        let compressor = SemanticCompressor::new();
+        let chunks = compressor.split_into_chunks("");
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_split_into_chunks_below_min_size() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 100,
+            max_chunk_size: 1000,
+            ..Default::default()
+        });
+
+        let content = "short";
+        let chunks = compressor.split_into_chunks(content);
+        // Content too short for min_chunk_size
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_compress_heuristic_empty_chunks() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 1000, // Force no chunks to be created
+            ..Default::default()
+        });
+
+        let content = "short content";
+        let result = compressor.compress_heuristic(content).unwrap();
+        // Should return original when no chunks created
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_compress_heuristic_multiple_chunks() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 10,
+            max_chunk_size: 100,
+            budget_ratio: 0.3,
+            ..Default::default()
+        });
+
+        let content = "First chunk content here\n\nSecond chunk content here\n\nThird chunk content here\n\nFourth chunk content";
+        let result = compressor.compress_heuristic(content).unwrap();
+        // Should have compression marker if chunks were removed
+        assert!(result.contains("chunk") || result.contains("compressed"));
+    }
+
+    #[test]
+    fn test_cosine_similarity_different_lengths() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0); // Different lengths should return 0
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vectors() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let sim = cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0); // Zero norm should return 0
+    }
+
+    #[test]
+    fn test_cosine_similarity_opposite() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![-1.0, 0.0, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim + 1.0).abs() < 0.001); // Opposite directions = -1.0
+    }
+
+    #[test]
+    fn test_cosine_similarity_normalized() {
+        let a = vec![0.6, 0.8, 0.0];
+        let b = vec![0.6, 0.8, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compress_repetitive_short_content() {
+        let compressor = SemanticCompressor::new();
+        // Content below 200 chars should not trigger repetition compression
+        let content = "short ".repeat(10); // 60 chars
+        let result = compressor.compress_repetitive(&content);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compress_repetitive_whitespace_only() {
+        let compressor = SemanticCompressor::new();
+        // Whitespace-only patterns should be skipped
+        let content = "   ".repeat(100);
+        let result = compressor.compress_repetitive(&content);
+        // Should not compress whitespace-only patterns
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compress_repetitive_low_coverage() {
+        let compressor = SemanticCompressor::new();
+        // Pattern that doesn't cover 80% of content
+        let mut content = "pattern ".repeat(5);
+        content.push_str(&"x".repeat(200)); // Add non-repeating content
+        let result = compressor.compress_repetitive(&content);
+        // Low coverage should not trigger compression
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compress_repetitive_line_low_ratio() {
+        let compressor = SemanticCompressor::new();
+        // Lines where no single line repeats enough
+        let content = (0..20).map(|i| format!("unique line {}", i)).collect::<Vec<_>>().join("\n");
+        let result = compressor.compress_repetitive(&content);
+        // No significant repetition
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compress_repetitive_mixed_with_unique() {
+        let compressor = SemanticCompressor::new();
+        // Repeated line mixed with unique lines
+        let mut lines = vec![];
+        for i in 0..50 {
+            if i % 2 == 0 {
+                lines.push("repeated line");
+            } else {
+                lines.push("unique line");
+            }
+        }
+        let content = lines.join("\n");
+        let result = compressor.compress(&content).unwrap();
+        // Should handle mixed content
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_no_repetition_returns_none() {
+        let compressor = SemanticCompressor::new();
+        // Unique content that doesn't repeat
+        let content = "The quick brown fox jumps over the lazy dog. ".repeat(5);
+        // Each sentence is unique enough
+        let result = compressor.compress_repetitive(&content);
+        // Depends on pattern length detection - may or may not find pattern
+        // Just verify no panic
+        drop(result);
+    }
+
+    #[test]
+    fn test_type_aliases() {
+        // Test that type aliases work correctly
+        let _analyzer: CharacterFrequencyAnalyzer = SemanticAnalyzer::new();
+        let _compressor: HeuristicCompressor = SemanticCompressor::new();
+        let _config: HeuristicCompressionConfig = SemanticConfig::default();
+    }
+
+    #[test]
+    fn test_compress_preserves_content_structure() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 10,
+            max_chunk_size: 500,
+            budget_ratio: 1.0, // Keep everything
+            ..Default::default()
+        });
+
+        let content = "def foo():\n    pass\n\ndef bar():\n    pass";
+        let result = compressor.compress(content).unwrap();
+        // With budget_ratio 1.0, should keep most content
+        assert!(result.contains("foo") || result.contains("bar"));
+    }
+
+    #[test]
+    fn test_split_chunks_respects_max_size() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            min_chunk_size: 5,
+            max_chunk_size: 50,
+            ..Default::default()
+        });
+
+        let content = "A very long chunk that exceeds the max size limit\n\nAnother chunk";
+        let chunks = compressor.split_into_chunks(content);
+
+        for chunk in &chunks {
+            assert!(
+                chunk.content.len() <= 50,
+                "Chunk size {} exceeds max 50",
+                chunk.content.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_compress_repetitive_with_remainder() {
+        let compressor = SemanticCompressor::new();
+        // Pattern that repeats but has a small remainder
+        let mut content = "abc ".repeat(100);
+        content.push_str("xyz"); // Add non-repeating remainder
+
+        let result = compressor.compress(&content).unwrap();
+        // Should compress and handle remainder
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compressor_analyzer_method() {
+        let compressor = SemanticCompressor::new();
+        let analyzer = compressor.analyzer();
+
+        // Verify the analyzer works
+        let embed_result = analyzer.embed("test code");
+        assert!(embed_result.is_ok());
+    }
+
+    #[test]
+    fn test_code_chunk_with_embedding_and_cluster() {
+        let chunk = CodeChunk {
+            content: "fn main() {}".to_string(),
+            start: 0,
+            end: 12,
+            embedding: Some(vec![0.5; 384]),
+            cluster_id: Some(3),
+        };
+
+        assert_eq!(chunk.content, "fn main() {}");
+        assert_eq!(chunk.start, 0);
+        assert_eq!(chunk.end, 12);
+        assert!(chunk.embedding.is_some());
+        assert_eq!(chunk.embedding.as_ref().unwrap().len(), 384);
+        assert_eq!(chunk.cluster_id, Some(3));
+    }
+
+    #[test]
+    fn test_compress_very_long_repetitive() {
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.2, // Aggressive compression
+            ..Default::default()
+        });
+
+        // Very long repetitive content
+        let content = "repeated_token ".repeat(1000);
+        let result = compressor.compress(&content).unwrap();
+
+        // Should significantly compress
+        assert!(result.len() < content.len() / 3);
+        assert!(result.contains("repeated"));
+    }
+
+    #[test]
+    fn test_semantic_result_type_ok() {
+        let result: Result<String> = Ok("success".to_string());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "success");
+    }
+
+    #[test]
+    fn test_semantic_result_type_err() {
+        let result: Result<String> = Err(SemanticError::FeatureNotEnabled);
+        assert!(result.is_err());
+    }
+
+    // Bug #4 fix tests - budget_ratio effectiveness
+    #[test]
+    fn test_find_safe_truncation_point_basic() {
+        let content = "Hello world this is a test";
+        let point = find_safe_truncation_point(content, 15);
+        // Should find a word boundary
+        assert!(content.is_char_boundary(point));
+        assert!(point <= 15 || point == content.len());
+    }
+
+    #[test]
+    fn test_find_safe_truncation_point_newline() {
+        let content = "Line one\nLine two\nLine three";
+        let point = find_safe_truncation_point(content, 20);
+        // Should prefer newline boundary
+        assert!(content.is_char_boundary(point));
+    }
+
+    #[test]
+    fn test_find_safe_truncation_point_unicode() {
+        let content = "Hello 世界 test";
+        let point = find_safe_truncation_point(content, 10);
+        // Should not cut in middle of UTF-8 character
+        assert!(content.is_char_boundary(point));
+    }
+
+    #[test]
+    fn test_find_safe_truncation_point_beyond_length() {
+        let content = "short";
+        let point = find_safe_truncation_point(content, 100);
+        assert_eq!(point, content.len());
+    }
+
+    #[test]
+    fn test_budget_ratio_affects_large_content() {
+        // Test that budget_ratio affects compression of content with paragraph breaks
+        // This tests the chunk-based compression path
+        let content = (0..20)
+            .map(|i| format!("This is paragraph number {} with some content to fill it out nicely.", i))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        // Test with different budget ratios
+        let compressor_30 = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.3,
+            min_chunk_size: 20,
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let compressor_80 = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.8,
+            min_chunk_size: 20,
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let result_30 = compressor_30.compress(&content).unwrap();
+        let result_80 = compressor_80.compress(&content).unwrap();
+
+        // Lower budget ratio should produce shorter output
+        assert!(
+            result_30.len() < result_80.len(),
+            "30% budget ({}) should be smaller than 80% budget ({})",
+            result_30.len(),
+            result_80.len()
+        );
+
+        // Both should indicate compression occurred
+        assert!(
+            result_30.contains("compressed") || result_30.len() < content.len(),
+            "30% should show compression indicator"
+        );
+    }
+
+    #[test]
+    fn test_budget_ratio_one_returns_original() {
+        let content = "Some content without chunk boundaries";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 1.0, // Keep everything
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+        // With budget_ratio 1.0, should return original content
+        assert_eq!(result, content);
     }
 }

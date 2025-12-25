@@ -115,6 +115,8 @@ infiniloom pack . --max-tokens 150000 --model gemini
 | Need more room | `balanced` | 30-40% |
 | Very large codebase | `aggressive` | 50-60% |
 | Extreme budget constraints | `extreme` | 70-80% |
+| Key symbols with context | `focused` | ~75% |
+| Semantic understanding | `semantic` | 60-70% |
 
 ### Compression Examples
 
@@ -133,6 +135,12 @@ infiniloom pack . --compression aggressive
 
 # Signatures only
 infiniloom pack . --compression extreme
+
+# Key symbols with surrounding context
+infiniloom pack . --compression focused
+
+# Semantic compression
+infiniloom pack . --compression semantic
 ```
 
 ### Semantic Compression

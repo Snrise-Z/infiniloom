@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync, getChangedSymbolsFiltered, getTransitiveCallers, getCallSitesWithContext, getChangedSymbolsFilteredAsync, getTransitiveCallersAsync, getCallSitesWithContextAsync } = nativeBinding
+const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, findSymbolFiltered, getCallersFiltered, getCalleesFiltered, getReferencesFiltered, findSymbolFilteredAsync, getCallersFilteredAsync, getCalleesFilteredAsync, getReferencesFilteredAsync, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync, getChangedSymbolsFiltered, getTransitiveCallers, getCallSitesWithContext, getChangedSymbolsFilteredAsync, getTransitiveCallersAsync, getCallSitesWithContextAsync } = nativeBinding
 
 module.exports.pack = pack
 module.exports.scan = scan
@@ -327,6 +327,14 @@ module.exports.findSymbol = findSymbol
 module.exports.getCallers = getCallers
 module.exports.getCallees = getCallees
 module.exports.getReferences = getReferences
+module.exports.findSymbolFiltered = findSymbolFiltered
+module.exports.getCallersFiltered = getCallersFiltered
+module.exports.getCalleesFiltered = getCalleesFiltered
+module.exports.getReferencesFiltered = getReferencesFiltered
+module.exports.findSymbolFilteredAsync = findSymbolFilteredAsync
+module.exports.getCallersFilteredAsync = getCallersFilteredAsync
+module.exports.getCalleesFilteredAsync = getCalleesFilteredAsync
+module.exports.getReferencesFilteredAsync = getReferencesFilteredAsync
 module.exports.getCallGraph = getCallGraph
 module.exports.findSymbolAsync = findSymbolAsync
 module.exports.getCallersAsync = getCallersAsync

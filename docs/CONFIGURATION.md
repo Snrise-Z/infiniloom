@@ -157,12 +157,13 @@ CLI flags override both config files and environment variables.
 
 ### Filter Flags
 
-| Flag | Description |
-|------|-------------|
-| `--include <PATTERN>` | Include glob pattern (can repeat) |
-| `--exclude <PATTERN>` | Exclude glob pattern (can repeat) |
-| `--top-files <N>` | Limit to N most important files |
-| `--skip-symbols` | Skip AST parsing (faster) |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--include <PATTERN>` | `-i` | Include glob pattern (can repeat) |
+| `--exclude <PATTERN>` | `-e` | Exclude glob pattern (can repeat) |
+| `--include-tests` | | Include test files (normally excluded) |
+| `--top-files <N>` | | Limit to N most important files |
+| `--skip-symbols` | | Skip AST parsing (faster) |
 
 ### Security Flags
 
@@ -381,6 +382,8 @@ repos:
 | `balanced` | 30-40% | Comments, redundant whitespace |
 | `aggressive` | 50-60% | Docstrings, inline comments |
 | `extreme` | 70-80% | Everything except signatures |
+| `focused` | 75% | Key symbols with small context |
+| `semantic` | 60-70% | Heuristic semantic compression |
 
 ---
 

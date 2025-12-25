@@ -35,6 +35,10 @@ pub fn cmd_diff(
     cli_model: Option<TokenizerModel>,
     include_history: bool,
     history_count: usize,
+    verbose: bool,
+    exclude: Vec<String>,
+    include_patterns: Vec<String>,
+    include_tests: bool,
 ) -> Result<()> {
     // Check git is available
     check_git_available()?;
@@ -59,11 +63,46 @@ pub fn cmd_diff(
     let base_ref = resolve_base_ref(reference.as_deref(), &path);
 
     // Always load diff content for accurate change classification
-    let changes = get_diff_changes(&path, reference.as_deref(), staged, true)?;
+    let mut changes = get_diff_changes(&path, reference.as_deref(), staged, true)?;
+
+    // Apply exclude patterns
+    if !exclude.is_empty() {
+        changes.retain(|c| {
+            !exclude.iter().any(|pattern| {
+                c.file_path.contains(pattern)
+                    || c.file_path.starts_with(pattern)
+                    || c.file_path.split('/').any(|part| part == pattern)
+            })
+        });
+    }
+
+    // Apply include patterns (only keep matching files)
+    if !include_patterns.is_empty() {
+        changes.retain(|c| {
+            include_patterns.iter().any(|pattern| {
+                if pattern.contains('*') {
+                    glob::Pattern::new(pattern)
+                        .is_ok_and(|p| p.matches(&c.file_path))
+                } else {
+                    c.file_path.contains(pattern) || c.file_path.ends_with(pattern)
+                }
+            })
+        });
+    }
+
+    // Exclude test files unless include_tests is true
+    if !include_tests {
+        use infiniloom_engine::default_ignores::{matches_any, TEST_IGNORES};
+        changes.retain(|c| !matches_any(&c.file_path, TEST_IGNORES));
+    }
 
     if changes.is_empty() {
         println!("No changes detected.");
         return Ok(());
+    }
+
+    if verbose {
+        eprintln!("{} Analyzing {} changed files...", "→".cyan(), changes.len());
     }
 
     // Convert depth

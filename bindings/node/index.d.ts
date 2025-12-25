@@ -173,21 +173,34 @@ export declare function countTokens(text: string, model?: string | undefined | n
  * Compress text using semantic compression
  *
  * Uses heuristic-based compression to reduce content while preserving meaning.
- * When built with the "embeddings" feature, uses neural networks for clustering.
+ * The compression works in three modes:
+ *
+ * 1. **Repetitive content**: Detects and collapses repeated patterns/lines
+ * 2. **Chunk-based**: Splits content at paragraph/sentence boundaries and keeps a ratio
+ * 3. **Character-based**: For content without boundaries, truncates to budget_ratio
  *
  * # Arguments
  * * `text` - Text to compress
- * * `similarity_threshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7)
- * * `budget_ratio` - Target size as ratio of original (0.0-1.0, default: 0.5)
+ * * `similarity_threshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7).
+ *   Note: Only affects output when built with "embeddings" feature.
+ * * `budget_ratio` - Target size as ratio of original (0.0-1.0, default: 0.5).
+ *   Lower values = more aggressive compression. For example:
+ *   - 0.5 = keep ~50% of content
+ *   - 0.3 = keep ~30% of content
+ *   - 1.0 = no compression
  *
  * # Returns
- * Compressed text
+ * Compressed text with markers indicating what was removed
  *
  * # Example
  * ```javascript
  * const { semanticCompress } = require('infiniloom-node');
  *
+ * // Compress to ~30% of original size
  * const compressed = semanticCompress(longText, 0.7, 0.3);
+ *
+ * // Aggressive compression to ~20%
+ * const veryCompressed = semanticCompress(longText, 0.7, 0.2);
  * ```
  */
 export declare function semanticCompress(text: string, similarityThreshold?: number | undefined | null, budgetRatio?: number | undefined | null): string
@@ -325,6 +338,13 @@ export interface IndexOptions {
   includeTests?: boolean
   /** Maximum file size to index (bytes) */
   maxFileSize?: number
+  /** Directories/patterns to exclude (e.g., ["node_modules", "dist", "vendor", "*.generated.*"]) */
+  exclude?: Array<string>
+  /**
+   * Incremental update - only re-index changed files (default: false)
+   * When true, compares file hashes with existing index and only rebuilds changed files
+   */
+  incremental?: boolean
 }
 /** Index status information */
 export interface IndexStatus {
@@ -338,6 +358,10 @@ export interface IndexStatus {
   lastBuilt?: string
   /** Index version */
   version?: string
+  /** Number of files updated in incremental build (only set for incremental builds) */
+  filesUpdated?: number
+  /** Whether this was an incremental update */
+  incremental?: boolean
 }
 /**
  * Build or update the symbol index for a repository
@@ -395,9 +419,9 @@ export interface SymbolInfo {
   kind: string
   /** File path containing the symbol */
   file: string
-  /** Start line number */
+  /** Start line number (1-indexed, consistent with editors/IDEs) */
   line: number
-  /** End line number */
+  /** End line number (1-indexed, consistent with editors/IDEs) */
   endLine: number
   /** Function/method signature */
   signature?: string
@@ -412,7 +436,11 @@ export interface ReferenceInfo {
   kind: string
   /** File path containing the reference (convenience field, same as symbol.file) */
   file: string
-  /** Line number of the reference (convenience field, same as symbol.line) */
+  /**
+   * Line number of the reference (1-indexed, convenience field, same as symbol.line)
+   * Note: This is the line where the referencing symbol is defined, not where the
+   * actual reference occurs. For call site line numbers, use getCallSites() instead.
+   */
   line: number
 }
 /** An edge in the call graph */
@@ -456,6 +484,20 @@ export interface CallGraphOptions {
   maxNodes?: number
   /** Maximum number of edges to return (default: unlimited) */
   maxEdges?: number
+}
+/**
+ * Feature #2: Filter options for symbol queries
+ *
+ * Allows filtering query results by symbol kind.
+ */
+export interface QueryFilter {
+  /**
+   * Filter by symbol kinds: "function", "method", "class", "struct", "interface", "trait", "enum", etc.
+   * If specified, only symbols of these kinds are returned.
+   */
+  kinds?: Array<string>
+  /** Exclude specific kinds (e.g., exclude "import" to skip import statements) */
+  excludeKinds?: Array<string>
 }
 /**
  * Find a symbol by name
@@ -559,6 +601,119 @@ export declare function getCallees(path: string, symbolName: string): Array<Symb
  */
 export declare function getReferences(path: string, symbolName: string): Array<ReferenceInfo>
 /**
+ * Find symbols by name with filtering
+ *
+ * Like `findSymbol`, but allows filtering results by symbol kind.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `name` - Symbol name to search for
+ * * `filter` - Optional filter for symbol kinds
+ *
+ * # Returns
+ * Array of matching symbols that pass the filter
+ *
+ * # Example
+ * ```javascript
+ * const { findSymbolFiltered, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * // Find only functions named "process"
+ * const funcs = findSymbolFiltered('./my-repo', 'process', {
+ *   kinds: ['function', 'method']
+ * });
+ * // Find all symbols except imports
+ * const noImports = findSymbolFiltered('./my-repo', 'User', {
+ *   excludeKinds: ['import']
+ * });
+ * ```
+ */
+export declare function findSymbolFiltered(path: string, name: string, filter?: QueryFilter | undefined | null): Array<SymbolInfo>
+/**
+ * Get callers of a symbol with filtering
+ *
+ * Like `getCallers`, but allows filtering results by symbol kind.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find callers for
+ * * `filter` - Optional filter for symbol kinds
+ *
+ * # Returns
+ * Array of filtered calling symbols
+ *
+ * # Example
+ * ```javascript
+ * const { getCallersFiltered, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * // Get only function callers (not class methods)
+ * const callers = getCallersFiltered('./my-repo', 'authenticate', {
+ *   kinds: ['function']
+ * });
+ * ```
+ */
+export declare function getCallersFiltered(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Array<SymbolInfo>
+/**
+ * Get callees of a symbol with filtering
+ *
+ * Like `getCallees`, but allows filtering results by symbol kind.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find callees for
+ * * `filter` - Optional filter for symbol kinds
+ *
+ * # Returns
+ * Array of filtered called symbols
+ *
+ * # Example
+ * ```javascript
+ * const { getCalleesFiltered, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * // Get only function calls (not method calls)
+ * const callees = getCalleesFiltered('./my-repo', 'main', {
+ *   kinds: ['function']
+ * });
+ * ```
+ */
+export declare function getCalleesFiltered(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Array<SymbolInfo>
+/**
+ * Get references to a symbol with filtering
+ *
+ * Like `getReferences`, but allows filtering results by symbol kind.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find references for
+ * * `filter` - Optional filter for referencing symbol kinds
+ *
+ * # Returns
+ * Array of filtered reference information
+ *
+ * # Example
+ * ```javascript
+ * const { getReferencesFiltered, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * // Get only call references from functions
+ * const refs = getReferencesFiltered('./my-repo', 'UserService', {
+ *   kinds: ['function', 'method'],
+ *   excludeKinds: ['import']
+ * });
+ * ```
+ */
+export declare function getReferencesFiltered(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Array<ReferenceInfo>
+/** Async version of findSymbolFiltered */
+export declare function findSymbolFilteredAsync(path: string, name: string, filter?: QueryFilter | undefined | null): Promise<Array<SymbolInfo>>
+/** Async version of getCallersFiltered */
+export declare function getCallersFilteredAsync(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Promise<Array<SymbolInfo>>
+/** Async version of getCalleesFiltered */
+export declare function getCalleesFilteredAsync(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Promise<Array<SymbolInfo>>
+/** Async version of getReferencesFiltered */
+export declare function getReferencesFilteredAsync(path: string, symbolName: string, filter?: QueryFilter | undefined | null): Promise<Array<ReferenceInfo>>
+/**
  * Get the complete call graph
  *
  * Returns all symbols and their call relationships.
@@ -613,6 +768,8 @@ export interface ChunkOptions {
   format?: string
   /** Sort chunks by priority (core modules first) */
   priorityFirst?: boolean
+  /** Directories/patterns to exclude (e.g., ["vendor", "generated", "*.test.*"]) */
+  exclude?: Array<string>
 }
 /** A chunk of repository content */
 export interface RepoChunk {

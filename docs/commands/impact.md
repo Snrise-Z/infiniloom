@@ -24,11 +24,17 @@ The `impact` command:
 
 ## Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--symbol` | Analyze a symbol instead of a file | `false` |
-| `--call-graph` | Show visual call graph | `false` |
-| `--json` | Output as JSON | `false` |
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--symbol` | | Analyze a symbol instead of a file | `false` |
+| `--call-graph` | | Show visual call graph | `false` |
+| `--json` | | Output as JSON | `false` |
+| `--model <MODEL>` | `-m` | Target model for token counting | `claude` |
+| `--depth <LEVEL>` | `-d` | Analysis depth (1=direct 5 items, 2=10 items, 3=20 items) | `2` |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude files/directories matching pattern (repeatable) | none |
+| `--include-tests` | | Include test files in analysis | `false` |
+| `--verbose` | `-v` | Show detailed progress | `false` |
 
 ## Output
 

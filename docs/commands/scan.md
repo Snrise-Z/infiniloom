@@ -34,6 +34,9 @@ The `scan` command performs:
 | `--security-check` | | Scan for secrets and API keys | `false` |
 | `--sample <N>` | | Sample N random files for estimation | (disabled) |
 | `--sample-percent <P>` | | Sample P% of files for estimation | (disabled) |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude files/directories matching pattern (repeatable) | none |
+| `--include-tests` | | Include test files in scan (normally excluded) | `false` |
 
 ## Output
 

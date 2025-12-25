@@ -512,10 +512,124 @@ mod tests {
     }
 
     #[test]
+    fn test_repository_total_tokens() {
+        let mut repo = Repository::new("test", "/tmp/test");
+        let mut file1 = RepoFile::new("/tmp/test/a.rs", "a.rs");
+        file1.token_count.set(TokenizerModel::Claude, 100);
+        let mut file2 = RepoFile::new("/tmp/test/b.rs", "b.rs");
+        file2.token_count.set(TokenizerModel::Claude, 200);
+        repo.files.push(file1);
+        repo.files.push(file2);
+        assert_eq!(repo.total_tokens(TokenizerModel::Claude), 300);
+    }
+
+    #[test]
+    fn test_repository_files_by_language() {
+        let mut repo = Repository::new("test", "/tmp/test");
+        let mut file1 = RepoFile::new("/tmp/test/a.rs", "a.rs");
+        file1.language = Some("rust".to_string());
+        let mut file2 = RepoFile::new("/tmp/test/b.py", "b.py");
+        file2.language = Some("python".to_string());
+        let mut file3 = RepoFile::new("/tmp/test/c.rs", "c.rs");
+        file3.language = Some("rust".to_string());
+        repo.files.push(file1);
+        repo.files.push(file2);
+        repo.files.push(file3);
+
+        let rust_files = repo.files_by_language("rust");
+        assert_eq!(rust_files.len(), 2);
+        let python_files = repo.files_by_language("python");
+        assert_eq!(python_files.len(), 1);
+        let go_files = repo.files_by_language("go");
+        assert_eq!(go_files.len(), 0);
+    }
+
+    #[test]
+    fn test_repository_files_by_importance() {
+        let mut repo = Repository::new("test", "/tmp/test");
+        let mut file1 = RepoFile::new("/tmp/test/a.rs", "a.rs");
+        file1.importance = 0.3;
+        let mut file2 = RepoFile::new("/tmp/test/b.rs", "b.rs");
+        file2.importance = 0.9;
+        let mut file3 = RepoFile::new("/tmp/test/c.rs", "c.rs");
+        file3.importance = 0.6;
+        repo.files.push(file1);
+        repo.files.push(file2);
+        repo.files.push(file3);
+
+        let sorted = repo.files_by_importance();
+        assert_eq!(sorted[0].relative_path, "b.rs");
+        assert_eq!(sorted[1].relative_path, "c.rs");
+        assert_eq!(sorted[2].relative_path, "a.rs");
+    }
+
+    #[test]
+    fn test_repository_display() {
+        let mut repo = Repository::new("my-project", "/tmp/my-project");
+        repo.metadata.total_files = 42;
+        repo.metadata.total_lines = 1000;
+        let display = format!("{}", repo);
+        assert!(display.contains("my-project"));
+        assert!(display.contains("42 files"));
+        assert!(display.contains("1000 lines"));
+    }
+
+    #[test]
+    fn test_repo_file_new() {
+        let file = RepoFile::new("/tmp/test/src/main.rs", "src/main.rs");
+        assert_eq!(file.relative_path, "src/main.rs");
+        assert!(file.language.is_none());
+        assert_eq!(file.importance, 0.5);
+    }
+
+    #[test]
+    fn test_repo_file_extension() {
+        let file = RepoFile::new("/tmp/test/main.rs", "main.rs");
+        assert_eq!(file.extension(), Some("rs"));
+
+        let file_no_ext = RepoFile::new("/tmp/test/Makefile", "Makefile");
+        assert_eq!(file_no_ext.extension(), None);
+    }
+
+    #[test]
+    fn test_repo_file_filename() {
+        let file = RepoFile::new("/tmp/test/src/main.rs", "src/main.rs");
+        assert_eq!(file.filename(), "main.rs");
+    }
+
+    #[test]
+    fn test_repo_file_display() {
+        let mut file = RepoFile::new("/tmp/test/main.rs", "main.rs");
+        file.language = Some("rust".to_string());
+        file.token_count.claude = 150;
+        let display = format!("{}", file);
+        assert!(display.contains("main.rs"));
+        assert!(display.contains("rust"));
+        assert!(display.contains("150"));
+    }
+
+    #[test]
+    fn test_repo_file_display_unknown_language() {
+        let file = RepoFile::new("/tmp/test/data.xyz", "data.xyz");
+        let display = format!("{}", file);
+        assert!(display.contains("unknown"));
+    }
+
+    #[test]
     fn test_token_counts() {
         let mut counts = TokenCounts::default();
         counts.set(TokenizerModel::Claude, 100);
         assert_eq!(counts.get(TokenizerModel::Claude), 100);
+    }
+
+    #[test]
+    fn test_symbol_new() {
+        let sym = Symbol::new("my_function", SymbolKind::Function);
+        assert_eq!(sym.name, "my_function");
+        assert_eq!(sym.kind, SymbolKind::Function);
+        assert_eq!(sym.importance, 0.5);
+        assert!(sym.signature.is_none());
+        assert!(sym.calls.is_empty());
     }
 
     #[test]
@@ -524,6 +638,161 @@ mod tests {
         sym.start_line = 10;
         sym.end_line = 20;
         assert_eq!(sym.line_count(), 11);
+    }
+
+    #[test]
+    fn test_symbol_line_count_single_line() {
+        let mut sym = Symbol::new("test", SymbolKind::Variable);
+        sym.start_line = 5;
+        sym.end_line = 5;
+        assert_eq!(sym.line_count(), 1);
+    }
+
+    #[test]
+    fn test_symbol_line_count_inverted() {
+        let mut sym = Symbol::new("test", SymbolKind::Variable);
+        sym.start_line = 20;
+        sym.end_line = 10; // Inverted
+        assert_eq!(sym.line_count(), 1);
+    }
+
+    #[test]
+    fn test_symbol_display() {
+        let mut sym = Symbol::new("calculate", SymbolKind::Function);
+        sym.start_line = 10;
+        sym.end_line = 25;
+        let display = format!("{}", sym);
+        assert!(display.contains("function"));
+        assert!(display.contains("calculate"));
+        assert!(display.contains("10-25"));
+    }
+
+    #[test]
+    fn test_symbol_kind_name() {
+        assert_eq!(SymbolKind::Function.name(), "function");
+        assert_eq!(SymbolKind::Method.name(), "method");
+        assert_eq!(SymbolKind::Class.name(), "class");
+        assert_eq!(SymbolKind::Interface.name(), "interface");
+        assert_eq!(SymbolKind::Struct.name(), "struct");
+        assert_eq!(SymbolKind::Enum.name(), "enum");
+        assert_eq!(SymbolKind::Constant.name(), "constant");
+        assert_eq!(SymbolKind::Variable.name(), "variable");
+        assert_eq!(SymbolKind::Import.name(), "import");
+        assert_eq!(SymbolKind::Export.name(), "export");
+        assert_eq!(SymbolKind::TypeAlias.name(), "type");
+        assert_eq!(SymbolKind::Module.name(), "module");
+        assert_eq!(SymbolKind::Trait.name(), "trait");
+        assert_eq!(SymbolKind::Macro.name(), "macro");
+    }
+
+    #[test]
+    fn test_symbol_kind_from_str() {
+        assert_eq!(SymbolKind::from_str("function"), Some(SymbolKind::Function));
+        assert_eq!(SymbolKind::from_str("method"), Some(SymbolKind::Method));
+        assert_eq!(SymbolKind::from_str("class"), Some(SymbolKind::Class));
+        assert_eq!(SymbolKind::from_str("interface"), Some(SymbolKind::Interface));
+        assert_eq!(SymbolKind::from_str("struct"), Some(SymbolKind::Struct));
+        assert_eq!(SymbolKind::from_str("enum"), Some(SymbolKind::Enum));
+        assert_eq!(SymbolKind::from_str("constant"), Some(SymbolKind::Constant));
+        assert_eq!(SymbolKind::from_str("variable"), Some(SymbolKind::Variable));
+        assert_eq!(SymbolKind::from_str("import"), Some(SymbolKind::Import));
+        assert_eq!(SymbolKind::from_str("export"), Some(SymbolKind::Export));
+        assert_eq!(SymbolKind::from_str("type"), Some(SymbolKind::TypeAlias));
+        assert_eq!(SymbolKind::from_str("typealias"), Some(SymbolKind::TypeAlias));
+        assert_eq!(SymbolKind::from_str("module"), Some(SymbolKind::Module));
+        assert_eq!(SymbolKind::from_str("trait"), Some(SymbolKind::Trait));
+        assert_eq!(SymbolKind::from_str("macro"), Some(SymbolKind::Macro));
+        // Case insensitive
+        assert_eq!(SymbolKind::from_str("FUNCTION"), Some(SymbolKind::Function));
+        assert_eq!(SymbolKind::from_str("Class"), Some(SymbolKind::Class));
+        // Unknown
+        assert_eq!(SymbolKind::from_str("unknown"), None);
+        assert_eq!(SymbolKind::from_str(""), None);
+    }
+
+    #[test]
+    fn test_symbol_kind_std_from_str() {
+        use std::str::FromStr;
+        assert_eq!("function".parse::<SymbolKind>(), Ok(SymbolKind::Function));
+        assert_eq!("class".parse::<SymbolKind>(), Ok(SymbolKind::Class));
+        assert!("invalid".parse::<SymbolKind>().is_err());
+    }
+
+    #[test]
+    fn test_symbol_kind_display() {
+        assert_eq!(format!("{}", SymbolKind::Function), "function");
+        assert_eq!(format!("{}", SymbolKind::Class), "class");
+    }
+
+    #[test]
+    fn test_visibility_name() {
+        assert_eq!(Visibility::Public.name(), "public");
+        assert_eq!(Visibility::Private.name(), "private");
+        assert_eq!(Visibility::Protected.name(), "protected");
+        assert_eq!(Visibility::Internal.name(), "internal");
+    }
+
+    #[test]
+    fn test_visibility_default() {
+        let vis = Visibility::default();
+        assert_eq!(vis, Visibility::Public);
+    }
+
+    #[test]
+    fn test_language_stats() {
+        let stats = LanguageStats {
+            language: "rust".to_string(),
+            files: 10,
+            lines: 5000,
+            percentage: 45.5,
+        };
+        assert_eq!(stats.language, "rust");
+        assert_eq!(stats.files, 10);
+        assert_eq!(stats.lines, 5000);
+        assert!((stats.percentage - 45.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_git_commit_info() {
+        let commit = GitCommitInfo {
+            hash: "abc123def456".to_string(),
+            short_hash: "abc123d".to_string(),
+            author: "Test Author".to_string(),
+            date: "2025-01-01".to_string(),
+            message: "Test commit".to_string(),
+        };
+        assert_eq!(commit.hash, "abc123def456");
+        assert_eq!(commit.short_hash, "abc123d");
+        assert_eq!(commit.author, "Test Author");
+    }
+
+    #[test]
+    fn test_git_changed_file() {
+        let changed = GitChangedFile {
+            path: "src/main.rs".to_string(),
+            status: "M".to_string(),
+            diff_content: Some("+new line".to_string()),
+        };
+        assert_eq!(changed.path, "src/main.rs");
+        assert_eq!(changed.status, "M");
+        assert!(changed.diff_content.is_some());
+    }
+
+    #[test]
+    fn test_git_history_default() {
+        let history = GitHistory::default();
+        assert!(history.commits.is_empty());
+        assert!(history.changed_files.is_empty());
+    }
+
+    #[test]
+    fn test_repo_metadata_default() {
+        let meta = RepoMetadata::default();
+        assert_eq!(meta.total_files, 0);
+        assert_eq!(meta.total_lines, 0);
+        assert!(meta.languages.is_empty());
+        assert!(meta.framework.is_none());
+        assert!(meta.branch.is_none());
     }
 
     #[test]
@@ -543,6 +812,13 @@ mod tests {
         // Unknown
         assert_eq!(CompressionLevel::from_str("unknown"), None);
         assert_eq!(CompressionLevel::from_str(""), None);
+    }
+
+    #[test]
+    fn test_compression_level_std_from_str() {
+        use std::str::FromStr;
+        assert_eq!("balanced".parse::<CompressionLevel>(), Ok(CompressionLevel::Balanced));
+        assert!("invalid".parse::<CompressionLevel>().is_err());
     }
 
     #[test]
@@ -575,5 +851,11 @@ mod tests {
         let all = CompressionLevel::all();
         assert_eq!(all.len(), 7);
         assert!(all.contains(&CompressionLevel::Semantic));
+    }
+
+    #[test]
+    fn test_compression_level_default() {
+        let level = CompressionLevel::default();
+        assert_eq!(level, CompressionLevel::Balanced);
     }
 }

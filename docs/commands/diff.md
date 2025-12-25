@@ -55,11 +55,16 @@ L1 ─────────────────────────�
 | `--staged` | | Use staged changes instead of unstaged | `false` |
 | `--depth <LEVEL>` | `-d` | Context depth (1, 2, or 3) | `2` |
 | `--budget <TOKENS>` | `-b` | Token budget for context | `50000` |
-| `--format <FORMAT>` | `-f` | Output format (xml, json, markdown) | `xml` |
+| `--format <FORMAT>` | `-f` | Output format (xml, json, markdown, yaml, toon, plain) | `xml` |
 | `--output <PATH>` | `-o` | Output file (default: stdout) | stdout |
+| `--model <MODEL>` | `-m` | Target model for token counting | `claude` |
 | `--include-diff` | | Include actual diff content (+/- lines) | `false` |
 | `--include-history` | | Include recent commit history for changed files | `false` |
 | `--history-count <N>` | | Number of recent commits to include per file | `3` |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude files/directories matching pattern (repeatable) | none |
+| `--include-tests` | | Include test files in context (normally excluded) | `false` |
+| `--verbose` | `-v` | Show detailed progress | `false` |
 
 ## Reference Formats
 

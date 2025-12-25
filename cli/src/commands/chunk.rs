@@ -26,6 +26,9 @@ pub fn cmd_chunk(
     verbose: bool,
     no_chunk_summary: bool,
     priority_first: bool,
+    exclude: Vec<String>,
+    include_patterns: Vec<String>,
+    include_tests: bool,
 ) -> Result<()> {
     use infiniloom_engine::Chunker;
 
@@ -49,7 +52,42 @@ pub fn cmd_chunk(
         skip_symbols: !needs_symbols, // Enable symbols for dependency chunking
     };
 
-    let repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
+    let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
+
+    // Apply exclude patterns if provided
+    if !exclude.is_empty() {
+        repo.files.retain(|f| {
+            !exclude.iter().any(|pattern| {
+                f.relative_path.contains(pattern)
+                    || f.relative_path.starts_with(pattern)
+                    || f.relative_path
+                        .split('/')
+                        .any(|part| part == pattern)
+            })
+        });
+    }
+
+    // Apply include patterns (only keep matching files)
+    if !include_patterns.is_empty() {
+        repo.files.retain(|f| {
+            include_patterns.iter().any(|pattern| {
+                if pattern.contains('*') {
+                    glob::Pattern::new(pattern)
+                        .is_ok_and(|p| p.matches(&f.relative_path))
+                } else {
+                    f.relative_path.contains(pattern) || f.relative_path.ends_with(pattern)
+                }
+            })
+        });
+    }
+
+    // Exclude test files unless include_tests is true
+    if !include_tests {
+        use infiniloom_engine::default_ignores::{matches_any, TEST_IGNORES};
+        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    }
+
+    repo.metadata.total_files = repo.files.len() as u32;
 
     if verbose {
         eprintln!("  Scanned {} files", repo.files.len());

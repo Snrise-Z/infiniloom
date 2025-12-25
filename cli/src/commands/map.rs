@@ -18,7 +18,14 @@ pub fn cmd_map(
     budget: u32,
     cli_model: Option<TokenizerModel>,
     output: Option<PathBuf>,
+    exclude: Vec<String>,
+    include_patterns: Vec<String>,
+    include_tests: bool,
+    verbose: bool,
 ) -> Result<()> {
+    use std::time::Instant;
+    let start = Instant::now();
+
     let config = scanner::ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
@@ -33,10 +40,44 @@ pub fn cmd_map(
     // This prevents dist/, node_modules/, etc. from appearing in the map
     {
         use infiniloom_engine::default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES};
+        repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+        // Exclude test files unless include_tests is true
+        if !include_tests {
+            repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+        }
+    }
+
+    // Apply custom exclude patterns if provided
+    if !exclude.is_empty() {
         repo.files.retain(|f| {
-            !matches_any(&f.relative_path, DEFAULT_IGNORES)
-                && !matches_any(&f.relative_path, TEST_IGNORES)
+            !exclude.iter().any(|pattern| {
+                f.relative_path.contains(pattern)
+                    || f.relative_path.starts_with(pattern)
+                    || f.relative_path
+                        .split('/')
+                        .any(|part| part == pattern)
+            })
         });
+    }
+
+    // Apply include patterns if provided (only keep matching files)
+    if !include_patterns.is_empty() {
+        repo.files.retain(|f| {
+            include_patterns.iter().any(|pattern| {
+                // Support glob-like patterns
+                if pattern.contains('*') {
+                    glob::Pattern::new(pattern)
+                        .is_ok_and(|p| p.matches(&f.relative_path))
+                } else {
+                    f.relative_path.contains(pattern)
+                        || f.relative_path.ends_with(pattern)
+                }
+            })
+        });
+    }
+
+    if verbose {
+        eprintln!("Scanning {} files...", repo.files.len());
     }
 
     // Count cross-file symbol references (populates Symbol.references field)

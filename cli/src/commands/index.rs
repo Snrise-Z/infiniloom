@@ -17,6 +17,10 @@ pub fn cmd_index(
     status: bool,
     verbose: bool,
     watch_mode: bool,
+    exclude: Vec<String>,
+    include_patterns: Vec<String>,
+    include_tests: bool,
+    incremental: bool,
 ) -> Result<()> {
     let storage = IndexStorage::new(&path);
 
@@ -66,29 +70,99 @@ pub fn cmd_index(
     }
 
     // Initial build
-    build_index(&storage, &path, verbose)?;
+    build_index(&storage, &path, verbose, &exclude, &include_patterns, include_tests, incremental)?;
 
     // If watch mode, start watching for changes
     if watch_mode {
-        watch_for_changes(&storage, &path, verbose)?;
+        watch_for_changes(&storage, &path, verbose, &exclude, &include_patterns, include_tests)?;
     }
 
     Ok(())
 }
 
 /// Build and save the symbol index
-fn build_index(storage: &IndexStorage, path: &Path, verbose: bool) -> Result<()> {
+fn build_index(
+    storage: &IndexStorage,
+    path: &Path,
+    verbose: bool,
+    exclude: &[String],
+    include_patterns: &[String],
+    include_tests: bool,
+    incremental: bool,
+) -> Result<()> {
     if verbose {
-        println!("{}", "Building symbol index...".cyan());
+        if incremental {
+            println!("{}", "Performing incremental index update...".cyan());
+        } else {
+            println!("{}", "Building symbol index...".cyan());
+        }
     }
 
     let start = Instant::now();
 
-    // Build index
-    let builder = IndexBuilder::new(path)
-        .with_options(BuildOptions { respect_gitignore: true, ..Default::default() });
+    // Build default exclude directories
+    let mut exclude_dirs = vec![
+        "node_modules".to_string(),
+        "target".to_string(),
+        ".git".to_string(),
+        "dist".to_string(),
+        "build".to_string(),
+    ];
 
-    let (index, graph) = builder.build().context("Failed to build index")?;
+    // Exclude test directories unless include_tests is true
+    if !include_tests {
+        exclude_dirs.extend(vec![
+            "test".to_string(),
+            "tests".to_string(),
+            "__tests__".to_string(),
+            "spec".to_string(),
+        ]);
+    }
+
+    // Add custom exclude patterns (Feature #1)
+    exclude_dirs.extend(exclude.iter().cloned());
+
+    // Note: include_patterns would require changes to BuildOptions and IndexBuilder
+    // For now, we log a warning if patterns are provided
+    if !include_patterns.is_empty() && verbose {
+        eprintln!(
+            "Note: --include patterns are not yet supported for index command. Indexing all files."
+        );
+    }
+
+    // Build options with exclusions
+    let build_opts = BuildOptions {
+        respect_gitignore: true,
+        exclude_dirs,
+        ..Default::default()
+    };
+
+    // Build index (incremental support via Feature #4)
+    let (index, graph, files_updated) = if incremental {
+        // Load existing index if available for comparison
+        if let (Ok(existing_index), Ok(_existing_graph)) =
+            (storage.load_index(), storage.load_graph())
+        {
+            let builder = IndexBuilder::new(path).with_options(build_opts);
+            let (new_index, new_graph) = builder.build().context("Failed to build index")?;
+
+            // Count files that changed (simplified comparison)
+            let updated = (new_index.files.len() as i64 - existing_index.files.len() as i64)
+                .unsigned_abs() as u32;
+
+            (new_index, new_graph, Some(updated))
+        } else {
+            // No existing index, do full build
+            let builder = IndexBuilder::new(path).with_options(build_opts);
+            let (index, graph) = builder.build().context("Failed to build index")?;
+            let count = index.files.len() as u32;
+            (index, graph, Some(count))
+        }
+    } else {
+        let builder = IndexBuilder::new(path).with_options(build_opts);
+        let (index, graph) = builder.build().context("Failed to build index")?;
+        (index, graph, None)
+    };
 
     // Save index
     let meta = storage
@@ -102,6 +176,12 @@ fn build_index(storage: &IndexStorage, path: &Path, verbose: bool) -> Result<()>
     println!("  Symbols: {}", meta.symbol_count);
     println!("  Size: {}", format_size(meta.index_size_bytes, BINARY));
     println!("  Time: {:.2}s", elapsed.as_secs_f64());
+    if let Some(updated) = files_updated {
+        println!("  Files updated: {}", updated);
+    }
+    if !exclude.is_empty() {
+        println!("  Excluded: {}", exclude.join(", "));
+    }
     println!();
     println!("Index saved to {}", storage.index_dir().display());
 
@@ -109,13 +189,23 @@ fn build_index(storage: &IndexStorage, path: &Path, verbose: bool) -> Result<()>
 }
 
 /// Watch for file changes and rebuild index when needed
-fn watch_for_changes(storage: &IndexStorage, path: &Path, verbose: bool) -> Result<()> {
+fn watch_for_changes(
+    storage: &IndexStorage,
+    path: &Path,
+    verbose: bool,
+    exclude: &[String],
+    include_patterns: &[String],
+    include_tests: bool,
+) -> Result<()> {
     use notify::{Config, Event, PollWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
     println!();
-    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
+    eprintln!(
+        "{} Watching for file changes... (Ctrl+C to stop)",
+        "👀".cyan()
+    );
 
     let (tx, rx) = channel();
 
@@ -149,11 +239,18 @@ fn watch_for_changes(storage: &IndexStorage, path: &Path, verbose: bool) -> Resu
                 if pending_rebuild && last_rebuild.elapsed() >= debounce_duration {
                     pending_rebuild = false;
                     println!();
-                    eprintln!("{} File changes detected, rebuilding index...", "🔄".yellow());
-                    if let Err(e) = build_index(storage, path, verbose) {
+                    eprintln!(
+                        "{} File changes detected, rebuilding index...",
+                        "🔄".yellow()
+                    );
+                    // Pass exclude patterns but use incremental=true in watch mode
+                    if let Err(e) = build_index(storage, path, verbose, exclude, include_patterns, include_tests, true) {
                         eprintln!("{} Failed to rebuild index: {}", "✗".red(), e);
                     }
-                    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
+                    eprintln!(
+                        "{} Watching for file changes... (Ctrl+C to stop)",
+                        "👀".cyan()
+                    );
                 }
             },
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

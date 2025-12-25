@@ -29,6 +29,10 @@ The `map` command:
 | `--budget <TOKENS>` | `-b` | Token budget for map output | `2000` |
 | `--model <MODEL>` | `-m` | Target model for token counting | `claude` |
 | `--output <PATH>` | `-o` | Output file (default: stdout) | stdout |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude files/directories matching pattern (repeatable) | none |
+| `--include-tests` | | Include test files in map (normally excluded) | `false` |
+| `--verbose` | `-v` | Show detailed progress | `false` |
 
 ## Output Format
 

@@ -231,29 +231,13 @@ pub fn get_call_graph_filtered(
     max_nodes: Option<usize>,
     max_edges: Option<usize>,
 ) -> CallGraph {
-    // Collect all nodes
-    let mut nodes: Vec<SymbolInfo> = index
-        .symbols
-        .iter()
-        .map(|sym| SymbolInfo::from_index_symbol(sym, index))
-        .collect();
+    // Bug #5 fix: When only max_edges is specified, limit nodes to those that appear in edges
+    // This ensures users get a small, focused graph rather than all nodes with limited edges
 
-    // Apply node limit if specified
-    if let Some(limit) = max_nodes {
-        nodes.truncate(limit);
-    }
-
-    // Collect node IDs for filtering edges
-    let node_ids: std::collections::HashSet<u32> = nodes.iter().map(|n| n.id).collect();
-
-    // Collect all edges
+    // First, collect all edges and apply edge limit
     let mut edges: Vec<CallGraphEdge> = graph
         .calls
         .iter()
-        .filter(|(caller, callee)| {
-            // Only include edges where both nodes are in our set
-            max_nodes.is_none() || (node_ids.contains(caller) && node_ids.contains(callee))
-        })
         .filter_map(|&(caller_id, callee_id)| {
             let caller_sym = index.get_symbol(caller_id)?;
             let callee_sym = index.get_symbol(callee_id)?;
@@ -274,9 +258,42 @@ pub fn get_call_graph_filtered(
         })
         .collect();
 
-    // Apply edge limit if specified
+    // Apply edge limit first (before node filtering for more intuitive behavior)
     if let Some(limit) = max_edges {
         edges.truncate(limit);
+    }
+
+    // Collect node IDs that appear in the (possibly limited) edges
+    let edge_node_ids: std::collections::HashSet<u32> = edges
+        .iter()
+        .flat_map(|e| [e.caller_id, e.callee_id])
+        .collect();
+
+    // Collect nodes - when max_edges is specified without max_nodes, only include nodes from edges
+    let mut nodes: Vec<SymbolInfo> = if max_edges.is_some() && max_nodes.is_none() {
+        // Only include nodes that appear in the limited edges
+        index
+            .symbols
+            .iter()
+            .filter(|sym| edge_node_ids.contains(&sym.id.as_u32()))
+            .map(|sym| SymbolInfo::from_index_symbol(sym, index))
+            .collect()
+    } else {
+        // Include all nodes, then optionally truncate
+        index
+            .symbols
+            .iter()
+            .map(|sym| SymbolInfo::from_index_symbol(sym, index))
+            .collect()
+    };
+
+    // Apply node limit if specified
+    if let Some(limit) = max_nodes {
+        nodes.truncate(limit);
+
+        // When max_nodes is applied, also filter edges to only include those between limited nodes
+        let node_ids: std::collections::HashSet<u32> = nodes.iter().map(|n| n.id).collect();
+        edges.retain(|e| node_ids.contains(&e.caller_id) && node_ids.contains(&e.callee_id));
     }
 
     // Calculate statistics

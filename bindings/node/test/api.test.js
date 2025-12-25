@@ -1256,6 +1256,15 @@ const {
   getChangedSymbolsFiltered,
   getTransitiveCallers,
   getCallSitesWithContext,
+  findSymbolFiltered,
+  getCallersFiltered,
+  getCalleesFiltered,
+  getReferencesFiltered,
+  indexStatus,
+  findSymbol,
+  getCallers,
+  getCallees,
+  getReferences,
 } = require('..')
 
 // Helper to create repo with call chain for transitive caller testing
@@ -1731,4 +1740,280 @@ test('v0.4.5 features integration: PR review workflow', (t) => {
       assert.ok(site.context.length > 0, 'Call site should have context for review')
     }
   }
+})
+
+// ============================================================================
+// Feature #1: Exclude patterns for buildIndex
+// ============================================================================
+
+test('buildIndex with exclude option skips matching directories', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-exclude-'))
+  t.after(() => cleanup(dir))
+
+  // Create main code
+  fs.writeFileSync(
+    path.join(dir, 'main.py'),
+    'def main_function():\n    pass\n'
+  )
+
+  // Create vendor directory that should be excluded
+  fs.mkdirSync(path.join(dir, 'vendor'))
+  fs.writeFileSync(
+    path.join(dir, 'vendor', 'lib.py'),
+    'def vendor_function():\n    pass\n'
+  )
+
+  // Create tests directory that should be excluded
+  fs.mkdirSync(path.join(dir, 'tests'))
+  fs.writeFileSync(
+    path.join(dir, 'tests', 'test_main.py'),
+    'def test_main():\n    pass\n'
+  )
+
+  // Build index with exclude patterns
+  buildIndex(dir, { exclude: ['vendor', 'tests'] })
+
+  // Verify main.py symbols are indexed
+  const mainSymbols = getSymbolsInFile(dir, 'main.py')
+  assert.ok(mainSymbols.some(s => s.name === 'main_function'), 'main_function should be indexed')
+
+  // Verify vendor files are NOT indexed
+  assert.throws(
+    () => getSymbolsInFile(dir, 'vendor/lib.py'),
+    /File not found/i,
+    'vendor/lib.py should not be indexed'
+  )
+
+  // Verify test files are NOT indexed
+  assert.throws(
+    () => getSymbolsInFile(dir, 'tests/test_main.py'),
+    /File not found/i,
+    'tests/test_main.py should not be indexed'
+  )
+})
+
+test('buildIndex with exclude option supports nested directories', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-excnest-'))
+  t.after(() => cleanup(dir))
+
+  // Create source files
+  fs.mkdirSync(path.join(dir, 'src'))
+  fs.writeFileSync(path.join(dir, 'src', 'app.py'), 'def app(): pass\n')
+
+  // Create generated directory that should be excluded
+  fs.mkdirSync(path.join(dir, 'generated'))
+  fs.writeFileSync(path.join(dir, 'generated', 'types.py'), 'def generated_type(): pass\n')
+
+  // Create cache directory that should be excluded
+  fs.mkdirSync(path.join(dir, '.cache'))
+  fs.writeFileSync(path.join(dir, '.cache', 'cached.py'), 'def cached(): pass\n')
+
+  // Build index excluding generated and cache directories
+  buildIndex(dir, { exclude: ['generated', '.cache'] })
+
+  // src/app.py should be indexed
+  const srcSymbols = getSymbolsInFile(dir, 'src/app.py')
+  assert.ok(srcSymbols.some(s => s.name === 'app'), 'src/app.py should be indexed')
+
+  // generated directory should not be indexed
+  assert.throws(
+    () => getSymbolsInFile(dir, 'generated/types.py'),
+    /File not found/i,
+    'generated/types.py should not be indexed'
+  )
+
+  // .cache directory should not be indexed
+  assert.throws(
+    () => getSymbolsInFile(dir, '.cache/cached.py'),
+    /File not found/i,
+    '.cache/cached.py should not be indexed'
+  )
+})
+
+// ============================================================================
+// Feature #2: Filtered query functions
+// ============================================================================
+
+test('findSymbolFiltered filters by kinds', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  // Find only functions
+  const functions = findSymbolFiltered(dir, 'authenticate', { kinds: ['function'] })
+  assert.ok(Array.isArray(functions), 'Should return an array')
+
+  for (const sym of functions) {
+    assert.strictEqual(sym.kind, 'function', `Expected function, got ${sym.kind}`)
+  }
+})
+
+test('findSymbolFiltered excludes kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Find symbols but exclude imports
+  const symbols = findSymbolFiltered(dir, 'find_all', { excludeKinds: ['import'] })
+
+  for (const sym of symbols) {
+    assert.notStrictEqual(sym.kind, 'import', 'Should not return imports')
+  }
+})
+
+test('getCallersFiltered filters caller kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Get callers of query_database, filtering to only functions
+  const callers = getCallersFiltered(dir, 'query_database', { kinds: ['function'] })
+  assert.ok(Array.isArray(callers), 'Should return an array')
+
+  for (const caller of callers) {
+    assert.strictEqual(caller.kind, 'function', `Expected function caller, got ${caller.kind}`)
+  }
+})
+
+test('getCalleesFiltered filters callee kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Get callees of find_all
+  const callees = getCalleesFiltered(dir, 'find_all', { kinds: ['function'] })
+  assert.ok(Array.isArray(callees), 'Should return an array')
+
+  for (const callee of callees) {
+    assert.strictEqual(callee.kind, 'function', `Expected function callee, got ${callee.kind}`)
+  }
+})
+
+test('getReferencesFiltered filters by kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Get references to query_database, only functions
+  const refs = getReferencesFiltered(dir, 'query_database', { kinds: ['function'] })
+  assert.ok(Array.isArray(refs), 'Should return an array')
+
+  for (const ref of refs) {
+    assert.strictEqual(ref.symbol.kind, 'function', `Expected function reference, got ${ref.symbol.kind}`)
+  }
+})
+
+test('getReferencesFiltered excludes specified kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Get references but exclude imports
+  const refs = getReferencesFiltered(dir, 'find_all', { excludeKinds: ['import'] })
+  assert.ok(Array.isArray(refs), 'Should return an array')
+
+  for (const ref of refs) {
+    assert.notStrictEqual(ref.symbol.kind, 'import', 'Should not include imports')
+  }
+})
+
+// ============================================================================
+// Feature #4: Incremental index updates
+// ============================================================================
+
+test('indexStatus returns index information', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const status = indexStatus(dir)
+
+  assert.ok(status, 'Should return status object')
+  assert.ok(typeof status.exists === 'boolean', 'Should have exists field')
+  assert.ok(status.exists, 'Index should exist')
+  assert.ok(typeof status.fileCount === 'number', 'Should have fileCount')
+  assert.ok(typeof status.symbolCount === 'number', 'Should have symbolCount')
+  assert.ok(status.fileCount > 0, 'Should have indexed files')
+  assert.ok(status.symbolCount > 0, 'Should have indexed symbols')
+})
+
+test('indexStatus returns exists=false for missing index', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-noindex-'))
+  t.after(() => cleanup(dir))
+
+  fs.writeFileSync(path.join(dir, 'test.py'), 'def foo(): pass\n')
+  // Don't build index
+
+  const status = indexStatus(dir)
+
+  assert.ok(status, 'Should return status object')
+  assert.strictEqual(status.exists, false, 'Index should not exist')
+})
+
+test('buildIndex with incremental option only re-indexes changed files', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-incr-'))
+  t.after(() => cleanup(dir))
+
+  // Create initial files
+  fs.writeFileSync(path.join(dir, 'file1.py'), 'def func1():\n    pass\n')
+  fs.writeFileSync(path.join(dir, 'file2.py'), 'def func2():\n    pass\n')
+
+  // Build initial index
+  buildIndex(dir)
+
+  const status1 = indexStatus(dir)
+  assert.ok(status1.exists, 'Initial index should exist')
+  assert.strictEqual(status1.fileCount, 2, 'Should have 2 files')
+
+  // Modify one file
+  fs.writeFileSync(path.join(dir, 'file1.py'), 'def func1_modified():\n    return 42\n')
+
+  // Build incrementally
+  buildIndex(dir, { incremental: true })
+
+  const status2 = indexStatus(dir)
+  assert.ok(status2.exists, 'Index should still exist')
+  assert.strictEqual(status2.fileCount, 2, 'Should still have 2 files')
+
+  // Verify the modification was picked up
+  const symbols = getSymbolsInFile(dir, 'file1.py')
+  assert.ok(symbols.some(s => s.name === 'func1_modified'), 'Should have updated symbol')
+})
+
+test('buildIndex incremental adds new files', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-incradd-'))
+  t.after(() => cleanup(dir))
+
+  // Create initial file
+  fs.writeFileSync(path.join(dir, 'existing.py'), 'def existing():\n    pass\n')
+
+  // Build initial index
+  buildIndex(dir)
+
+  const status1 = indexStatus(dir)
+  assert.strictEqual(status1.fileCount, 1, 'Should have 1 file initially')
+
+  // Add new file
+  fs.writeFileSync(path.join(dir, 'new_file.py'), 'def new_function():\n    pass\n')
+
+  // Build incrementally
+  buildIndex(dir, { incremental: true })
+
+  const status2 = indexStatus(dir)
+  assert.strictEqual(status2.fileCount, 2, 'Should have 2 files after incremental')
+
+  // Verify new file is indexed
+  const symbols = getSymbolsInFile(dir, 'new_file.py')
+  assert.ok(symbols.some(s => s.name === 'new_function'), 'New file should be indexed')
+})
+
+test('buildIndex force overrides incremental', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-force-'))
+  t.after(() => cleanup(dir))
+
+  // Create file
+  fs.writeFileSync(path.join(dir, 'test.py'), 'def test():\n    pass\n')
+
+  // Build initial index
+  buildIndex(dir)
+
+  // Force rebuild (should work even with incremental)
+  buildIndex(dir, { force: true, incremental: true })
+
+  const status = indexStatus(dir)
+  assert.ok(status.exists, 'Index should exist after force rebuild')
+  assert.strictEqual(status.fileCount, 1, 'Should have 1 file')
 })

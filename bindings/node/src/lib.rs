@@ -793,21 +793,34 @@ fn parse_security_threshold(threshold: Option<&str>) -> Result<Severity> {
 /// Compress text using semantic compression
 ///
 /// Uses heuristic-based compression to reduce content while preserving meaning.
-/// When built with the "embeddings" feature, uses neural networks for clustering.
+/// The compression works in three modes:
+///
+/// 1. **Repetitive content**: Detects and collapses repeated patterns/lines
+/// 2. **Chunk-based**: Splits content at paragraph/sentence boundaries and keeps a ratio
+/// 3. **Character-based**: For content without boundaries, truncates to budget_ratio
 ///
 /// # Arguments
 /// * `text` - Text to compress
-/// * `similarity_threshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7)
-/// * `budget_ratio` - Target size as ratio of original (0.0-1.0, default: 0.5)
+/// * `similarity_threshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7).
+///   Note: Only affects output when built with "embeddings" feature.
+/// * `budget_ratio` - Target size as ratio of original (0.0-1.0, default: 0.5).
+///   Lower values = more aggressive compression. For example:
+///   - 0.5 = keep ~50% of content
+///   - 0.3 = keep ~30% of content
+///   - 1.0 = no compression
 ///
 /// # Returns
-/// Compressed text
+/// Compressed text with markers indicating what was removed
 ///
 /// # Example
 /// ```javascript
 /// const { semanticCompress } = require('infiniloom-node');
 ///
+/// // Compress to ~30% of original size
 /// const compressed = semanticCompress(longText, 0.7, 0.3);
+///
+/// // Aggressive compression to ~20%
+/// const veryCompressed = semanticCompress(longText, 0.7, 0.2);
 /// ```
 #[napi]
 pub fn semantic_compress(
@@ -1441,6 +1454,11 @@ pub struct IndexOptions {
     pub include_tests: Option<bool>,
     /// Maximum file size to index (bytes)
     pub max_file_size: Option<u32>,
+    /// Directories/patterns to exclude (e.g., ["node_modules", "dist", "vendor", "*.generated.*"])
+    pub exclude: Option<Vec<String>>,
+    /// Incremental update - only re-index changed files (default: false)
+    /// When true, compares file hashes with existing index and only rebuilds changed files
+    pub incremental: Option<bool>,
 }
 
 /// Index status information
@@ -1456,6 +1474,10 @@ pub struct IndexStatus {
     pub last_built: Option<String>,
     /// Index version
     pub version: Option<String>,
+    /// Number of files updated in incremental build (only set for incremental builds)
+    pub files_updated: Option<u32>,
+    /// Whether this was an incremental update
+    pub incremental: Option<bool>,
 }
 
 /// Build or update the symbol index for a repository
@@ -1485,6 +1507,8 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
         force: None,
         include_tests: None,
         max_file_size: None,
+        exclude: None,
+        incremental: None,
     });
 
     let path_buf = PathBuf::from(&path);
@@ -1492,9 +1516,10 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
 
     // Check if we need to rebuild
     let force = opts.force.unwrap_or(false);
+    let incremental = opts.incremental.unwrap_or(false);
 
-    if !force {
-        // Check if index exists and is valid
+    if !force && !incremental {
+        // Check if index exists and is valid (return early if not forcing rebuild)
         if let Ok(meta) = storage.load_meta() {
             if let (Ok(index), Ok(_graph)) = (storage.load_index(), storage.load_graph()) {
                 return Ok(IndexStatus {
@@ -1503,6 +1528,8 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
                     symbol_count: index.symbols.len() as u32,
                     last_built: Some(format_timestamp(meta.created_at)),
                     version: Some(format!("v{}", meta.version)),
+                    files_updated: None,
+                    incremental: Some(false),
                 });
             }
         }
@@ -1527,15 +1554,62 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
         ]);
     }
 
+    // Feature #1: Add custom exclude patterns from user options
+    if let Some(ref custom_excludes) = opts.exclude {
+        exclude_dirs.extend(custom_excludes.iter().cloned());
+    }
+
     let build_opts = BuildOptions {
         max_file_size: opts.max_file_size.map(|s| s as u64).unwrap_or(10 * 1024 * 1024),
         exclude_dirs,
         ..Default::default()
     };
 
-    let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
-    let (index, graph) = builder.build()
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+    // Feature #4: Incremental update support
+    let (index, graph, files_updated) = if incremental && !force {
+        // Try to load existing index for incremental update
+        if let (Ok(existing_index), Ok(_existing_graph)) = (storage.load_index(), storage.load_graph()) {
+            // Build a set of existing file hashes for comparison
+            let existing_hashes: std::collections::HashMap<String, [u8; 32]> = existing_index
+                .files
+                .iter()
+                .map(|f| (f.path.clone(), f.content_hash))
+                .collect();
+
+            // Build new index
+            let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+            let (new_index, new_graph) = builder.build()
+                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+
+            // Count how many files were updated (new or changed hash)
+            let mut updated_count = 0u32;
+            for file in &new_index.files {
+                match existing_hashes.get(&file.path) {
+                    Some(old_hash) if old_hash == &file.content_hash => {
+                        // File unchanged
+                    }
+                    _ => {
+                        // File is new or changed
+                        updated_count += 1;
+                    }
+                }
+            }
+
+            (new_index, new_graph, Some(updated_count))
+        } else {
+            // No existing index, do full build
+            let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+            let (index, graph) = builder.build()
+                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+            (index, graph, None)
+        }
+    } else {
+        // Full rebuild
+        let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
+        let (index, graph) = builder.build()
+            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+        (index, graph, None)
+    };
 
     // Save index
     storage.save_all(&index, &graph)
@@ -1550,6 +1624,8 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
         symbol_count: index.symbols.len() as u32,
         last_built: Some(format_timestamp(meta.created_at)),
         version: Some(format!("v{}", meta.version)),
+        files_updated,
+        incremental: Some(incremental),
     })
 }
 
@@ -1584,6 +1660,8 @@ pub fn index_status(path: String) -> Result<IndexStatus> {
             symbol_count: index.symbols.len() as u32,
             last_built: Some(format_timestamp(meta.created_at)),
             version: Some(format!("v{}", meta.version)),
+            files_updated: None,
+            incremental: None,
         }),
         _ => Ok(IndexStatus {
             exists: false,
@@ -1591,6 +1669,8 @@ pub fn index_status(path: String) -> Result<IndexStatus> {
             symbol_count: 0,
             last_built: None,
             version: None,
+            files_updated: None,
+            incremental: None,
         }),
     }
 }
@@ -1610,9 +1690,9 @@ pub struct SymbolInfo {
     pub kind: String,
     /// File path containing the symbol
     pub file: String,
-    /// Start line number
+    /// Start line number (1-indexed, consistent with editors/IDEs)
     pub line: u32,
-    /// End line number
+    /// End line number (1-indexed, consistent with editors/IDEs)
     pub end_line: u32,
     /// Function/method signature
     pub signature: Option<String>,
@@ -1645,7 +1725,9 @@ pub struct ReferenceInfo {
     // Convenience fields for easier access (mirrors symbol fields)
     /// File path containing the reference (convenience field, same as symbol.file)
     pub file: String,
-    /// Line number of the reference (convenience field, same as symbol.line)
+    /// Line number of the reference (1-indexed, convenience field, same as symbol.line)
+    /// Note: This is the line where the referencing symbol is defined, not where the
+    /// actual reference occurs. For call site line numbers, use getCallSites() instead.
     pub line: u32,
 }
 
@@ -1745,6 +1827,42 @@ pub struct CallGraphOptions {
     pub max_nodes: Option<u32>,
     /// Maximum number of edges to return (default: unlimited)
     pub max_edges: Option<u32>,
+}
+
+/// Feature #2: Filter options for symbol queries
+///
+/// Allows filtering query results by symbol kind.
+#[napi(object)]
+pub struct QueryFilter {
+    /// Filter by symbol kinds: "function", "method", "class", "struct", "interface", "trait", "enum", etc.
+    /// If specified, only symbols of these kinds are returned.
+    pub kinds: Option<Vec<String>>,
+    /// Exclude specific kinds (e.g., exclude "import" to skip import statements)
+    pub exclude_kinds: Option<Vec<String>>,
+}
+
+/// Helper function to check if a symbol matches the query filter
+fn matches_query_filter(symbol: &SymbolInfo, filter: &Option<QueryFilter>) -> bool {
+    if let Some(ref f) = filter {
+        let kind_lower = symbol.kind.to_lowercase();
+
+        // Check if symbol kind is in the allowed list
+        if let Some(ref allowed) = f.kinds {
+            let allowed_lower: HashSet<String> = allowed.iter().map(|s| s.to_lowercase()).collect();
+            if !allowed_lower.contains(&kind_lower) {
+                return false;
+            }
+        }
+
+        // Check if symbol kind is in the excluded list
+        if let Some(ref excluded) = f.exclude_kinds {
+            let excluded_lower: HashSet<String> = excluded.iter().map(|s| s.to_lowercase()).collect();
+            if excluded_lower.contains(&kind_lower) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Find a symbol by name
@@ -1890,6 +2008,241 @@ pub fn get_references(path: String, symbol_name: String) -> Result<Vec<Reference
     Ok(results.into_iter().map(Into::into).collect())
 }
 
+// ============================================================================
+// Feature #2: Filtered Query Functions
+// ============================================================================
+
+/// Find symbols by name with filtering
+///
+/// Like `findSymbol`, but allows filtering results by symbol kind.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `name` - Symbol name to search for
+/// * `filter` - Optional filter for symbol kinds
+///
+/// # Returns
+/// Array of matching symbols that pass the filter
+///
+/// # Example
+/// ```javascript
+/// const { findSymbolFiltered, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// // Find only functions named "process"
+/// const funcs = findSymbolFiltered('./my-repo', 'process', {
+///   kinds: ['function', 'method']
+/// });
+/// // Find all symbols except imports
+/// const noImports = findSymbolFiltered('./my-repo', 'User', {
+///   excludeKinds: ['import']
+/// });
+/// ```
+#[napi]
+pub fn find_symbol_filtered(
+    path: String,
+    name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    let results: Vec<SymbolInfo> = engine_find_symbol(&index, &name)
+        .into_iter()
+        .map(Into::into)
+        .filter(|s| matches_query_filter(s, &filter))
+        .collect();
+
+    Ok(results)
+}
+
+/// Get callers of a symbol with filtering
+///
+/// Like `getCallers`, but allows filtering results by symbol kind.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find callers for
+/// * `filter` - Optional filter for symbol kinds
+///
+/// # Returns
+/// Array of filtered calling symbols
+///
+/// # Example
+/// ```javascript
+/// const { getCallersFiltered, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// // Get only function callers (not class methods)
+/// const callers = getCallersFiltered('./my-repo', 'authenticate', {
+///   kinds: ['function']
+/// });
+/// ```
+#[napi]
+pub fn get_callers_filtered(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<SymbolInfo> = get_callers_by_name(&index, &graph, &symbol_name)
+        .into_iter()
+        .map(Into::into)
+        .filter(|s| matches_query_filter(s, &filter))
+        .collect();
+
+    Ok(results)
+}
+
+/// Get callees of a symbol with filtering
+///
+/// Like `getCallees`, but allows filtering results by symbol kind.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find callees for
+/// * `filter` - Optional filter for symbol kinds
+///
+/// # Returns
+/// Array of filtered called symbols
+///
+/// # Example
+/// ```javascript
+/// const { getCalleesFiltered, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// // Get only function calls (not method calls)
+/// const callees = getCalleesFiltered('./my-repo', 'main', {
+///   kinds: ['function']
+/// });
+/// ```
+#[napi]
+pub fn get_callees_filtered(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<SymbolInfo> = get_callees_by_name(&index, &graph, &symbol_name)
+        .into_iter()
+        .map(Into::into)
+        .filter(|s| matches_query_filter(s, &filter))
+        .collect();
+
+    Ok(results)
+}
+
+/// Get references to a symbol with filtering
+///
+/// Like `getReferences`, but allows filtering results by symbol kind.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find references for
+/// * `filter` - Optional filter for referencing symbol kinds
+///
+/// # Returns
+/// Array of filtered reference information
+///
+/// # Example
+/// ```javascript
+/// const { getReferencesFiltered, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// // Get only call references from functions
+/// const refs = getReferencesFiltered('./my-repo', 'UserService', {
+///   kinds: ['function', 'method'],
+///   excludeKinds: ['import']
+/// });
+/// ```
+#[napi]
+pub fn get_references_filtered(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<ReferenceInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let results: Vec<ReferenceInfo> = get_references_by_name(&index, &graph, &symbol_name)
+        .into_iter()
+        .map(Into::into)
+        .filter(|r: &ReferenceInfo| matches_query_filter(&r.symbol, &filter))
+        .collect();
+
+    Ok(results)
+}
+
+/// Async version of findSymbolFiltered
+#[napi]
+pub async fn find_symbol_filtered_async(
+    path: String,
+    name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || find_symbol_filtered(path, name, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallersFiltered
+#[napi]
+pub async fn get_callers_filtered_async(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_callers_filtered(path, symbol_name, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCalleesFiltered
+#[napi]
+pub async fn get_callees_filtered_async(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_callees_filtered(path, symbol_name, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getReferencesFiltered
+#[napi]
+pub async fn get_references_filtered_async(
+    path: String,
+    symbol_name: String,
+    filter: Option<QueryFilter>,
+) -> Result<Vec<ReferenceInfo>> {
+    tokio::task::spawn_blocking(move || get_references_filtered(path, symbol_name, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
 /// Get the complete call graph
 ///
 /// Returns all symbols and their call relationships.
@@ -2001,6 +2354,8 @@ pub struct ChunkOptions {
     pub format: Option<String>,
     /// Sort chunks by priority (core modules first)
     pub priority_first: Option<bool>,
+    /// Directories/patterns to exclude (e.g., ["vendor", "generated", "*.test.*"])
+    pub exclude: Option<Vec<String>>,
 }
 
 /// A chunk of repository content
@@ -2055,6 +2410,7 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
         model: None,
         format: None,
         priority_first: None,
+        exclude: None,
     });
 
     let strategy = match opts.strategy.as_deref().unwrap_or("module") {
@@ -2082,6 +2438,21 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
 
     // Apply default ignores
     apply_default_ignores(&mut repo);
+
+    // Apply exclude patterns if provided
+    if let Some(ref patterns) = opts.exclude {
+        if !patterns.is_empty() {
+            repo.files.retain(|f| {
+                !patterns.iter().any(|pattern| {
+                    f.relative_path.contains(pattern)
+                        || f.relative_path.starts_with(pattern)
+                        || f.relative_path
+                            .split('/')
+                            .any(|part| part == pattern)
+                })
+            });
+        }
+    }
 
     // Create chunker
     let chunker = Chunker::new(strategy, max_tokens)
@@ -2165,6 +2536,12 @@ pub struct ImpactOptions {
     pub depth: Option<u32>,
     /// Include test files in analysis
     pub include_tests: Option<bool>,
+    /// Target model for token counting (default: "claude")
+    pub model: Option<String>,
+    /// Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+    pub exclude: Option<Vec<String>>,
+    /// Glob patterns to include (e.g., ["src/**/*.ts"])
+    pub include: Option<Vec<String>>,
 }
 
 /// Symbol affected by a change
@@ -2228,6 +2605,9 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
     let opts = options.unwrap_or(ImpactOptions {
         depth: None,
         include_tests: None,
+        model: None,
+        exclude: None,
+        include: None,
     });
 
     let path_buf = PathBuf::from(&path);
@@ -2422,6 +2802,12 @@ pub struct DiffContextOptions {
     pub include_diff: Option<bool>,
     /// Output format: "xml", "markdown", "json" (default: "xml")
     pub format: Option<String>,
+    /// Target model for token counting (default: "claude")
+    pub model: Option<String>,
+    /// Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"])
+    pub exclude: Option<Vec<String>>,
+    /// Glob patterns to include (e.g., ["src/**/*.ts"])
+    pub include: Option<Vec<String>>,
 }
 
 /// Context-aware diff result
@@ -2514,6 +2900,9 @@ pub fn get_diff_context(
         budget: None,
         include_diff: None,
         format: None,
+        model: None,
+        exclude: None,
+        include: None,
     });
 
     let path_buf = PathBuf::from(&path);
@@ -2797,13 +3186,298 @@ pub fn get_diff_context(
         .join("\n");
     let total_tokens = tokenizer.count(&total_content, TokenModel::Claude);
 
+    // Generate formatted output if format is specified (Bug #1 fix)
+    let formatted_output = if let Some(ref format_str) = opts.format {
+        let format = parse_format(Some(format_str))
+            .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?;
+        Some(format_diff_context(
+            &changed_files,
+            &context_symbols,
+            &related_tests,
+            format,
+        ))
+    } else {
+        None
+    };
+
     Ok(DiffContextResult {
         changed_files,
         context_symbols,
         related_tests,
-        formatted_output: None,
+        formatted_output,
         total_tokens,
     })
+}
+
+/// Format diff context result into a specific output format (Bug #1 fix)
+fn format_diff_context(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+    format: OutputFormat,
+) -> String {
+    match format {
+        OutputFormat::Xml => format_diff_context_xml(changed_files, context_symbols, related_tests),
+        OutputFormat::Markdown => {
+            format_diff_context_markdown(changed_files, context_symbols, related_tests)
+        }
+        OutputFormat::Json => format_diff_context_json(changed_files, context_symbols, related_tests),
+        OutputFormat::Yaml => format_diff_context_yaml(changed_files, context_symbols, related_tests),
+        _ => format_diff_context_plain(changed_files, context_symbols, related_tests),
+    }
+}
+
+fn format_diff_context_xml(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+) -> String {
+    let mut output = String::new();
+    output.push_str("<diff-context>\n");
+
+    // Changed files
+    output.push_str("  <changed-files>\n");
+    for file in changed_files {
+        output.push_str(&format!(
+            "    <file path=\"{}\" change=\"{}\" additions=\"{}\" deletions=\"{}\">\n",
+            file.path, file.change_type, file.additions, file.deletions
+        ));
+        if !file.context_snippets.is_empty() {
+            output.push_str("      <context>\n");
+            for snippet in &file.context_snippets {
+                output.push_str(&format!("        <snippet><![CDATA[{}]]></snippet>\n", snippet));
+            }
+            output.push_str("      </context>\n");
+        }
+        if let Some(ref diff) = file.diff {
+            output.push_str(&format!("      <diff><![CDATA[{}]]></diff>\n", diff));
+        }
+        output.push_str("    </file>\n");
+    }
+    output.push_str("  </changed-files>\n");
+
+    // Context symbols
+    if !context_symbols.is_empty() {
+        output.push_str("  <context-symbols>\n");
+        for sym in context_symbols {
+            output.push_str(&format!(
+                "    <symbol name=\"{}\" kind=\"{}\" file=\"{}\" line=\"{}\" reason=\"{}\"",
+                sym.name, sym.kind, sym.file, sym.line, sym.reason
+            ));
+            if let Some(ref sig) = sym.signature {
+                output.push_str(&format!(" signature=\"{}\"", sig.replace('"', "&quot;")));
+            }
+            output.push_str("/>\n");
+        }
+        output.push_str("  </context-symbols>\n");
+    }
+
+    // Related tests
+    if !related_tests.is_empty() {
+        output.push_str("  <related-tests>\n");
+        for test in related_tests {
+            output.push_str(&format!("    <test>{}</test>\n", test));
+        }
+        output.push_str("  </related-tests>\n");
+    }
+
+    output.push_str("</diff-context>\n");
+    output
+}
+
+fn format_diff_context_markdown(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+) -> String {
+    let mut output = String::new();
+    output.push_str("# Diff Context\n\n");
+
+    // Changed files
+    output.push_str("## Changed Files\n\n");
+    for file in changed_files {
+        output.push_str(&format!(
+            "### {} ({}: +{} -{} )\n\n",
+            file.path, file.change_type, file.additions, file.deletions
+        ));
+        if !file.context_snippets.is_empty() {
+            output.push_str("**Context:**\n");
+            for snippet in &file.context_snippets {
+                output.push_str(&format!("```\n{}\n```\n\n", snippet));
+            }
+        }
+        if let Some(ref diff) = file.diff {
+            output.push_str("**Diff:**\n");
+            output.push_str(&format!("```diff\n{}\n```\n\n", diff));
+        }
+    }
+
+    // Context symbols
+    if !context_symbols.is_empty() {
+        output.push_str("## Related Symbols\n\n");
+        output.push_str("| Name | Kind | File | Line | Reason |\n");
+        output.push_str("|------|------|------|------|--------|\n");
+        for sym in context_symbols {
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} |\n",
+                sym.name, sym.kind, sym.file, sym.line, sym.reason
+            ));
+        }
+        output.push('\n');
+    }
+
+    // Related tests
+    if !related_tests.is_empty() {
+        output.push_str("## Related Tests\n\n");
+        for test in related_tests {
+            output.push_str(&format!("- {}\n", test));
+        }
+        output.push('\n');
+    }
+
+    output
+}
+
+fn format_diff_context_json(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+) -> String {
+    // Create a JSON structure
+    let json = serde_json::json!({
+        "changedFiles": changed_files.iter().map(|f| {
+            serde_json::json!({
+                "path": f.path,
+                "changeType": f.change_type,
+                "additions": f.additions,
+                "deletions": f.deletions,
+                "contextSnippets": f.context_snippets,
+                "diff": f.diff
+            })
+        }).collect::<Vec<_>>(),
+        "contextSymbols": context_symbols.iter().map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "kind": s.kind,
+                "file": s.file,
+                "line": s.line,
+                "reason": s.reason,
+                "signature": s.signature
+            })
+        }).collect::<Vec<_>>(),
+        "relatedTests": related_tests
+    });
+    serde_json::to_string_pretty(&json).unwrap_or_default()
+}
+
+fn format_diff_context_yaml(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+) -> String {
+    let mut output = String::new();
+    output.push_str("---\n");
+    output.push_str("diff_context:\n");
+
+    // Changed files
+    output.push_str("  changed_files:\n");
+    for file in changed_files {
+        output.push_str(&format!("    - path: {}\n", file.path));
+        output.push_str(&format!("      change_type: {}\n", file.change_type));
+        output.push_str(&format!("      additions: {}\n", file.additions));
+        output.push_str(&format!("      deletions: {}\n", file.deletions));
+        if !file.context_snippets.is_empty() {
+            output.push_str("      context_snippets:\n");
+            for snippet in &file.context_snippets {
+                output.push_str(&format!("        - |\n          {}\n", snippet.replace('\n', "\n          ")));
+            }
+        }
+        if let Some(ref diff) = file.diff {
+            output.push_str(&format!("      diff: |\n        {}\n", diff.replace('\n', "\n        ")));
+        }
+    }
+
+    // Context symbols
+    if !context_symbols.is_empty() {
+        output.push_str("  context_symbols:\n");
+        for sym in context_symbols {
+            output.push_str(&format!("    - name: {}\n", sym.name));
+            output.push_str(&format!("      kind: {}\n", sym.kind));
+            output.push_str(&format!("      file: {}\n", sym.file));
+            output.push_str(&format!("      line: {}\n", sym.line));
+            output.push_str(&format!("      reason: {}\n", sym.reason));
+            if let Some(ref sig) = sym.signature {
+                output.push_str(&format!("      signature: {}\n", sig));
+            }
+        }
+    }
+
+    // Related tests
+    if !related_tests.is_empty() {
+        output.push_str("  related_tests:\n");
+        for test in related_tests {
+            output.push_str(&format!("    - {}\n", test));
+        }
+    }
+
+    output
+}
+
+fn format_diff_context_plain(
+    changed_files: &[DiffFileContext],
+    context_symbols: &[ContextSymbolInfo],
+    related_tests: &[String],
+) -> String {
+    let mut output = String::new();
+    output.push_str("DIFF CONTEXT\n");
+    output.push_str(&"=".repeat(60));
+    output.push('\n');
+
+    // Changed files
+    output.push_str("\nCHANGED FILES:\n");
+    output.push_str(&"-".repeat(40));
+    output.push('\n');
+    for file in changed_files {
+        output.push_str(&format!(
+            "{} ({}: +{} -{})\n",
+            file.path, file.change_type, file.additions, file.deletions
+        ));
+        if !file.context_snippets.is_empty() {
+            output.push_str("  Context:\n");
+            for snippet in &file.context_snippets {
+                output.push_str(&format!("    {}\n", snippet.replace('\n', "\n    ")));
+            }
+        }
+        if let Some(ref diff) = file.diff {
+            output.push_str("  Diff:\n");
+            output.push_str(&format!("    {}\n", diff.replace('\n', "\n    ")));
+        }
+    }
+
+    // Context symbols
+    if !context_symbols.is_empty() {
+        output.push_str("\nRELATED SYMBOLS:\n");
+        output.push_str(&"-".repeat(40));
+        output.push('\n');
+        for sym in context_symbols {
+            output.push_str(&format!(
+                "  {} ({}) in {}:{} [{}]\n",
+                sym.name, sym.kind, sym.file, sym.line, sym.reason
+            ));
+        }
+    }
+
+    // Related tests
+    if !related_tests.is_empty() {
+        output.push_str("\nRELATED TESTS:\n");
+        output.push_str(&"-".repeat(40));
+        output.push('\n');
+        for test in related_tests {
+            output.push_str(&format!("  {}\n", test));
+        }
+    }
+
+    output
 }
 
 // ============================================================================
@@ -3381,7 +4055,7 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
 
 /// Helper function to find the actual call site within a caller's body
 fn find_call_site_in_body(
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
     file_path: &str,
     start_line: u32,
     end_line: u32,
@@ -3408,13 +4082,11 @@ fn find_call_site_in_body(
     let search_start = (start_line as usize).saturating_sub(1);
     let search_end = (end_line as usize).min(lines.len());
 
-    for line_idx in search_start..search_end {
-        let line = &lines[line_idx];
-
+    for (i, line) in lines.iter().enumerate().skip(search_start).take(search_end - search_start) {
         // Look for the callee name followed by ( to indicate a call
         // This is a heuristic - not perfect but covers most cases
         if let Some(col) = find_call_in_line(line, callee_name) {
-            return ((line_idx + 1) as u32, Some(col as u32));
+            return ((i + 1) as u32, Some(col as u32));
         }
     }
 
@@ -4000,7 +4672,7 @@ pub fn get_call_sites_with_context(
 
 /// Helper function to get code context around a line
 fn get_line_context(
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
     file_path: &str,
     line: u32,
     lines_before: usize,

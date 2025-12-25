@@ -243,6 +243,18 @@ enum Commands {
         /// Sample P percent of files instead of full scan (for large repos)
         #[arg(long, conflicts_with = "sample")]
         sample_percent: Option<f64>,
+
+        /// Exclude directories/patterns from scanning (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in scan (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
     },
 
     /// Generate a repository map (symbol index)
@@ -262,6 +274,22 @@ enum Commands {
         /// Output file
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Exclude directories/patterns from map (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in map (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Show version and configuration info
@@ -314,6 +342,22 @@ enum Commands {
         /// Watch for file changes and automatically re-index
         #[arg(long)]
         watch: bool,
+
+        /// Exclude directories/patterns from indexing (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in index (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Incremental update - only re-index changed files
+        #[arg(long)]
+        incremental: bool,
     },
 
     /// Get context for a diff (changed files, dependents, tests)
@@ -362,6 +406,22 @@ enum Commands {
         /// Number of recent commits to include per file (default: 3)
         #[arg(long, default_value = "3")]
         history_count: usize,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Exclude directories/patterns from diff context (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in context (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
     },
 
     /// Analyze impact of changes to a file or symbol
@@ -384,6 +444,30 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Exclude directories/patterns from impact analysis (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in analysis (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Target model for token counting (default: claude)
+        #[arg(short, long, value_enum, default_value = "claude")]
+        model: Model,
+
+        /// Analysis depth: 1=direct deps, 2=transitive, 3=full (default: 2)
+        #[arg(short, long, default_value = "2")]
+        depth: u8,
     },
 
     /// Split repository into chunks for multi-turn LLM conversations
@@ -427,6 +511,18 @@ enum Commands {
         /// Sort chunks by priority (core modules first, tests last)
         #[arg(long)]
         priority_first: bool,
+
+        /// Exclude directories/patterns from chunking (e.g., "vendor", "generated")
+        #[arg(long = "exclude", short = 'e', value_delimiter = ',')]
+        exclude: Vec<String>,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Include test files in chunks (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
     },
 }
 
@@ -702,6 +798,9 @@ fn main() -> Result<()> {
             security_check,
             sample,
             sample_percent,
+            exclude,
+            include_patterns,
+            include_tests,
         } => commands::cmd_scan(
             path,
             model.into(),
@@ -711,16 +810,19 @@ fn main() -> Result<()> {
             security_check,
             sample,
             sample_percent,
+            exclude,
+            include_patterns,
+            include_tests,
         ),
-        Commands::Map { path, budget, model, output } => {
-            commands::cmd_map(path, budget, model.map(|m| m.into()), output)
+        Commands::Map { path, budget, model, output, exclude, include_patterns, include_tests, verbose } => {
+            commands::cmd_map(path, budget, model.map(|m| m.into()), output, exclude, include_patterns, include_tests, verbose)
         },
         Commands::Info { path } => commands::cmd_info(path),
         Commands::Init { path, format, template, output, force } => {
             commands::cmd_init(path, format, template, output, force)
         },
-        Commands::Index { path, force, status, verbose, watch } => {
-            commands::cmd_index(path, force, status, verbose, watch)
+        Commands::Index { path, force, status, verbose, watch, exclude, include_patterns, include_tests, incremental } => {
+            commands::cmd_index(path, force, status, verbose, watch, exclude, include_patterns, include_tests, incremental)
         },
         Commands::Diff {
             path,
@@ -734,6 +836,10 @@ fn main() -> Result<()> {
             model,
             include_history,
             history_count,
+            verbose,
+            exclude,
+            include_patterns,
+            include_tests,
         } => commands::cmd_diff(
             path,
             reference,
@@ -746,9 +852,13 @@ fn main() -> Result<()> {
             model.map(|m| m.into()),
             include_history,
             history_count,
+            verbose,
+            exclude,
+            include_patterns,
+            include_tests,
         ),
-        Commands::Impact { path, target, symbol, call_graph, json } => {
-            commands::cmd_impact(path, target, symbol, call_graph, json)
+        Commands::Impact { path, target, symbol, call_graph, json, verbose, exclude, include_patterns, include_tests, model, depth } => {
+            commands::cmd_impact(path, target, symbol, call_graph, json, verbose, exclude, include_patterns, include_tests, model.into(), depth)
         },
         Commands::Chunk {
             path,
@@ -761,6 +871,9 @@ fn main() -> Result<()> {
             verbose,
             no_chunk_summary,
             priority_first,
+            exclude,
+            include_patterns,
+            include_tests,
         } => commands::cmd_chunk(
             path,
             strategy.into(),
@@ -772,6 +885,9 @@ fn main() -> Result<()> {
             verbose,
             no_chunk_summary,
             priority_first,
+            exclude,
+            include_patterns,
+            include_tests,
         ),
     }
 }

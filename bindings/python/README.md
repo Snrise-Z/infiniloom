@@ -130,8 +130,8 @@ Compress text using semantic compression while preserving important content.
 
 **Parameters:**
 - `text` (str): Text to compress
-- `similarity_threshold` (float): Threshold for grouping similar chunks (0.0-1.0, default: 0.7)
-- `budget_ratio` (float): Target size as ratio of original (0.0-1.0, default: 0.5)
+- `similarity_threshold` (float): Threshold for grouping similar chunks (0.0-1.0, default: 0.7). Note: Only affects output when built with "embeddings" feature.
+- `budget_ratio` (float): Target size as ratio of original (0.0-1.0, default: 0.5). Lower values = more aggressive compression.
 
 **Returns:** str - Compressed text
 
@@ -187,7 +187,7 @@ Build or update the symbol index for a repository (required for call graph queri
 - `include_tests` (bool): Include test files in index (default: False)
 - `max_file_size` (int): Maximum file size to index in bytes (default: 10MB)
 
-**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built`, `version`
+**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built` (ISO 8601 timestamp), `version`
 
 ```python
 import infiniloom
@@ -324,7 +324,7 @@ Get the status of an existing index.
 **Parameters:**
 - `path` (str): Path to repository root
 
-**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built`, `version`
+**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built` (ISO 8601 timestamp), `version`
 
 ```python
 import infiniloom
@@ -380,7 +380,7 @@ chunks = infiniloom.chunk("/path/to/repo", strategy="dependency", priority_first
 
 Analyze the impact of changes to understand what code is affected.
 
-#### `analyze_impact(path, files, depth=2, include_tests=False)`
+#### `analyze_impact(path, files, depth=2, include_tests=False, model=None, exclude=None, include=None)`
 
 Analyze the impact of changes to files or symbols.
 
@@ -389,6 +389,9 @@ Analyze the impact of changes to files or symbols.
 - `files` (list[str]): List of files to analyze
 - `depth` (int): Depth of dependency traversal (1-3, default: 2)
 - `include_tests` (bool): Include test files in analysis (default: False)
+- `model` (str, optional): Target model for token counting (default: "claude")
+- `exclude` (list[str], optional): Glob patterns to exclude (e.g., ["**/*.test.py", "dist/**"])
+- `include` (list[str], optional): Glob patterns to include (e.g., ["src/**/*.py"])
 
 **Returns:** dict - Impact analysis with:
 - `changed_files`: List of files being analyzed
@@ -421,7 +424,7 @@ for sym in impact['affected_symbols']:
 
 Get semantic context around code changes for AI-powered code review.
 
-#### `get_diff_context(path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=False)`
+#### `get_diff_context(path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=False, model=None, exclude=None, include=None)`
 
 Get context-aware diff with surrounding symbols and dependencies.
 
@@ -432,6 +435,9 @@ Get context-aware diff with surrounding symbols and dependencies.
 - `depth` (int): Context expansion depth (1-3, default: 2)
 - `budget` (int): Token budget for context (default: 50000)
 - `include_diff` (bool): Include actual diff content (default: False)
+- `model` (str, optional): Target model for token counting (default: "claude")
+- `exclude` (list[str], optional): Glob patterns to exclude (e.g., ["**/*.test.py", "dist/**"])
+- `include` (list[str], optional): Glob patterns to include (e.g., ["src/**/*.py"])
 
 **Returns:** dict - Diff context with:
 - `changed_files`: List of changed files with path, change_type, additions, deletions, diff (if requested)

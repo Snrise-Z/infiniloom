@@ -121,11 +121,14 @@ fn split_fixed(files: Vec<File>, max_tokens: u32) -> Vec<Chunk> {
 | `--max-tokens <N>` | `-t` | Maximum tokens per chunk | `8000` |
 | `--overlap <TOKENS>` | | Token overlap between chunks for context continuity | `0` |
 | `--model <MODEL>` | `-m` | Target model for token counting | `claude` |
-| `--format <FORMAT>` | `-f` | Output format | `xml` |
+| `--format <FORMAT>` | `-f` | Output format (xml, markdown, json, yaml, toon, plain) | `xml` |
 | `--output <DIR>` | `-o` | Output directory (creates multiple files) | stdout |
 | `--verbose` | `-v` | Show detailed progress | `false` |
 | `--no-chunk-summary` | | Disable auto-generated summary headers | `false` |
 | `--priority-first` | | Sort chunks by priority (core first, tests last) | `false` |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude files/directories matching pattern (repeatable) | none |
+| `--include-tests` | | Include test files in chunks (normally excluded) | `false` |
 
 ## Output
 
