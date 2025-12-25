@@ -37,6 +37,14 @@ flags:
       - engine/
       - cli/
     carryforward: true
+  python:
+    paths:
+      - bindings/python/
+    carryforward: true
+  nodejs:
+    paths:
+      - bindings/node/
+    carryforward: true
 
 ignore:
   - "tests/"

@@ -71,7 +71,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install maturin pytest
+          pip install maturin pytest pytest-cov
 
       - name: Build and Install Bindings
         run: |
@@ -79,11 +79,21 @@ jobs:
           cd bindings/python
           maturin develop --release
 
-      - name: Run Python Tests
+      - name: Run Python Tests with Coverage
         run: |
           source .venv/bin/activate
           cd bindings/python
-          pytest -v
+          pytest -v --cov=infiniloom --cov-report=xml:coverage.xml
+
+      - name: Upload Python Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: bindings/python/coverage.xml
+          flags: python
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # Node.js Bindings
   node-bindings:
@@ -111,10 +121,21 @@ jobs:
           cd bindings/node
           npm run build
 
-      - name: Test
+      - name: Test with Coverage
         run: |
           cd bindings/node
-          npm test
+          npm install c8
+          npx c8 --reporter=lcov npm test
+
+      - name: Upload Node.js Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: bindings/node/coverage/lcov.info
+          flags: nodejs
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # Security Scan
   security-scan:
@@ -152,11 +173,12 @@ jobs:
       - name: Generate coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
-      - name: Upload coverage to Codecov
+      - name: Upload Rust Coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
+          flags: rust
           fail_ci_if_error: false
           verbose: true
         env:
