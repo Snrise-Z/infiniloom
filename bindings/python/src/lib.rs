@@ -1799,6 +1799,7 @@ fn get_diff_context(
     let mut context_symbols: Vec<PyObject> = Vec::new();
     let mut related_tests: Vec<String> = Vec::new();
 
+    // Bug fix: Same fixes as Node bindings for context expansion
     if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
         let context_depth = match depth {
             1 => ContextDepth::L1,
@@ -1807,18 +1808,52 @@ fn get_diff_context(
         };
 
         let expander = ContextExpander::new(&index, &graph);
+
+        // Get diff hunks for each file to determine line ranges
+        let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+        let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
+
         let changes: Vec<DiffChange> = changed
             .iter()
-            .map(|f| DiffChange {
-                file_path: f.path.clone(),
-                old_path: f.old_path.clone(),
-                line_ranges: vec![],
-                change_type: match f.status {
-                    EngineFileStatus::Added => ChangeType::Added,
-                    EngineFileStatus::Deleted => ChangeType::Deleted,
-                    _ => ChangeType::Modified,
-                },
-                diff_content: None,
+            .map(|f| {
+                // Get line ranges from diff hunks
+                let hunks = git_repo.diff_hunks(from, to, Some(&f.path)).unwrap_or_default();
+                let mut line_ranges: Vec<(u32, u32)> = hunks.iter()
+                    .filter(|h| h.new_count > 0)
+                    .map(|h| (h.new_start, h.new_start + h.new_count))
+                    .collect();
+
+                // Bug fix: If no line ranges found, include all symbol ranges
+                if line_ranges.is_empty() {
+                    if let Some(file_entry) = index.get_file(&f.path) {
+                        if f.status == EngineFileStatus::Added {
+                            line_ranges = vec![(1, file_entry.lines.max(1))];
+                        } else if f.status != EngineFileStatus::Deleted {
+                            let symbols = index.get_file_symbols(file_entry.id);
+                            if symbols.is_empty() {
+                                line_ranges = vec![(1, file_entry.lines.max(1))];
+                            } else {
+                                line_ranges = symbols.iter()
+                                    .map(|s| (s.span.start_line, s.span.end_line))
+                                    .collect();
+                            }
+                        }
+                    } else {
+                        line_ranges = vec![(1, 10000)];
+                    }
+                }
+
+                DiffChange {
+                    file_path: f.path.clone(),
+                    old_path: f.old_path.clone(),
+                    line_ranges,
+                    change_type: match f.status {
+                        EngineFileStatus::Added => ChangeType::Added,
+                        EngineFileStatus::Deleted => ChangeType::Deleted,
+                        _ => ChangeType::Modified,
+                    },
+                    diff_content: None,
+                }
             })
             .collect();
 
@@ -1847,6 +1882,75 @@ fn get_diff_context(
             .iter()
             .map(|f| f.path.clone())
             .collect();
+
+        // Bug fix: Always try direct test detection (expander may miss some)
+        {
+            let mut seen_tests: std::collections::HashSet<String> =
+                related_tests.iter().cloned().collect();
+
+            let is_test_file = |path: &str| -> bool {
+                let path_lower = path.to_lowercase();
+                path_lower.contains("test")
+                    || path_lower.contains("spec")
+                    || path_lower.contains("__tests__")
+                    || path_lower.ends_with("_test.rs")
+                    || path_lower.ends_with("_test.go")
+                    || path_lower.ends_with("_test.py")
+                    || path_lower.ends_with(".test.ts")
+                    || path_lower.ends_with(".test.js")
+                    || path_lower.ends_with(".spec.ts")
+                    || path_lower.ends_with(".spec.js")
+            };
+
+            for changed_file in &changed {
+                // Method 1: Find test files that import the changed file
+                if let Some(file_entry) = index.get_file(&changed_file.path) {
+                    let importers = graph.get_importers(file_entry.id.as_u32());
+                    for importer_id in importers {
+                        if let Some(importer_file) = index.get_file_by_id(importer_id) {
+                            if is_test_file(&importer_file.path)
+                                && seen_tests.insert(importer_file.path.clone())
+                            {
+                                related_tests.push(importer_file.path.clone());
+                            }
+                        }
+                    }
+                }
+
+                // Method 2: Find test files by naming convention
+                let path_lower = changed_file.path.to_lowercase();
+                let base_name = std::path::Path::new(&path_lower)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+
+                if !base_name.is_empty() {
+                    let test_patterns = [
+                        format!("{}_test.", base_name),
+                        format!("test_{}", base_name),
+                        format!("{}.test.", base_name),
+                        format!("{}.spec.", base_name),
+                        format!("test/{}", base_name),
+                        format!("tests/{}", base_name),
+                        format!("__tests__/{}", base_name),
+                    ];
+
+                    for indexed_file in &index.files {
+                        if is_test_file(&indexed_file.path) {
+                            let file_lower = indexed_file.path.to_lowercase();
+                            for pattern in &test_patterns {
+                                if file_lower.contains(pattern)
+                                    && seen_tests.insert(indexed_file.path.clone())
+                                {
+                                    related_tests.push(indexed_file.path.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Calculate tokens
@@ -1867,6 +1971,448 @@ fn get_diff_context(
     dict.set_item("total_tokens", total_tokens)?;
 
     Ok(dict.into())
+}
+
+// ============================================================================
+// New Features (v0.4.5)
+// ============================================================================
+
+/// Get symbols changed in a diff with filtering and change type (Features #6 & #7)
+///
+/// Enhanced version of find_symbol that returns symbols changed in a diff
+/// with filtering by kind and change type information.
+///
+/// Args:
+///     path: Path to repository root
+///     from_ref: Starting commit/branch (e.g., "main", "HEAD~1")
+///     to_ref: Ending commit/branch (e.g., "HEAD", "feature-branch")
+///     kinds: Optional list of kinds to include (e.g., ["function", "method"])
+///     exclude_kinds: Optional list of kinds to exclude (e.g., ["import"])
+///
+/// Returns:
+///     List of dicts with: id, name, kind, file, line, end_line, signature, visibility, change_type
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> changed = infiniloom.get_changed_symbols_filtered("/repo", "main", "HEAD",
+///     ...     kinds=["function", "method"], exclude_kinds=["import"])
+///     >>> for s in changed:
+///     ...     print(f"{s['change_type']}: {s['kind']} {s['name']}")
+#[pyfunction]
+#[pyo3(signature = (path, from_ref="", to_ref="HEAD", kinds=None, exclude_kinds=None))]
+fn get_changed_symbols_filtered(
+    py: Python,
+    path: &str,
+    from_ref: &str,
+    to_ref: &str,
+    kinds: Option<Vec<String>>,
+    exclude_kinds: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+
+    let git_repo = EngineGitRepo::open(&path_buf).map_err(to_py_err)?;
+    let storage = IndexStorage::new(&path_buf);
+    let index = storage.load_index().map_err(to_py_err)?;
+
+    let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+    let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
+
+    let changed_files = git_repo.diff_files(from, to).map_err(to_py_err)?;
+
+    let kinds_set: Option<std::collections::HashSet<String>> = kinds
+        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+    let exclude_set: Option<std::collections::HashSet<String>> = exclude_kinds
+        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+
+    let mut result: Vec<PyObject> = Vec::new();
+    let mut seen_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    for file in changed_files {
+        let file_change_type = match file.status {
+            EngineFileStatus::Added => "added",
+            EngineFileStatus::Deleted => "deleted",
+            _ => "modified",
+        };
+
+        let hunks = git_repo.diff_hunks(from, to, Some(&file.path)).unwrap_or_default();
+
+        let file_entry = match index.get_file(&file.path) {
+            Some(f) => f,
+            None => continue,
+        };
+
+        if file.status == EngineFileStatus::Added || file.status == EngineFileStatus::Deleted {
+            for sym in index.get_file_symbols(file_entry.id) {
+                let kind_name = sym.kind.name().to_lowercase();
+
+                if let Some(ref allowed) = kinds_set {
+                    if !allowed.contains(&kind_name) {
+                        continue;
+                    }
+                }
+                if let Some(ref excluded) = exclude_set {
+                    if excluded.contains(&kind_name) {
+                        continue;
+                    }
+                }
+
+                if seen_ids.insert(sym.id.as_u32()) {
+                    let dict = PyDict::new(py);
+                    dict.set_item("id", sym.id.as_u32())?;
+                    dict.set_item("name", &sym.name)?;
+                    dict.set_item("kind", &kind_name)?;
+                    dict.set_item("file", &file.path)?;
+                    dict.set_item("line", sym.span.start_line)?;
+                    dict.set_item("end_line", sym.span.end_line)?;
+                    if let Some(ref sig) = sym.signature {
+                        dict.set_item("signature", sig)?;
+                    }
+                    dict.set_item("visibility", format!("{:?}", sym.visibility).to_lowercase())?;
+                    dict.set_item("change_type", file_change_type)?;
+                    result.push(dict.into());
+                }
+            }
+            continue;
+        }
+
+        for hunk in hunks {
+            if hunk.new_count == 0 {
+                continue;
+            }
+            let start_line = hunk.new_start;
+            let end_line = hunk.new_start + hunk.new_count;
+
+            for sym in index.get_file_symbols(file_entry.id) {
+                let sym_overlaps =
+                    sym.span.start_line <= end_line && sym.span.end_line >= start_line;
+
+                if sym_overlaps && seen_ids.insert(sym.id.as_u32()) {
+                    let kind_name = sym.kind.name().to_lowercase();
+
+                    if let Some(ref allowed) = kinds_set {
+                        if !allowed.contains(&kind_name) {
+                            continue;
+                        }
+                    }
+                    if let Some(ref excluded) = exclude_set {
+                        if excluded.contains(&kind_name) {
+                            continue;
+                        }
+                    }
+
+                    let dict = PyDict::new(py);
+                    dict.set_item("id", sym.id.as_u32())?;
+                    dict.set_item("name", &sym.name)?;
+                    dict.set_item("kind", &kind_name)?;
+                    dict.set_item("file", &file.path)?;
+                    dict.set_item("line", sym.span.start_line)?;
+                    dict.set_item("end_line", sym.span.end_line)?;
+                    if let Some(ref sig) = sym.signature {
+                        dict.set_item("signature", sig)?;
+                    }
+                    dict.set_item("visibility", format!("{:?}", sym.visibility).to_lowercase())?;
+                    dict.set_item("change_type", "modified")?;
+                    result.push(dict.into());
+                }
+            }
+        }
+    }
+
+    Ok(PyList::new(py, result).into())
+}
+
+/// Get all functions that eventually call a symbol (Feature #8)
+///
+/// Traverses the call graph to find all direct and indirect callers.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find callers for
+///     max_depth: Maximum depth to traverse (default: 3)
+///     max_results: Maximum number of results (default: 100)
+///
+/// Returns:
+///     List of dicts with: name, kind, file, line, depth, call_path
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> callers = infiniloom.get_transitive_callers("/repo", "validate", max_depth=3)
+///     >>> for c in callers:
+///     ...     print(f"Depth {c['depth']}: {c['name']} -> {' -> '.join(c['call_path'])}")
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name, max_depth=3, max_results=100))]
+fn get_transitive_callers(
+    py: Python,
+    path: &str,
+    symbol_name: &str,
+    max_depth: u32,
+    max_results: usize,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+    let index = storage.load_index().map_err(to_py_err)?;
+    let graph = storage.load_graph().map_err(to_py_err)?;
+
+    let mut result: Vec<PyObject> = Vec::new();
+    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    let target_symbols: Vec<_> = index.find_symbols(symbol_name);
+    if target_symbols.is_empty() {
+        return Ok(PyList::new(py, result).into());
+    }
+
+    // BFS
+    let mut queue: std::collections::VecDeque<(u32, u32, Vec<String>)> =
+        std::collections::VecDeque::new();
+
+    for target in &target_symbols {
+        visited.insert(target.id.as_u32());
+        queue.push_back((target.id.as_u32(), 0, vec![target.name.clone()]));
+    }
+
+    while let Some((current_id, current_depth, call_path)) = queue.pop_front() {
+        if result.len() >= max_results {
+            break;
+        }
+
+        for caller_id in graph.get_callers(current_id) {
+            if visited.insert(caller_id) {
+                if let Some(caller) = index.get_symbol(caller_id) {
+                    let mut new_path = call_path.clone();
+                    new_path.insert(0, caller.name.clone());
+
+                    let file_path = index
+                        .get_file_by_id(caller.file_id.as_u32())
+                        .map(|f| f.path.clone())
+                        .unwrap_or_else(|| "<unknown>".to_string());
+
+                    let dict = PyDict::new(py);
+                    dict.set_item("name", &caller.name)?;
+                    dict.set_item("kind", caller.kind.name())?;
+                    dict.set_item("file", file_path)?;
+                    dict.set_item("line", caller.span.start_line)?;
+                    dict.set_item("depth", current_depth + 1)?;
+                    dict.set_item("call_path", new_path.clone())?;
+                    result.push(dict.into());
+
+                    if current_depth + 1 < max_depth {
+                        queue.push_back((caller_id, current_depth + 1, new_path));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(PyList::new(py, result).into())
+}
+
+/// Get call sites with surrounding code context (Feature #9)
+///
+/// Enhanced version of get_callers that includes the surrounding code.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the symbol to find call sites for
+///     lines_before: Lines of context before the call (default: 3)
+///     lines_after: Lines of context after the call (default: 3)
+///
+/// Returns:
+///     List of dicts with: caller, callee, file, line, column, context, context_start_line, context_end_line
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> sites = infiniloom.get_call_sites_with_context("/repo", "authenticate", lines_before=5)
+///     >>> for site in sites:
+///     ...     print(f"Call in {site['file']}:{site['line']}")
+///     ...     print(site['context'])
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name, lines_before=3, lines_after=3))]
+fn get_call_sites_with_context(
+    py: Python,
+    path: &str,
+    symbol_name: &str,
+    lines_before: usize,
+    lines_after: usize,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+    let index = storage.load_index().map_err(to_py_err)?;
+    let graph = storage.load_graph().map_err(to_py_err)?;
+
+    let mut result: Vec<PyObject> = Vec::new();
+    let mut seen_sites: std::collections::HashSet<(String, u32, u32, u32)> =
+        std::collections::HashSet::new();
+    let mut file_cache: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for sym in index.find_symbols(symbol_name) {
+        let callee_id = sym.id.as_u32();
+
+        for caller_id in graph.get_callers(callee_id) {
+            if let Some(caller_sym) = index.get_symbol(caller_id) {
+                let file_path = index
+                    .get_file_by_id(caller_sym.file_id.as_u32())
+                    .map(|f| f.path.clone())
+                    .unwrap_or_else(|| "<unknown>".to_owned());
+
+                // Find call site in body
+                let (call_line, call_col) = find_call_site_in_body_py(
+                    &path_buf,
+                    &file_path,
+                    caller_sym.span.start_line,
+                    caller_sym.span.end_line,
+                    symbol_name,
+                    &mut file_cache,
+                );
+
+                let site_key = (file_path.clone(), call_line, caller_id, callee_id);
+                if !seen_sites.insert(site_key) {
+                    continue;
+                }
+
+                // Get context
+                let (context, context_start, context_end) = get_line_context_py(
+                    &path_buf,
+                    &file_path,
+                    call_line,
+                    lines_before,
+                    lines_after,
+                    &mut file_cache,
+                );
+
+                let dict = PyDict::new(py);
+                dict.set_item("caller", &caller_sym.name)?;
+                dict.set_item("callee", &sym.name)?;
+                dict.set_item("file", &file_path)?;
+                dict.set_item("line", call_line)?;
+                if let Some(col) = call_col {
+                    dict.set_item("column", col)?;
+                }
+                dict.set_item("caller_id", caller_id)?;
+                dict.set_item("callee_id", callee_id)?;
+                if let Some(ref ctx) = context {
+                    dict.set_item("context", ctx)?;
+                }
+                if let Some(start) = context_start {
+                    dict.set_item("context_start_line", start)?;
+                }
+                if let Some(end) = context_end {
+                    dict.set_item("context_end_line", end)?;
+                }
+                result.push(dict.into());
+            }
+        }
+    }
+
+    Ok(PyList::new(py, result).into())
+}
+
+/// Helper function to find call site in body (Python version)
+fn find_call_site_in_body_py(
+    repo_root: &PathBuf,
+    file_path: &str,
+    start_line: u32,
+    end_line: u32,
+    callee_name: &str,
+    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
+) -> (u32, Option<u32>) {
+    let lines = if let Some(cached) = file_cache.get(file_path) {
+        cached.clone()
+    } else {
+        let full_path = repo_root.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                file_cache.insert(file_path.to_string(), lines.clone());
+                lines
+            }
+            Err(_) => return (start_line, None),
+        }
+    };
+
+    let start_idx = (start_line as usize).saturating_sub(1);
+    let end_idx = (end_line as usize).min(lines.len());
+
+    // Simple pattern matching: look for "callee_name(" with word boundary
+    for (idx, line) in lines[start_idx..end_idx].iter().enumerate() {
+        // Find all occurrences of the callee name
+        let mut search_start = 0;
+        while let Some(pos) = line[search_start..].find(callee_name) {
+            let actual_pos = search_start + pos;
+            // Check word boundary before
+            let is_word_start = actual_pos == 0
+                || !line.as_bytes()[actual_pos - 1].is_ascii_alphanumeric()
+                    && line.as_bytes()[actual_pos - 1] != b'_';
+
+            // Check for opening paren after (possibly with whitespace)
+            let after_name = actual_pos + callee_name.len();
+            let has_paren = line[after_name..]
+                .trim_start()
+                .starts_with('(');
+
+            if is_word_start && has_paren {
+                return ((start_idx + idx + 1) as u32, Some(actual_pos as u32));
+            }
+            search_start = actual_pos + 1;
+            if search_start >= line.len() {
+                break;
+            }
+        }
+    }
+
+    (start_line, None)
+}
+
+/// Helper function to get code context around a line (Python version)
+fn get_line_context_py(
+    repo_root: &PathBuf,
+    file_path: &str,
+    line: u32,
+    lines_before: usize,
+    lines_after: usize,
+    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
+) -> (Option<String>, Option<u32>, Option<u32>) {
+    let lines = if let Some(cached) = file_cache.get(file_path) {
+        cached.clone()
+    } else {
+        let full_path = repo_root.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                file_cache.insert(file_path.to_string(), lines.clone());
+                lines
+            }
+            Err(_) => return (None, None, None),
+        }
+    };
+
+    if lines.is_empty() {
+        return (None, None, None);
+    }
+
+    let line_idx = (line as usize).saturating_sub(1);
+    let start_idx = line_idx.saturating_sub(lines_before);
+    let end_idx = (line_idx + lines_after + 1).min(lines.len());
+
+    if start_idx >= lines.len() {
+        return (None, None, None);
+    }
+
+    let context_lines: Vec<String> = lines[start_idx..end_idx]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let line_num = start_idx + i + 1;
+            let marker = if line_num == line as usize { ">" } else { " " };
+            format!("{}{:4} | {}", marker, line_num, l)
+        })
+        .collect();
+
+    (
+        Some(context_lines.join("\n")),
+        Some((start_idx + 1) as u32),
+        Some(end_idx as u32),
+    )
 }
 
 /// Python module definition
@@ -1899,6 +2445,11 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     // Impact & Diff Context API
     m.add_function(wrap_pyfunction!(analyze_impact, m)?)?;
     m.add_function(wrap_pyfunction!(get_diff_context, m)?)?;
+
+    // New Features (v0.4.5)
+    m.add_function(wrap_pyfunction!(get_changed_symbols_filtered, m)?)?;
+    m.add_function(wrap_pyfunction!(get_transitive_callers, m)?)?;
+    m.add_function(wrap_pyfunction!(get_call_sites_with_context, m)?)?;
 
     // Classes
     m.add_class::<Infiniloom>()?;

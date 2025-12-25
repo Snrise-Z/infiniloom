@@ -1,6 +1,6 @@
 {
   "name": "infiniloom-node",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Node.js bindings for infiniloom - Repository context engine for LLMs",
   "main": "index.js",
   "types": "index.d.ts",

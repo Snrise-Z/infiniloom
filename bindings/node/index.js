@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync } = nativeBinding
+const { pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync, getChangedSymbolsFiltered, getTransitiveCallers, getCallSitesWithContext, getChangedSymbolsFilteredAsync, getTransitiveCallersAsync, getCallSitesWithContextAsync } = nativeBinding
 
 module.exports.pack = pack
 module.exports.scan = scan
@@ -352,3 +352,9 @@ module.exports.getSymbolSourceAsync = getSymbolSourceAsync
 module.exports.getChangedSymbolsAsync = getChangedSymbolsAsync
 module.exports.getTestsForFileAsync = getTestsForFileAsync
 module.exports.getCallSitesAsync = getCallSitesAsync
+module.exports.getChangedSymbolsFiltered = getChangedSymbolsFiltered
+module.exports.getTransitiveCallers = getTransitiveCallers
+module.exports.getCallSitesWithContext = getCallSitesWithContext
+module.exports.getChangedSymbolsFilteredAsync = getChangedSymbolsFilteredAsync
+module.exports.getTransitiveCallersAsync = getTransitiveCallersAsync
+module.exports.getCallSitesWithContextAsync = getCallSitesWithContextAsync

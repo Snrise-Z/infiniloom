@@ -1043,6 +1043,181 @@ export declare function getChangedSymbolsAsync(path: string, fromRef: string, to
 export declare function getTestsForFileAsync(path: string, filePath: string): Promise<Array<string>>
 /** Async version of getCallSites */
 export declare function getCallSitesAsync(path: string, symbolName: string): Promise<Array<CallSite>>
+/** Options for filtering changed symbols (Feature #6) */
+export interface ChangedSymbolsFilter {
+  /**
+   * Filter by symbol kinds: "function", "method", "class", etc.
+   * If specified, only symbols of these kinds are returned.
+   */
+  kinds?: Array<string>
+  /** Exclude specific kinds (e.g., exclude "import" to skip import statements) */
+  excludeKinds?: Array<string>
+}
+/** A symbol with change type information (Feature #7) */
+export interface ChangedSymbolInfo {
+  /** Symbol ID */
+  id: number
+  /** Symbol name */
+  name: string
+  /** Symbol kind (function, class, method, etc.) */
+  kind: string
+  /** File path containing the symbol */
+  file: string
+  /** Start line number */
+  line: number
+  /** End line number */
+  endLine: number
+  /** Function/method signature */
+  signature?: string
+  /** Visibility (public, private, etc.) */
+  visibility: string
+  /** Change type: "added", "modified", or "deleted" */
+  changeType: string
+}
+/**
+ * Get symbols that were changed in a diff with filtering and change type (Features #6 & #7)
+ *
+ * Enhanced version of getChangedSymbols that supports filtering by symbol kind
+ * and returns change type (added, modified, deleted) for each symbol.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `from_ref` - Starting commit/branch (e.g., "main", "HEAD~1")
+ * * `to_ref` - Ending commit/branch (e.g., "HEAD", "feature-branch")
+ * * `filter` - Optional filter for symbol kinds
+ *
+ * # Returns
+ * Array of symbols with change type that were modified in the diff
+ *
+ * # Example
+ * ```javascript
+ * const { getChangedSymbolsFiltered, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const changed = getChangedSymbolsFiltered('./my-repo', 'main', 'HEAD', {
+ *   kinds: ['function', 'method'],  // Only functions and methods
+ *   excludeKinds: ['import']         // Skip import statements
+ * });
+ * for (const s of changed) {
+ *   console.log(`${s.changeType}: ${s.kind} ${s.name} in ${s.file}`);
+ * }
+ * ```
+ */
+export declare function getChangedSymbolsFiltered(path: string, fromRef: string, toRef: string, filter?: ChangedSymbolsFilter | undefined | null): Array<ChangedSymbolInfo>
+/** A caller in the transitive call chain (Feature #8) */
+export interface TransitiveCallerInfo {
+  /** Symbol name */
+  name: string
+  /** Symbol kind */
+  kind: string
+  /** File path */
+  file: string
+  /** Line number */
+  line: number
+  /** Depth from the target symbol (1 = direct caller, 2 = caller of caller, etc.) */
+  depth: number
+  /** Call path from this caller to the target (e.g., ["main", "process", "validate", "target"]) */
+  callPath: Array<string>
+}
+/** Options for transitive callers query */
+export interface TransitiveCallersOptions {
+  /** Maximum depth to traverse (default: 3) */
+  maxDepth?: number
+  /** Maximum number of results (default: 100) */
+  maxResults?: number
+}
+/**
+ * Get all functions that eventually call a symbol (Feature #8)
+ *
+ * Traverses the call graph to find all direct and indirect callers
+ * of the specified symbol, up to a maximum depth.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find callers for
+ * * `options` - Optional query options
+ *
+ * # Returns
+ * Array of callers with their depth and call path
+ *
+ * # Example
+ * ```javascript
+ * const { getTransitiveCallers, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const callers = getTransitiveCallers('./my-repo', 'validateInput', { maxDepth: 3 });
+ * for (const c of callers) {
+ *   console.log(`Depth ${c.depth}: ${c.name} -> ${c.callPath.join(' -> ')}`);
+ * }
+ * ```
+ */
+export declare function getTransitiveCallers(path: string, symbolName: string, options?: TransitiveCallersOptions | undefined | null): Array<TransitiveCallerInfo>
+/** A call site with surrounding context (Feature #9) */
+export interface CallSiteWithContext {
+  /** Name of the calling function/method */
+  caller: string
+  /** Name of the function/method being called */
+  callee: string
+  /** File containing the call */
+  file: string
+  /** Line number of the call (1-indexed) */
+  line: number
+  /** Column number of the call (0-indexed, if available) */
+  column?: number
+  /** Caller symbol ID */
+  callerId: number
+  /** Callee symbol ID */
+  calleeId: number
+  /** Code context around the call site (configurable number of lines) */
+  context?: string
+  /** Start line of context */
+  contextStartLine?: number
+  /** End line of context */
+  contextEndLine?: number
+}
+/** Options for call sites with context */
+export interface CallSitesContextOptions {
+  /** Number of lines of context before the call (default: 3) */
+  linesBefore?: number
+  /** Number of lines of context after the call (default: 3) */
+  linesAfter?: number
+}
+/**
+ * Get call sites with surrounding code context (Feature #9)
+ *
+ * Enhanced version of getCallSites that includes the surrounding code
+ * for each call site, useful for AI-powered code review.
+ *
+ * # Arguments
+ * * `path` - Path to repository root
+ * * `symbol_name` - Name of the symbol to find call sites for
+ * * `options` - Optional context options
+ *
+ * # Returns
+ * Array of call sites with code context
+ *
+ * # Example
+ * ```javascript
+ * const { getCallSitesWithContext, buildIndex } = require('infiniloom-node');
+ *
+ * buildIndex('./my-repo');
+ * const sites = getCallSitesWithContext('./my-repo', 'authenticate', {
+ *   linesBefore: 5,
+ *   linesAfter: 5
+ * });
+ * for (const site of sites) {
+ *   console.log(`Call in ${site.file}:${site.line}`);
+ *   console.log(site.context);
+ * }
+ * ```
+ */
+export declare function getCallSitesWithContext(path: string, symbolName: string, options?: CallSitesContextOptions | undefined | null): Array<CallSiteWithContext>
+/** Async version of getChangedSymbolsFiltered */
+export declare function getChangedSymbolsFilteredAsync(path: string, fromRef: string, toRef: string, filter?: ChangedSymbolsFilter | undefined | null): Promise<Array<ChangedSymbolInfo>>
+/** Async version of getTransitiveCallers */
+export declare function getTransitiveCallersAsync(path: string, symbolName: string, options?: TransitiveCallersOptions | undefined | null): Promise<Array<TransitiveCallerInfo>>
+/** Async version of getCallSitesWithContext */
+export declare function getCallSitesWithContextAsync(path: string, symbolName: string, options?: CallSitesContextOptions | undefined | null): Promise<Array<CallSiteWithContext>>
 /** Infiniloom class for advanced usage */
 export declare class Infiniloom {
   /**

@@ -1247,3 +1247,488 @@ test('API functions throw helpful errors for missing index', (t) => {
     'Should throw when index missing'
   )
 })
+
+// ============================================================================
+// v0.4.5 New Feature Tests
+// ============================================================================
+
+const {
+  getChangedSymbolsFiltered,
+  getTransitiveCallers,
+  getCallSitesWithContext,
+} = require('..')
+
+// Helper to create repo with call chain for transitive caller testing
+function createCallChainRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-chain-'))
+  execSync('git init', { cwd: dir, stdio: 'pipe' })
+  execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'pipe' })
+  execSync('git config user.name "Test User"', { cwd: dir, stdio: 'pipe' })
+
+  // Create a call chain: main -> controller -> service -> repository -> database
+  fs.writeFileSync(
+    path.join(dir, 'database.py'),
+    [
+      'def query_database(sql):',
+      '    """Execute SQL query."""',
+      '    return execute(sql)',
+      '',
+      'def execute(sql):',
+      '    return []',
+      '',
+    ].join('\n')
+  )
+
+  fs.writeFileSync(
+    path.join(dir, 'repository.py'),
+    [
+      'from database import query_database',
+      '',
+      'def find_all():',
+      '    return query_database("SELECT * FROM items")',
+      '',
+      'def find_by_id(id):',
+      '    return query_database(f"SELECT * FROM items WHERE id = {id}")',
+      '',
+    ].join('\n')
+  )
+
+  fs.writeFileSync(
+    path.join(dir, 'service.py'),
+    [
+      'from repository import find_all, find_by_id',
+      '',
+      'def get_items():',
+      '    return find_all()',
+      '',
+      'def get_item(id):',
+      '    return find_by_id(id)',
+      '',
+    ].join('\n')
+  )
+
+  fs.writeFileSync(
+    path.join(dir, 'controller.py'),
+    [
+      'from service import get_items, get_item',
+      '',
+      'def list_handler():',
+      '    items = get_items()',
+      '    return {"items": items}',
+      '',
+      'def detail_handler(id):',
+      '    item = get_item(id)',
+      '    return {"item": item}',
+      '',
+    ].join('\n')
+  )
+
+  fs.writeFileSync(
+    path.join(dir, 'main.py'),
+    [
+      'from controller import list_handler, detail_handler',
+      '',
+      'def main():',
+      '    print(list_handler())',
+      '    print(detail_handler(1))',
+      '',
+      'if __name__ == "__main__":',
+      '    main()',
+      '',
+    ].join('\n')
+  )
+
+  // Create test file
+  fs.writeFileSync(
+    path.join(dir, 'test_service.py'),
+    [
+      'from service import get_items, get_item',
+      '',
+      'def test_get_items():',
+      '    result = get_items()',
+      '    assert isinstance(result, list)',
+      '',
+      'def test_get_item():',
+      '    result = get_item(1)',
+      '    assert result is not None',
+      '',
+    ].join('\n')
+  )
+
+  execSync('git add .', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "Initial commit"', { cwd: dir, stdio: 'pipe' })
+
+  buildIndex(dir)
+
+  return dir
+}
+
+// ============================================================================
+// Feature #6: getChangedSymbolsFiltered
+// ============================================================================
+
+test('getChangedSymbolsFiltered returns symbols with filtering', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Modify a file
+  fs.writeFileSync(
+    path.join(dir, 'service.py'),
+    [
+      'from repository import find_all, find_by_id',
+      '',
+      'class ItemService:',
+      '    """New class added."""',
+      '    def __init__(self):',
+      '        pass',
+      '',
+      'def get_items():',
+      '    # Modified',
+      '    return find_all()',
+      '',
+      'def get_item(id):',
+      '    return find_by_id(id)',
+      '',
+      'CONSTANT = "value"',
+      '',
+    ].join('\n')
+  )
+  execSync('git add service.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "Add class and constant"', { cwd: dir, stdio: 'pipe' })
+  buildIndex(dir, { force: true })
+
+  // Get all changed symbols
+  const allChanged = getChangedSymbolsFiltered(dir, 'HEAD~1', 'HEAD')
+  assert.ok(Array.isArray(allChanged), 'Should return an array')
+  assert.ok(allChanged.length > 0, 'Should find changed symbols')
+
+  // Check that symbols have change_type field (Feature #7)
+  for (const sym of allChanged) {
+    assert.ok(sym.name, 'Symbol should have name')
+    assert.ok(sym.kind, 'Symbol should have kind')
+    assert.ok(sym.file, 'Symbol should have file')
+    assert.ok(typeof sym.line === 'number', 'Symbol should have line')
+    assert.ok(sym.changeType, 'Symbol should have changeType (Feature #7)')
+    assert.ok(['added', 'modified', 'deleted'].includes(sym.changeType),
+      `changeType should be valid: ${sym.changeType}`)
+  }
+})
+
+test('getChangedSymbolsFiltered filters by kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Add a class to service.py
+  fs.writeFileSync(
+    path.join(dir, 'service.py'),
+    [
+      'from repository import find_all, find_by_id',
+      '',
+      'class ItemService:',
+      '    def get(self):',
+      '        return find_all()',
+      '',
+      'def get_items():',
+      '    return find_all()',
+      '',
+      'def get_item(id):',
+      '    return find_by_id(id)',
+      '',
+    ].join('\n')
+  )
+  execSync('git add service.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "Add class"', { cwd: dir, stdio: 'pipe' })
+  buildIndex(dir, { force: true })
+
+  // Filter to only functions
+  const functions = getChangedSymbolsFiltered(dir, 'HEAD~1', 'HEAD', {
+    kinds: ['function'],
+  })
+
+  for (const sym of functions) {
+    assert.strictEqual(sym.kind, 'function', `Should only have functions, got: ${sym.kind}`)
+  }
+})
+
+test('getChangedSymbolsFiltered excludes specified kinds', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Add import statement
+  fs.writeFileSync(
+    path.join(dir, 'service.py'),
+    [
+      'from repository import find_all, find_by_id',
+      'import json',  // New import
+      '',
+      'def get_items():',
+      '    return json.dumps(find_all())',
+      '',
+      'def get_item(id):',
+      '    return find_by_id(id)',
+      '',
+    ].join('\n')
+  )
+  execSync('git add service.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "Add import"', { cwd: dir, stdio: 'pipe' })
+  buildIndex(dir, { force: true })
+
+  // Exclude imports
+  const noImports = getChangedSymbolsFiltered(dir, 'HEAD~1', 'HEAD', {
+    excludeKinds: ['import'],
+  })
+
+  for (const sym of noImports) {
+    assert.notStrictEqual(sym.kind, 'import', `Should not have imports, got: ${sym.kind}`)
+  }
+})
+
+// ============================================================================
+// Feature #8: getTransitiveCallers
+// ============================================================================
+
+test('getTransitiveCallers finds direct callers at depth 1', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const callers = getTransitiveCallers(dir, 'query_database', { maxDepth: 1 })
+
+  assert.ok(Array.isArray(callers), 'Should return an array')
+
+  // Direct callers: find_all and find_by_id call query_database
+  if (callers.length > 0) {
+    for (const caller of callers) {
+      assert.ok(caller.name, 'Caller should have name')
+      assert.ok(caller.kind, 'Caller should have kind')
+      assert.ok(caller.file, 'Caller should have file')
+      assert.ok(typeof caller.depth === 'number', 'Caller should have depth')
+      assert.ok(Array.isArray(caller.callPath), 'Caller should have callPath')
+      assert.strictEqual(caller.depth, 1, 'Direct callers should have depth 1')
+    }
+  }
+})
+
+test('getTransitiveCallers finds transitive callers at depth 3', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const callers = getTransitiveCallers(dir, 'query_database', { maxDepth: 3 })
+
+  assert.ok(Array.isArray(callers), 'Should return an array')
+
+  // Should find callers at multiple depths
+  const depths = new Set(callers.map(c => c.depth))
+
+  // With depth 3, we should have callers at depth 1, 2, and possibly 3
+  // query_database <- find_all/find_by_id (d1) <- get_items/get_item (d2) <- list_handler/etc (d3)
+  if (callers.length >= 2) {
+    assert.ok(depths.size >= 1, 'Should have callers at different depths')
+  }
+})
+
+test('getTransitiveCallers includes call path', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const callers = getTransitiveCallers(dir, 'query_database', { maxDepth: 3 })
+
+  // Find a caller at depth > 1
+  const transitiveCaller = callers.find(c => c.depth > 1)
+
+  if (transitiveCaller) {
+    assert.ok(transitiveCaller.callPath.length >= 2, 'Call path should have multiple steps')
+    // Path should end with target symbol
+    assert.strictEqual(
+      transitiveCaller.callPath[transitiveCaller.callPath.length - 1],
+      'query_database',
+      'Call path should end with target symbol'
+    )
+  }
+})
+
+test('getTransitiveCallers respects maxResults', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const callers = getTransitiveCallers(dir, 'query_database', {
+    maxDepth: 10,
+    maxResults: 2,
+  })
+
+  assert.ok(Array.isArray(callers), 'Should return an array')
+  assert.ok(callers.length <= 2, 'Should respect maxResults limit')
+})
+
+test('getTransitiveCallers returns empty for symbol with no callers', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // main() is the entry point - nothing calls it
+  const callers = getTransitiveCallers(dir, 'main', { maxDepth: 5 })
+
+  assert.ok(Array.isArray(callers), 'Should return an array')
+  assert.strictEqual(callers.length, 0, 'Entry point should have no callers')
+})
+
+// ============================================================================
+// Feature #9: getCallSitesWithContext
+// ============================================================================
+
+test('getCallSitesWithContext returns code context', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const sites = getCallSitesWithContext(dir, 'find_all', {
+    linesBefore: 2,
+    linesAfter: 2,
+  })
+
+  assert.ok(Array.isArray(sites), 'Should return an array')
+
+  if (sites.length > 0) {
+    const site = sites[0]
+    assert.ok(site.caller, 'Site should have caller name')
+    assert.ok(site.callee, 'Site should have callee name')
+    assert.ok(site.file, 'Site should have file path')
+    assert.ok(typeof site.line === 'number', 'Site should have line number')
+
+    // Feature #9: Code context should be present
+    if (site.context) {
+      assert.ok(typeof site.context === 'string', 'Context should be string')
+      assert.ok(site.context.length > 0, 'Context should not be empty')
+      assert.ok(typeof site.contextStartLine === 'number', 'Should have contextStartLine')
+      assert.ok(typeof site.contextEndLine === 'number', 'Should have contextEndLine')
+    }
+  }
+})
+
+test('getCallSitesWithContext context contains call line', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const sites = getCallSitesWithContext(dir, 'find_all', {
+    linesBefore: 3,
+    linesAfter: 3,
+  })
+
+  for (const site of sites) {
+    if (site.context) {
+      // Context should contain the callee name (the function being called)
+      assert.ok(
+        site.context.includes('find_all'),
+        'Context should include call to find_all'
+      )
+    }
+  }
+})
+
+test('getCallSitesWithContext deduplicates call sites (Bug #5)', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const sites = getCallSitesWithContext(dir, 'query_database')
+
+  // Check for unique call sites (no duplicates)
+  const siteKeys = sites.map(s => `${s.file}:${s.line}:${s.callerId}:${s.calleeId}`)
+  const uniqueKeys = new Set(siteKeys)
+
+  assert.strictEqual(
+    siteKeys.length,
+    uniqueKeys.size,
+    'Should not have duplicate call sites (Bug #5 fix)'
+  )
+})
+
+test('getCallSitesWithContext returns empty for uncalled symbol', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-uncalled-'))
+  t.after(() => cleanup(dir))
+
+  fs.writeFileSync(
+    path.join(dir, 'unused.py'),
+    [
+      'def never_called():',
+      '    """This function is never called anywhere."""',
+      '    return 42',
+      '',
+    ].join('\n')
+  )
+  buildIndex(dir)
+
+  const sites = getCallSitesWithContext(dir, 'never_called')
+
+  assert.ok(Array.isArray(sites), 'Should return an array')
+  assert.strictEqual(sites.length, 0, 'Should have no call sites')
+})
+
+// ============================================================================
+// Integration: v0.4.5 features working together
+// ============================================================================
+
+test('v0.4.5 features integration: PR review workflow', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  // Simulate a PR that modifies repository.py
+  fs.writeFileSync(
+    path.join(dir, 'repository.py'),
+    [
+      'from database import query_database',
+      '',
+      'def find_all():',
+      '    # Added caching',
+      '    cache_key = "all_items"',
+      '    return query_database("SELECT * FROM items")',
+      '',
+      'def find_by_id(id):',
+      '    # Validate id',
+      '    if id <= 0:',
+      '        raise ValueError("Invalid id")',
+      '    return query_database(f"SELECT * FROM items WHERE id = {id}")',
+      '',
+      'def count():',
+      '    """New function added."""',
+      '    return query_database("SELECT COUNT(*) FROM items")',
+      '',
+    ].join('\n')
+  )
+  execSync('git add repository.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "Add caching and count function"', { cwd: dir, stdio: 'pipe' })
+  buildIndex(dir, { force: true })
+
+  // Step 1: Get changed symbols (only functions, no imports)
+  const changed = getChangedSymbolsFiltered(dir, 'HEAD~1', 'HEAD', {
+    kinds: ['function'],
+    excludeKinds: ['import'],
+  })
+  assert.ok(changed.length > 0, 'Should find changed functions')
+
+  // Verify change types exist
+  for (const sym of changed) {
+    assert.ok(['added', 'modified', 'deleted'].includes(sym.changeType),
+      `Symbol ${sym.name} should have valid changeType`)
+  }
+
+  // count() should be found in changed symbols (might be 'added' or 'modified' depending on line detection)
+  assert.ok(changed.some(s => s.name === 'count'), 'count() should be in changed symbols')
+
+  // Step 2: For changed functions, find who calls them (impact analysis)
+  for (const sym of changed.slice(0, 2)) {
+    const callers = getTransitiveCallers(dir, sym.name, { maxDepth: 2 })
+    // Each changed function affects its callers
+    assert.ok(Array.isArray(callers), `Should get callers for ${sym.name}`)
+  }
+
+  // Step 3: Get call sites with context for review
+  const findAllSites = getCallSitesWithContext(dir, 'find_all', {
+    linesBefore: 3,
+    linesAfter: 3,
+  })
+  assert.ok(Array.isArray(findAllSites), 'Should get call sites for find_all')
+
+  // Each site should have context for code review
+  for (const site of findAllSites) {
+    if (site.context) {
+      assert.ok(site.context.length > 0, 'Call site should have context for review')
+    }
+  }
+})

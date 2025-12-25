@@ -2249,6 +2249,7 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
     let expander = ContextExpander::new(&index, &graph);
 
     // Convert files to diff changes, getting line ranges for all symbols in each file
+    // Bug #4 fix: Ensure line_ranges are never empty so symbols are always found
     let changes: Vec<DiffChange> = files.iter().map(|f| {
         // Get all symbol line ranges from this file
         let line_ranges = if let Some(file_entry) = index.get_file(f) {
@@ -2256,14 +2257,15 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
             let symbols = index.get_file_symbols(file_entry.id);
             if symbols.is_empty() {
                 // If no symbols, assume entire file is changed
-                vec![(1, file_entry.lines)]
+                vec![(1, file_entry.lines.max(1))]
             } else {
                 symbols.iter()
                     .map(|s| (s.span.start_line, s.span.end_line))
                     .collect()
             }
         } else {
-            vec![]
+            // File not in index - use a large range to capture potential symbols
+            vec![(1, 10000)]
         };
 
         DiffChange {
@@ -2604,6 +2606,7 @@ pub fn get_diff_context(
     let mut related_tests: Vec<String> = Vec::new();
     let mut file_snippets: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
+    // Bug #1, #2, #3 fixes: Improved context expansion
     if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
         let depth = match opts.depth.unwrap_or(2) {
             1 => ContextDepth::L1,
@@ -2622,14 +2625,22 @@ pub fn get_diff_context(
                 if let Some(file_entry) = index.get_file(&f.path) {
                     // For added files, include all lines
                     if f.status == EngineFileStatus::Added {
-                        line_ranges = vec![(1, file_entry.lines)];
+                        line_ranges = vec![(1, file_entry.lines.max(1))];
                     } else if f.status != EngineFileStatus::Deleted {
                         // For modified files with no hunks, include all symbol ranges
                         let symbols = index.get_file_symbols(file_entry.id);
-                        line_ranges = symbols.iter()
-                            .map(|s| (s.span.start_line, s.span.end_line))
-                            .collect();
+                        if symbols.is_empty() {
+                            // No symbols found - include entire file
+                            line_ranges = vec![(1, file_entry.lines.max(1))];
+                        } else {
+                            line_ranges = symbols.iter()
+                                .map(|s| (s.span.start_line, s.span.end_line))
+                                .collect();
+                        }
                     }
+                } else {
+                    // File not in index yet - include as entire file change
+                    line_ranges = vec![(1, 10000)]; // Large range to capture all symbols
                 }
             }
 
@@ -2668,9 +2679,9 @@ pub fn get_diff_context(
             .map(|f| f.path.clone())
             .collect();
 
-        // Bug #2 fix: If no related tests found via expander, try direct test detection
-        if related_tests.is_empty() {
-            let mut seen_tests: HashSet<String> = HashSet::new();
+        // Bug #2 fix: Always try direct test detection (expander may miss some tests)
+        {
+            let mut seen_tests: HashSet<String> = related_tests.iter().cloned().collect();
 
             // Helper to check if a file is a test file
             let is_test_file = |path: &str| -> bool {
@@ -2733,22 +2744,23 @@ pub fn get_diff_context(
             }
         }
 
-        // Generate snippets for changed files (Bug #3 fix: snippets were always empty)
-        // Read file content and extract context around changed lines
-        for cf in &context.changed_files {
-            if !cf.relevant_sections.is_empty() {
-                let full_path = path_buf.join(&cf.path);
-                if let Ok(content) = std::fs::read_to_string(&full_path) {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let mut snippets = Vec::new();
+        // Bug #3 fix: Generate snippets directly from changed files
+        // The expander's snippets field is not populated, so we generate them here
+        for cf in &changed_files {
+            let full_path = path_buf.join(&cf.path);
+            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                let lines: Vec<&str> = content.lines().collect();
+                let mut snippets = Vec::new();
 
+                // Get line ranges for this file
+                if let Some(ranges) = file_line_ranges.get(&cf.path) {
                     // Generate snippet for each changed section with context
-                    for (start, end) in &cf.relevant_sections {
+                    for (start, end) in ranges {
                         let context_lines = 3; // Lines of context before/after
                         let snippet_start = (*start as usize).saturating_sub(context_lines + 1);
                         let snippet_end = ((*end as usize) + context_lines).min(lines.len());
 
-                        if snippet_start < lines.len() {
+                        if snippet_start < lines.len() && snippet_start < snippet_end {
                             let snippet_content = lines[snippet_start..snippet_end].join("\n");
                             if !snippet_content.is_empty() {
                                 snippets.push(format!(
@@ -2759,10 +2771,10 @@ pub fn get_diff_context(
                             }
                         }
                     }
+                }
 
-                    if !snippets.is_empty() {
-                        file_snippets.insert(cf.path.clone(), snippets);
-                    }
+                if !snippets.is_empty() {
+                    file_snippets.insert(cf.path.clone(), snippets);
                 }
             }
         }
@@ -3317,6 +3329,8 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let mut call_sites: Vec<CallSite> = Vec::new();
+    // Bug #5 fix: Track seen call sites to prevent duplicates
+    let mut seen_sites: HashSet<(String, u32, u32, u32)> = HashSet::new(); // (file, line, caller_id, callee_id)
 
     // Cache file contents to avoid re-reading
     let mut file_cache: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
@@ -3343,15 +3357,19 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
                     &mut file_cache,
                 );
 
-                call_sites.push(CallSite {
-                    caller: caller_sym.name.clone(),
-                    callee: sym.name.clone(),
-                    file: file_path,
-                    line: call_line,
-                    column: call_col,
-                    caller_id,
-                    callee_id,
-                });
+                // Bug #5 fix: Deduplicate call sites
+                let site_key = (file_path.clone(), call_line, caller_id, callee_id);
+                if seen_sites.insert(site_key) {
+                    call_sites.push(CallSite {
+                        caller: caller_sym.name.clone(),
+                        callee: sym.name.clone(),
+                        file: file_path,
+                        line: call_line,
+                        column: call_col,
+                        caller_id,
+                        callee_id,
+                    });
+                }
             }
         }
     }
@@ -3507,6 +3525,565 @@ pub async fn get_call_sites_async(
     symbol_name: String,
 ) -> Result<Vec<CallSite>> {
     tokio::task::spawn_blocking(move || get_call_sites(path, symbol_name))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+// ============================================================================
+// New Features (v0.4.5)
+// ============================================================================
+
+/// Options for filtering changed symbols (Feature #6)
+#[napi(object)]
+pub struct ChangedSymbolsFilter {
+    /// Filter by symbol kinds: "function", "method", "class", etc.
+    /// If specified, only symbols of these kinds are returned.
+    pub kinds: Option<Vec<String>>,
+    /// Exclude specific kinds (e.g., exclude "import" to skip import statements)
+    pub exclude_kinds: Option<Vec<String>>,
+}
+
+/// A symbol with change type information (Feature #7)
+#[napi(object)]
+pub struct ChangedSymbolInfo {
+    /// Symbol ID
+    pub id: u32,
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind (function, class, method, etc.)
+    pub kind: String,
+    /// File path containing the symbol
+    pub file: String,
+    /// Start line number
+    pub line: u32,
+    /// End line number
+    pub end_line: u32,
+    /// Function/method signature
+    pub signature: Option<String>,
+    /// Visibility (public, private, etc.)
+    pub visibility: String,
+    /// Change type: "added", "modified", or "deleted"
+    pub change_type: String,
+}
+
+/// Get symbols that were changed in a diff with filtering and change type (Features #6 & #7)
+///
+/// Enhanced version of getChangedSymbols that supports filtering by symbol kind
+/// and returns change type (added, modified, deleted) for each symbol.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `from_ref` - Starting commit/branch (e.g., "main", "HEAD~1")
+/// * `to_ref` - Ending commit/branch (e.g., "HEAD", "feature-branch")
+/// * `filter` - Optional filter for symbol kinds
+///
+/// # Returns
+/// Array of symbols with change type that were modified in the diff
+///
+/// # Example
+/// ```javascript
+/// const { getChangedSymbolsFiltered, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const changed = getChangedSymbolsFiltered('./my-repo', 'main', 'HEAD', {
+///   kinds: ['function', 'method'],  // Only functions and methods
+///   excludeKinds: ['import']         // Skip import statements
+/// });
+/// for (const s of changed) {
+///   console.log(`${s.changeType}: ${s.kind} ${s.name} in ${s.file}`);
+/// }
+/// ```
+#[napi]
+pub fn get_changed_symbols_filtered(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+    filter: Option<ChangedSymbolsFilter>,
+) -> Result<Vec<ChangedSymbolInfo>> {
+    let path_buf = PathBuf::from(&path);
+
+    // Open git repo
+    let git_repo = EngineGitRepo::open(&path_buf)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+
+    // Load index
+    let storage = IndexStorage::new(&path_buf);
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    // Get changed files
+    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
+
+    let changed_files = git_repo.diff_files(from, to)
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+
+    let mut changed_symbols: Vec<ChangedSymbolInfo> = Vec::new();
+    let mut seen_ids: HashSet<u32> = HashSet::new();
+
+    // Get filter options
+    let kinds: Option<HashSet<String>> = filter.as_ref()
+        .and_then(|f| f.kinds.as_ref())
+        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+    let exclude_kinds: Option<HashSet<String>> = filter.as_ref()
+        .and_then(|f| f.exclude_kinds.as_ref())
+        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+
+    for file in changed_files {
+        // Determine file-level change type
+        let file_change_type = match file.status {
+            EngineFileStatus::Added => "added",
+            EngineFileStatus::Deleted => "deleted",
+            _ => "modified",
+        };
+
+        // Get diff hunks to find changed lines
+        let hunks = git_repo.diff_hunks(from, to, Some(&file.path)).unwrap_or_default();
+
+        // Get file from index
+        let file_entry = match index.get_file(&file.path) {
+            Some(f) => f,
+            None => continue, // File might be new or not indexed
+        };
+
+        // For added/deleted files, all symbols get that change type
+        if file.status == EngineFileStatus::Added || file.status == EngineFileStatus::Deleted {
+            for sym in index.get_file_symbols(file_entry.id) {
+                let kind_name = sym.kind.name().to_lowercase();
+
+                // Apply filters
+                if let Some(ref allowed_kinds) = kinds {
+                    if !allowed_kinds.contains(&kind_name) {
+                        continue;
+                    }
+                }
+                if let Some(ref excluded) = exclude_kinds {
+                    if excluded.contains(&kind_name) {
+                        continue;
+                    }
+                }
+
+                if !seen_ids.contains(&sym.id.as_u32()) {
+                    seen_ids.insert(sym.id.as_u32());
+                    changed_symbols.push(ChangedSymbolInfo {
+                        id: sym.id.as_u32(),
+                        name: sym.name.clone(),
+                        kind: kind_name,
+                        file: file.path.clone(),
+                        line: sym.span.start_line,
+                        end_line: sym.span.end_line,
+                        signature: sym.signature.clone(),
+                        visibility: format!("{:?}", sym.visibility).to_lowercase(),
+                        change_type: file_change_type.to_string(),
+                    });
+                }
+            }
+            continue;
+        }
+
+        // For modified files, find symbols that overlap with changed lines
+        for hunk in hunks {
+            if hunk.new_count == 0 {
+                continue;
+            }
+
+            let start_line = hunk.new_start;
+            let end_line = hunk.new_start + hunk.new_count;
+
+            // Find symbols that overlap with this hunk
+            for sym in index.get_file_symbols(file_entry.id) {
+                // Check if symbol overlaps with changed lines
+                let sym_overlaps = sym.span.start_line <= end_line && sym.span.end_line >= start_line;
+
+                if sym_overlaps && !seen_ids.contains(&sym.id.as_u32()) {
+                    let kind_name = sym.kind.name().to_lowercase();
+
+                    // Apply filters
+                    if let Some(ref allowed_kinds) = kinds {
+                        if !allowed_kinds.contains(&kind_name) {
+                            continue;
+                        }
+                    }
+                    if let Some(ref excluded) = exclude_kinds {
+                        if excluded.contains(&kind_name) {
+                            continue;
+                        }
+                    }
+
+                    seen_ids.insert(sym.id.as_u32());
+                    changed_symbols.push(ChangedSymbolInfo {
+                        id: sym.id.as_u32(),
+                        name: sym.name.clone(),
+                        kind: kind_name,
+                        file: file.path.clone(),
+                        line: sym.span.start_line,
+                        end_line: sym.span.end_line,
+                        signature: sym.signature.clone(),
+                        visibility: format!("{:?}", sym.visibility).to_lowercase(),
+                        change_type: "modified".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by file and line
+    changed_symbols.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+    Ok(changed_symbols)
+}
+
+/// A caller in the transitive call chain (Feature #8)
+#[napi(object)]
+pub struct TransitiveCallerInfo {
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind
+    pub kind: String,
+    /// File path
+    pub file: String,
+    /// Line number
+    pub line: u32,
+    /// Depth from the target symbol (1 = direct caller, 2 = caller of caller, etc.)
+    pub depth: u32,
+    /// Call path from this caller to the target (e.g., ["main", "process", "validate", "target"])
+    pub call_path: Vec<String>,
+}
+
+/// Options for transitive callers query
+#[napi(object)]
+pub struct TransitiveCallersOptions {
+    /// Maximum depth to traverse (default: 3)
+    pub max_depth: Option<u32>,
+    /// Maximum number of results (default: 100)
+    pub max_results: Option<u32>,
+}
+
+/// Get all functions that eventually call a symbol (Feature #8)
+///
+/// Traverses the call graph to find all direct and indirect callers
+/// of the specified symbol, up to a maximum depth.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find callers for
+/// * `options` - Optional query options
+///
+/// # Returns
+/// Array of callers with their depth and call path
+///
+/// # Example
+/// ```javascript
+/// const { getTransitiveCallers, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const callers = getTransitiveCallers('./my-repo', 'validateInput', { maxDepth: 3 });
+/// for (const c of callers) {
+///   console.log(`Depth ${c.depth}: ${c.name} -> ${c.callPath.join(' -> ')}`);
+/// }
+/// ```
+#[napi]
+pub fn get_transitive_callers(
+    path: String,
+    symbol_name: String,
+    options: Option<TransitiveCallersOptions>,
+) -> Result<Vec<TransitiveCallerInfo>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let max_depth = options.as_ref().and_then(|o| o.max_depth).unwrap_or(3);
+    let max_results = options.as_ref().and_then(|o| o.max_results).unwrap_or(100) as usize;
+
+    let mut results: Vec<TransitiveCallerInfo> = Vec::new();
+    let mut visited: HashSet<u32> = HashSet::new();
+
+    // Find all symbols with this name (there might be multiple)
+    let target_symbols: Vec<_> = index.find_symbols(&symbol_name);
+    if target_symbols.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // BFS to find all callers up to max_depth
+    // Queue contains: (symbol_id, current_depth, call_path)
+    let mut queue: std::collections::VecDeque<(u32, u32, Vec<String>)> = std::collections::VecDeque::new();
+
+    // Initialize with target symbols
+    for target in &target_symbols {
+        visited.insert(target.id.as_u32());
+        queue.push_back((target.id.as_u32(), 0, vec![target.name.clone()]));
+    }
+
+    while let Some((current_id, current_depth, call_path)) = queue.pop_front() {
+        if results.len() >= max_results {
+            break;
+        }
+
+        // Get direct callers
+        for caller_id in graph.get_callers(current_id) {
+            if visited.insert(caller_id) {
+                if let Some(caller) = index.get_symbol(caller_id) {
+                    let mut new_path = call_path.clone();
+                    new_path.insert(0, caller.name.clone());
+
+                    let file_path = index
+                        .get_file_by_id(caller.file_id.as_u32())
+                        .map(|f| f.path.clone())
+                        .unwrap_or_else(|| "<unknown>".to_string());
+
+                    results.push(TransitiveCallerInfo {
+                        name: caller.name.clone(),
+                        kind: caller.kind.name().to_string(),
+                        file: file_path,
+                        line: caller.span.start_line,
+                        depth: current_depth + 1,
+                        call_path: new_path.clone(),
+                    });
+
+                    // Continue traversal if not at max depth
+                    if current_depth + 1 < max_depth {
+                        queue.push_back((caller_id, current_depth + 1, new_path));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by depth then by name
+    results.sort_by(|a, b| (a.depth, &a.name).cmp(&(b.depth, &b.name)));
+    Ok(results)
+}
+
+/// A call site with surrounding context (Feature #9)
+#[napi(object)]
+pub struct CallSiteWithContext {
+    /// Name of the calling function/method
+    pub caller: String,
+    /// Name of the function/method being called
+    pub callee: String,
+    /// File containing the call
+    pub file: String,
+    /// Line number of the call (1-indexed)
+    pub line: u32,
+    /// Column number of the call (0-indexed, if available)
+    pub column: Option<u32>,
+    /// Caller symbol ID
+    pub caller_id: u32,
+    /// Callee symbol ID
+    pub callee_id: u32,
+    /// Code context around the call site (configurable number of lines)
+    pub context: Option<String>,
+    /// Start line of context
+    pub context_start_line: Option<u32>,
+    /// End line of context
+    pub context_end_line: Option<u32>,
+}
+
+/// Options for call sites with context
+#[napi(object)]
+pub struct CallSitesContextOptions {
+    /// Number of lines of context before the call (default: 3)
+    pub lines_before: Option<u32>,
+    /// Number of lines of context after the call (default: 3)
+    pub lines_after: Option<u32>,
+}
+
+/// Get call sites with surrounding code context (Feature #9)
+///
+/// Enhanced version of getCallSites that includes the surrounding code
+/// for each call site, useful for AI-powered code review.
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `symbol_name` - Name of the symbol to find call sites for
+/// * `options` - Optional context options
+///
+/// # Returns
+/// Array of call sites with code context
+///
+/// # Example
+/// ```javascript
+/// const { getCallSitesWithContext, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const sites = getCallSitesWithContext('./my-repo', 'authenticate', {
+///   linesBefore: 5,
+///   linesAfter: 5
+/// });
+/// for (const site of sites) {
+///   console.log(`Call in ${site.file}:${site.line}`);
+///   console.log(site.context);
+/// }
+/// ```
+#[napi]
+pub fn get_call_sites_with_context(
+    path: String,
+    symbol_name: String,
+    options: Option<CallSitesContextOptions>,
+) -> Result<Vec<CallSiteWithContext>> {
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage.load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage.load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let lines_before = options.as_ref().and_then(|o| o.lines_before).unwrap_or(3) as usize;
+    let lines_after = options.as_ref().and_then(|o| o.lines_after).unwrap_or(3) as usize;
+
+    let mut call_sites: Vec<CallSiteWithContext> = Vec::new();
+    let mut seen_sites: HashSet<(String, u32, u32, u32)> = HashSet::new();
+    let mut file_cache: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+
+    // Find all symbols with this name
+    for sym in index.find_symbols(&symbol_name) {
+        let callee_id = sym.id.as_u32();
+
+        // Get all callers of this symbol
+        for caller_id in graph.get_callers(callee_id) {
+            if let Some(caller_sym) = index.get_symbol(caller_id) {
+                let file_path = index
+                    .get_file_by_id(caller_sym.file_id.as_u32())
+                    .map(|f| f.path.clone())
+                    .unwrap_or_else(|| "<unknown>".to_owned());
+
+                // Try to find exact call site by scanning the caller's body
+                let (call_line, call_col) = find_call_site_in_body(
+                    &path_buf,
+                    &file_path,
+                    caller_sym.span.start_line,
+                    caller_sym.span.end_line,
+                    &symbol_name,
+                    &mut file_cache,
+                );
+
+                // Deduplicate
+                let site_key = (file_path.clone(), call_line, caller_id, callee_id);
+                if !seen_sites.insert(site_key) {
+                    continue;
+                }
+
+                // Get context
+                let (context, context_start, context_end) = get_line_context(
+                    &path_buf,
+                    &file_path,
+                    call_line,
+                    lines_before,
+                    lines_after,
+                    &mut file_cache,
+                );
+
+                call_sites.push(CallSiteWithContext {
+                    caller: caller_sym.name.clone(),
+                    callee: sym.name.clone(),
+                    file: file_path,
+                    line: call_line,
+                    column: call_col,
+                    caller_id,
+                    callee_id,
+                    context,
+                    context_start_line: context_start,
+                    context_end_line: context_end,
+                });
+            }
+        }
+    }
+
+    // Sort by file and line
+    call_sites.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+    Ok(call_sites)
+}
+
+/// Helper function to get code context around a line
+fn get_line_context(
+    repo_root: &PathBuf,
+    file_path: &str,
+    line: u32,
+    lines_before: usize,
+    lines_after: usize,
+    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
+) -> (Option<String>, Option<u32>, Option<u32>) {
+    // Load file content
+    let lines = if let Some(cached) = file_cache.get(file_path) {
+        cached.clone()
+    } else {
+        let full_path = repo_root.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                file_cache.insert(file_path.to_string(), lines.clone());
+                lines
+            }
+            Err(_) => return (None, None, None),
+        }
+    };
+
+    if lines.is_empty() {
+        return (None, None, None);
+    }
+
+    let line_idx = (line as usize).saturating_sub(1);
+    let start_idx = line_idx.saturating_sub(lines_before);
+    let end_idx = (line_idx + lines_after + 1).min(lines.len());
+
+    if start_idx >= lines.len() {
+        return (None, None, None);
+    }
+
+    let context_lines: Vec<String> = lines[start_idx..end_idx]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let line_num = start_idx + i + 1;
+            let marker = if line_num == line as usize { ">" } else { " " };
+            format!("{}{:4} | {}", marker, line_num, l)
+        })
+        .collect();
+
+    (
+        Some(context_lines.join("\n")),
+        Some((start_idx + 1) as u32),
+        Some(end_idx as u32),
+    )
+}
+
+/// Async version of getChangedSymbolsFiltered
+#[napi]
+pub async fn get_changed_symbols_filtered_async(
+    path: String,
+    from_ref: String,
+    to_ref: String,
+    filter: Option<ChangedSymbolsFilter>,
+) -> Result<Vec<ChangedSymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_changed_symbols_filtered(path, from_ref, to_ref, filter))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getTransitiveCallers
+#[napi]
+pub async fn get_transitive_callers_async(
+    path: String,
+    symbol_name: String,
+    options: Option<TransitiveCallersOptions>,
+) -> Result<Vec<TransitiveCallerInfo>> {
+    tokio::task::spawn_blocking(move || get_transitive_callers(path, symbol_name, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Async version of getCallSitesWithContext
+#[napi]
+pub async fn get_call_sites_with_context_async(
+    path: String,
+    symbol_name: String,
+    options: Option<CallSitesContextOptions>,
+) -> Result<Vec<CallSiteWithContext>> {
+    tokio::task::spawn_blocking(move || get_call_sites_with_context(path, symbol_name, options))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }
