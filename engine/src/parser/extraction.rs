@@ -12,6 +12,19 @@ use crate::types::{SymbolKind, Visibility};
 use std::collections::HashSet;
 use tree_sitter::Node;
 
+/// Find a safe character boundary at or before the given byte index.
+/// This prevents panics when slicing strings with multi-byte UTF-8 characters.
+fn safe_char_boundary(s: &str, mut index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    // Walk backwards to find a valid char boundary
+    while index > 0 && !s.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
 /// Extract function/method signature
 pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) -> Option<String> {
     let sig_node = match language {
@@ -145,7 +158,13 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
     sig_node.or_else(|| {
         let start = node.start_byte();
         let end = std::cmp::min(start + 200, source_code.len());
-        let text = &source_code[start..end];
+        // Ensure we slice at valid UTF-8 character boundaries
+        let safe_start = safe_char_boundary(source_code, start);
+        let safe_end = safe_char_boundary(source_code, end);
+        if safe_start >= safe_end {
+            return None;
+        }
+        let text = &source_code[safe_start..safe_end];
         text.lines().next().map(|s| s.trim().to_owned())
     })
 }

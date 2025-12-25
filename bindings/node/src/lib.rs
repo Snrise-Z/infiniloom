@@ -1642,13 +1642,23 @@ pub struct ReferenceInfo {
     pub symbol: SymbolInfo,
     /// Reference kind (call, import, inherit, implement)
     pub kind: String,
+    // Convenience fields for easier access (mirrors symbol fields)
+    /// File path containing the reference (convenience field, same as symbol.file)
+    pub file: String,
+    /// Line number of the reference (convenience field, same as symbol.line)
+    pub line: u32,
 }
 
 impl From<EngineReferenceInfo> for ReferenceInfo {
     fn from(r: EngineReferenceInfo) -> Self {
+        let symbol: SymbolInfo = r.symbol.into();
+        let file = symbol.file.clone();
+        let line = symbol.line;
         Self {
-            symbol: r.symbol.into(),
+            symbol,
             kind: r.kind,
+            file,
+            line,
         }
     }
 }
@@ -2238,13 +2248,31 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
 
     let expander = ContextExpander::new(&index, &graph);
 
-    // Convert files to diff changes
-    let changes: Vec<DiffChange> = files.iter().map(|f| DiffChange {
-        file_path: f.clone(),
-        old_path: None,
-        line_ranges: vec![],
-        change_type: ChangeType::Modified,
-        diff_content: None,
+    // Convert files to diff changes, getting line ranges for all symbols in each file
+    let changes: Vec<DiffChange> = files.iter().map(|f| {
+        // Get all symbol line ranges from this file
+        let line_ranges = if let Some(file_entry) = index.get_file(f) {
+            // Include all lines where symbols are defined
+            let symbols = index.get_file_symbols(file_entry.id);
+            if symbols.is_empty() {
+                // If no symbols, assume entire file is changed
+                vec![(1, file_entry.lines)]
+            } else {
+                symbols.iter()
+                    .map(|s| (s.span.start_line, s.span.end_line))
+                    .collect()
+            }
+        } else {
+            vec![]
+        };
+
+        DiffChange {
+            file_path: f.clone(),
+            old_path: None,
+            line_ranges,
+            change_type: ChangeType::Modified,
+            diff_content: None,
+        }
     }).collect();
 
     // Expand context (returns directly, not Result)
@@ -2452,13 +2480,46 @@ pub fn get_diff_context(
     let storage = IndexStorage::new(&path_buf);
     let include_diff = opts.include_diff.unwrap_or(false);
 
+    // Parse diff hunks to get line ranges for each file
+    let mut file_line_ranges: std::collections::HashMap<String, Vec<(u32, u32)>> = std::collections::HashMap::new();
+    let mut file_diff_contents: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
+
+    for file in &changed {
+        // Get diff hunks for this file
+        let hunks = if from_ref.is_empty() && to_ref.is_empty() {
+            git_repo.uncommitted_hunks(Some(&file.path)).unwrap_or_default()
+        } else {
+            git_repo.diff_hunks(from, to, Some(&file.path)).unwrap_or_default()
+        };
+
+        // Extract line ranges from hunks (new lines that were added/modified)
+        let mut line_ranges = Vec::new();
+        for hunk in &hunks {
+            // The new_start/new_count gives us the range of lines in the new version
+            if hunk.new_count > 0 {
+                line_ranges.push((hunk.new_start, hunk.new_start + hunk.new_count - 1));
+            }
+        }
+
+        if !line_ranges.is_empty() {
+            file_line_ranges.insert(file.path.clone(), line_ranges);
+        }
+
+        // Get diff content if requested or for context expansion
+        let diff_content = git_repo.diff_content(from, to, &file.path).ok();
+        if let Some(ref content) = diff_content {
+            file_diff_contents.insert(file.path.clone(), content.clone());
+        }
+    }
+
     // Build file contexts
     let mut changed_files: Vec<DiffFileContext> = Vec::new();
     for file in &changed {
         let diff_content = if include_diff {
-            let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
-            let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
-            git_repo.diff_content(from, to, &file.path).ok()
+            file_diff_contents.get(&file.path).cloned()
         } else {
             None
         };
@@ -2476,6 +2537,7 @@ pub fn get_diff_context(
     // Try to expand context if index exists
     let mut context_symbols: Vec<ContextSymbolInfo> = Vec::new();
     let mut related_tests: Vec<String> = Vec::new();
+    let mut file_snippets: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
     if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
         let depth = match opts.depth.unwrap_or(2) {
@@ -2488,13 +2550,13 @@ pub fn get_diff_context(
         let changes: Vec<DiffChange> = changed.iter().map(|f| DiffChange {
             file_path: f.path.clone(),
             old_path: f.old_path.clone(),
-            line_ranges: vec![],
+            line_ranges: file_line_ranges.get(&f.path).cloned().unwrap_or_default(),
             change_type: match f.status {
                 EngineFileStatus::Added => ChangeType::Added,
                 EngineFileStatus::Deleted => ChangeType::Deleted,
                 _ => ChangeType::Modified,
             },
-            diff_content: None,
+            diff_content: file_diff_contents.get(&f.path).cloned(),
         }).collect();
 
         let token_budget = opts.budget.unwrap_or(50000);
@@ -2518,6 +2580,24 @@ pub fn get_diff_context(
                 .iter()
                 .map(|f| f.path.clone())
                 .collect();
+
+            // Collect snippets from changed_files context (extract content strings)
+            for cf in &context.changed_files {
+                if !cf.snippets.is_empty() {
+                    let snippet_contents: Vec<String> = cf.snippets
+                        .iter()
+                        .map(|s| s.content.clone())
+                        .collect();
+                    file_snippets.insert(cf.path.clone(), snippet_contents);
+                }
+            }
+        }
+    }
+
+    // Update changed_files with snippets from context expansion
+    for file_ctx in &mut changed_files {
+        if let Some(snippets) = file_snippets.remove(&file_ctx.path) {
+            file_ctx.context_snippets = snippets;
         }
     }
 

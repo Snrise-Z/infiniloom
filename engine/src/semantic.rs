@@ -262,6 +262,8 @@ impl SemanticCompressor {
     ///
     /// Handles cases like "sentence ".repeat(500) by detecting the repeated pattern
     /// and returning a compressed representation.
+    ///
+    /// This function is UTF-8 safe - it only slices at valid character boundaries.
     fn compress_repetitive(&self, content: &str) -> Option<String> {
         // Only process content above a minimum threshold
         if content.len() < 200 {
@@ -270,7 +272,13 @@ impl SemanticCompressor {
 
         // Try to find a repeating pattern
         // Start with small patterns and work up
+        // We iterate byte positions but only consider those that are valid UTF-8 boundaries
         for pattern_len in 1..=100.min(content.len() / 3) {
+            // Skip if this byte position is not a valid UTF-8 character boundary
+            if !content.is_char_boundary(pattern_len) {
+                continue;
+            }
+
             let pattern = &content[..pattern_len];
 
             // Skip patterns that are just whitespace
@@ -282,6 +290,10 @@ impl SemanticCompressor {
             let mut count = 0;
             let mut pos = 0;
             while pos + pattern_len <= content.len() {
+                // Ensure both slice boundaries are valid UTF-8
+                if !content.is_char_boundary(pos) || !content.is_char_boundary(pos + pattern_len) {
+                    break;
+                }
                 if &content[pos..pos + pattern_len] == pattern {
                     count += 1;
                     pos += pattern_len;
@@ -299,7 +311,13 @@ impl SemanticCompressor {
                     .clamp(1.0, 5.0) as usize;
 
                 let shown_content = pattern.repeat(instances_to_show);
-                let remainder = &content[count * pattern_len..];
+                // Safe: count * pattern_len is already at a valid boundary (start of next pattern or end)
+                let remainder_start = count * pattern_len;
+                let remainder = if remainder_start <= content.len() && content.is_char_boundary(remainder_start) {
+                    &content[remainder_start..]
+                } else {
+                    ""
+                };
 
                 let result = if remainder.is_empty() {
                     format!(
@@ -856,5 +874,76 @@ mod tests {
         // This may or may not compress depending on pattern detection
         // Just verify it doesn't panic
         assert!(!result.is_empty());
+    }
+
+    // UTF-8 boundary safety tests for compress_repetitive
+    #[test]
+    fn test_repetitive_unicode_chinese() {
+        let compressor = SemanticCompressor::new();
+        // Chinese characters are 3 bytes each
+        // Create repeating Chinese pattern
+        let content = "中文测试 ".repeat(100); // Each repeat is 13 bytes
+        let result = compressor.compress(&content).unwrap();
+
+        // Should not panic and should produce valid UTF-8
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+
+        // Should compress or return unchanged (not panic)
+        assert!(!result.is_empty() || content.is_empty());
+    }
+
+    #[test]
+    fn test_repetitive_unicode_emoji() {
+        let compressor = SemanticCompressor::new();
+        // Emoji are 4 bytes each
+        let content = "🎉🎊🎁 ".repeat(80); // Each repeat is 14 bytes
+
+        let result = compressor.compress(&content).unwrap();
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(!result.is_empty() || content.is_empty());
+    }
+
+    #[test]
+    fn test_repetitive_unicode_mixed() {
+        let compressor = SemanticCompressor::new();
+        // Mix of 1, 2, 3, and 4 byte characters
+        let content = "a中🎉 ".repeat(60); // Each repeat is 11 bytes
+
+        let result = compressor.compress(&content).unwrap();
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(!result.is_empty() || content.is_empty());
+    }
+
+    #[test]
+    fn test_repetitive_unicode_cyrillic() {
+        let compressor = SemanticCompressor::new();
+        // Cyrillic characters are 2 bytes each
+        let content = "Привет ".repeat(50);
+
+        let result = compressor.compress(&content).unwrap();
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_non_repetitive_unicode_boundary() {
+        let compressor = SemanticCompressor::new();
+        // Content where pattern detection would try various byte lengths
+        // that don't align with UTF-8 boundaries
+        let content = "世界和平".repeat(60); // No spaces, pure multi-byte
+
+        let result = compressor.compress(&content).unwrap();
+        // Should not panic even when pattern length iteration
+        // hits non-UTF-8 boundaries
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_repetitive_unicode_line_based() {
+        let compressor = SemanticCompressor::new();
+        // Test line-based repetition detection with Unicode
+        let content = "中文行\n".repeat(100);
+
+        let result = compressor.compress(&content).unwrap();
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
     }
 }

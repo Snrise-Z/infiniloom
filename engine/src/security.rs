@@ -500,20 +500,28 @@ impl SecurityScanner {
 }
 
 /// Redact a matched secret for display
+///
+/// This function is UTF-8 safe - it uses character counts rather than byte
+/// positions to avoid panics when secrets contain multi-byte characters.
 fn redact(s: &str) -> String {
-    if s.len() <= 8 {
-        return "*".repeat(s.len());
+    let char_count = s.chars().count();
+
+    if char_count <= 8 {
+        return "*".repeat(char_count);
     }
 
-    let prefix_len = 4.min(s.len() / 4);
-    let suffix_len = 4.min(s.len() / 4);
+    // Use character-based positions for UTF-8 safety
+    let prefix_chars = 4.min(char_count / 4);
+    let suffix_chars = 4.min(char_count / 4);
+    let redact_chars = char_count.saturating_sub(prefix_chars + suffix_chars);
 
-    format!(
-        "{}{}{}",
-        &s[..prefix_len],
-        "*".repeat(s.len() - prefix_len - suffix_len),
-        &s[s.len() - suffix_len..]
-    )
+    // Collect prefix characters
+    let prefix: String = s.chars().take(prefix_chars).collect();
+
+    // Collect suffix characters
+    let suffix: String = s.chars().skip(char_count - suffix_chars).collect();
+
+    format!("{}{}{}", prefix, "*".repeat(redact_chars), suffix)
 }
 
 #[cfg(test)]
@@ -568,6 +576,52 @@ mod tests {
     fn test_redact() {
         assert_eq!(redact("AKIAIOSFODNN7EXAMPLE"), "AKIA************MPLE");
         assert_eq!(redact("short"), "*****");
+    }
+
+    #[test]
+    fn test_redact_unicode_safety() {
+        // Test with Chinese characters (3 bytes each)
+        // Should not panic when slicing
+        let chinese_secret = "密钥ABCDEFGHIJKLMNOP密钥";
+        let result = redact(chinese_secret);
+        // Should produce valid UTF-8
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        // Should contain asterisks
+        assert!(result.contains('*'));
+
+        // Test with emoji (4 bytes each)
+        let emoji_secret = "🔑ABCDEFGHIJKLMNOP🔒";
+        let result = redact(emoji_secret);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(result.contains('*'));
+
+        // Test with mixed multi-byte characters
+        let mixed_secret = "абвгдежзийклмноп"; // Cyrillic (2 bytes each)
+        let result = redact(mixed_secret);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(result.contains('*'));
+
+        // Test short Unicode strings (should all be asterisks)
+        let short_chinese = "密钥";
+        let result = redact(short_chinese);
+        assert_eq!(result, "**"); // 2 characters
+    }
+
+    #[test]
+    fn test_redact_edge_cases() {
+        // Empty string
+        assert_eq!(redact(""), "");
+
+        // Single character
+        assert_eq!(redact("x"), "*");
+
+        // Exactly 8 characters (boundary)
+        assert_eq!(redact("12345678"), "********");
+
+        // 9 characters (first to show prefix/suffix)
+        let result = redact("123456789");
+        assert!(result.contains('*'));
+        assert!(result.starts_with('1') || result.starts_with('*'));
     }
 
     #[test]

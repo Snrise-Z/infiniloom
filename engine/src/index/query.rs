@@ -99,12 +99,23 @@ impl SymbolInfo {
 }
 
 /// Find a symbol by name and return its info
+///
+/// Deduplicates results by file path and line number to avoid returning
+/// the same symbol multiple times (e.g., export + declaration).
 pub fn find_symbol(index: &SymbolIndex, name: &str) -> Vec<SymbolInfo> {
-    index
+    let mut results: Vec<SymbolInfo> = index
         .find_symbols(name)
         .into_iter()
         .map(|sym| SymbolInfo::from_index_symbol(sym, index))
-        .collect()
+        .collect();
+
+    // Deduplicate by (file, line) to avoid returning export+declaration as separate entries
+    results.sort_by(|a, b| {
+        (&a.file, a.line).cmp(&(&b.file, b.line))
+    });
+    results.dedup_by(|a, b| a.file == b.file && a.line == b.line);
+
+    results
 }
 
 /// Get all callers of a symbol by name

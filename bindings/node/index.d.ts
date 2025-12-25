@@ -700,6 +700,10 @@ export interface ReferenceInfo {
   symbol: SymbolInfo
   /** Reference kind (call, import, inherit, implement) */
   kind: string
+  /** File path containing the reference (convenience field, same as symbol.file) */
+  file: string
+  /** Line number of the reference (convenience field, same as symbol.line) */
+  line: number
 }
 
 /** An edge in the call graph */
