@@ -192,11 +192,8 @@ fn test_budget_enforcer_truncate_at_exact_boundary() {
 #[test]
 fn test_budget_enforcer_all_strategies_with_unicode() {
     // Test all truncation strategies with Unicode content
-    let strategies = [
-        TruncationStrategy::Line,
-        TruncationStrategy::Semantic,
-        TruncationStrategy::Hard,
-    ];
+    let strategies =
+        [TruncationStrategy::Line, TruncationStrategy::Semantic, TruncationStrategy::Hard];
 
     let content = "fn 函数名():\n    print('你好世界')\n\ndef 另一个函数():\n    pass";
 
@@ -617,10 +614,6 @@ fn test_random_byte_counts() {
 
     for budget in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
         let result = enforcer.truncate_to_tokens(mixed, budget);
-        assert!(
-            std::str::from_utf8(result.as_bytes()).is_ok(),
-            "Failed at budget {}",
-            budget
-        );
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok(), "Failed at budget {}", budget);
     }
 }

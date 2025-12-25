@@ -10,9 +10,7 @@
 //! - Impact summary computation
 
 use infiniloom_engine::index::{
-    context::{
-        ChangeClassification, ChangeType, ContextDepth, ContextExpander, DiffChange,
-    },
+    context::{ChangeClassification, ChangeType, ContextDepth, ContextExpander, DiffChange},
     types::{
         DepGraph, FileEntry, FileId, IndexSymbol, IndexSymbolKind, Language, Span, SymbolId,
         SymbolIndex, Visibility,
@@ -255,10 +253,7 @@ fn test_expand_finds_changed_symbols() {
     let context = expander.expand(&[change], ContextDepth::L1, 100000);
 
     // Should find symbols in the changed lines
-    assert!(
-        !context.changed_symbols.is_empty(),
-        "Should find changed symbols"
-    );
+    assert!(!context.changed_symbols.is_empty(), "Should find changed symbols");
 
     let symbol_names: Vec<&str> = context
         .changed_symbols
@@ -314,10 +309,7 @@ fn test_expand_finds_related_tests_by_naming() {
     let context = expander.expand(&[change], ContextDepth::L2, 100000);
 
     // Should find test file by naming convention (test_main.rs for main.rs)
-    assert!(
-        !context.related_tests.is_empty(),
-        "Should find related tests"
-    );
+    assert!(!context.related_tests.is_empty(), "Should find related tests");
 }
 
 #[test]
@@ -338,10 +330,7 @@ fn test_expand_respects_token_budget() {
 
     // Should not exceed budget significantly
     // (changed files are always included, so can exceed)
-    assert!(
-        context.total_tokens <= 500,
-        "Should try to stay within budget"
-    );
+    assert!(context.total_tokens <= 500, "Should try to stay within budget");
 }
 
 // ============================================================================
@@ -504,14 +493,8 @@ fn test_impact_summary_computed() {
     let context = expander.expand(&[change], ContextDepth::L2, 100000);
 
     // Should have an impact summary
-    assert!(
-        context.impact_summary.direct_files > 0,
-        "Should count direct files"
-    );
-    assert!(
-        !context.impact_summary.description.is_empty(),
-        "Should have description"
-    );
+    assert!(context.impact_summary.direct_files > 0, "Should count direct files");
+    assert!(!context.impact_summary.description.is_empty(), "Should have description");
 }
 
 #[test]
@@ -567,10 +550,7 @@ fn test_call_chains_built_for_changed_symbols() {
             .collect();
 
         // At least one chain should exist
-        assert!(
-            !chain_symbols.is_empty(),
-            "Should have at least one call chain"
-        );
+        assert!(!chain_symbols.is_empty(), "Should have at least one call chain");
     }
 }
 
@@ -595,10 +575,7 @@ fn test_expand_nonexistent_file() {
 
     // Should not panic, just have no results
     // (File not in index, so no symbols found)
-    assert!(
-        context.changed_symbols.is_empty(),
-        "Nonexistent file should have no symbols"
-    );
+    assert!(context.changed_symbols.is_empty(), "Nonexistent file should have no symbols");
 }
 
 #[test]
@@ -630,10 +607,7 @@ fn test_expand_renamed_file() {
     let context = expander.expand(&[change], ContextDepth::L1, 100000);
 
     // Should find the file via old_path fallback
-    assert!(
-        !context.changed_files.is_empty(),
-        "Should find file via old_path"
-    );
+    assert!(!context.changed_files.is_empty(), "Should find file via old_path");
     // Output path should be the new path
     assert_eq!(context.changed_files[0].path, "src/main_renamed.rs");
 }
@@ -790,7 +764,9 @@ fn test_related_tests_detection_patterns() {
     });
 
     index.file_by_path.insert("src/utils.rs".to_owned(), 0);
-    index.file_by_path.insert("tests/test_utils.rs".to_owned(), 1);
+    index
+        .file_by_path
+        .insert("tests/test_utils.rs".to_owned(), 1);
     index.file_by_path.insert("src/utils_test.rs".to_owned(), 2);
 
     let mut graph = DepGraph::new();
@@ -811,7 +787,11 @@ fn test_related_tests_detection_patterns() {
     let context = expander.expand(&[change], ContextDepth::L2, 100000);
 
     // Should find test files
-    let test_paths: Vec<&str> = context.related_tests.iter().map(|f| f.path.as_str()).collect();
+    let test_paths: Vec<&str> = context
+        .related_tests
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
     assert!(
         test_paths.contains(&"tests/test_utils.rs") || test_paths.contains(&"src/utils_test.rs"),
         "Should find related test files, found: {:?}",

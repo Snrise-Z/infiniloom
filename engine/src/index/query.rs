@@ -110,9 +110,7 @@ pub fn find_symbol(index: &SymbolIndex, name: &str) -> Vec<SymbolInfo> {
         .collect();
 
     // Deduplicate by (file, line) to avoid returning export+declaration as separate entries
-    results.sort_by(|a, b| {
-        (&a.file, a.line).cmp(&(&b.file, b.line))
-    });
+    results.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
     results.dedup_by(|a, b| a.file == b.file && a.line == b.line);
 
     results

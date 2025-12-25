@@ -42,10 +42,7 @@ fn test_signature_extraction_near_200_byte_boundary_japanese() {
 
     // Hiragana/Katakana are 3 bytes each
     let japanese = "あいうえおかきくけこ".repeat(10); // 30 chars * 3 bytes * 10 = 900 bytes
-    let code = format!(
-        "# {}\ndef テスト関数():\n    pass\n",
-        &japanese[..198.min(japanese.len())]
-    );
+    let code = format!("# {}\ndef テスト関数():\n    pass\n", &japanese[..198.min(japanese.len())]);
 
     let result = parser.parse(&code, Language::Python);
     assert!(result.is_ok(), "Should handle Japanese near boundary");
@@ -57,10 +54,7 @@ fn test_signature_extraction_near_200_byte_boundary_thai() {
 
     // Thai characters are typically 3 bytes
     let thai = "กขคงจฉชซฌญฎฏ".repeat(20);
-    let code = format!(
-        "# {}\ndef ฟังก์ชัน():\n    pass\n",
-        &thai[..198.min(thai.len())]
-    );
+    let code = format!("# {}\ndef ฟังก์ชัน():\n    pass\n", &thai[..198.min(thai.len())]);
 
     let result = parser.parse(&code, Language::Python);
     assert!(result.is_ok(), "Should handle Thai near boundary");
@@ -72,10 +66,7 @@ fn test_signature_extraction_near_200_byte_boundary_khmer() {
 
     // Khmer characters are 3 bytes
     let khmer = "កខគឃងចឆជឈញ".repeat(20);
-    let code = format!(
-        "# {}\ndef អនុគមន៍():\n    pass\n",
-        &khmer[..198.min(khmer.len())]
-    );
+    let code = format!("# {}\ndef អនុគមន៍():\n    pass\n", &khmer[..198.min(khmer.len())]);
 
     let result = parser.parse(&code, Language::Python);
     assert!(result.is_ok(), "Should handle Khmer near boundary");
@@ -87,10 +78,7 @@ fn test_signature_extraction_near_200_byte_boundary_emoji() {
 
     // Emoji are 4 bytes each
     let emoji = "🎉🎊🎁🎂🎈🎀🎄🎃🎅🤶".repeat(5); // 50 chars * 4 bytes = 200 bytes
-    let code = format!(
-        "# {}\ndef emoji_func():\n    pass\n",
-        emoji
-    );
+    let code = format!("# {}\ndef emoji_func():\n    pass\n", emoji);
 
     let result = parser.parse(&code, Language::Python);
     assert!(result.is_ok(), "Should handle emoji near boundary");
@@ -129,10 +117,7 @@ fn test_very_long_unicode_function_name() {
         safe_len -= 1;
     }
 
-    let code = format!(
-        "def {}():\n    pass\n",
-        &long_name[..safe_len]
-    );
+    let code = format!("def {}():\n    pass\n", &long_name[..safe_len]);
 
     let result = parser.parse(&code, Language::Python);
     assert!(result.is_ok(), "Should handle very long Unicode function names");
@@ -157,7 +142,9 @@ def 处理数据函数(数据参数一, 数据参数二, 数据参数三):
 "#;
 
     let symbols = parser.parse(code, Language::Python).unwrap();
-    assert!(symbols.iter().any(|s| s.name.contains("处理数据函数") || s.name == "处理数据函数"));
+    assert!(symbols
+        .iter()
+        .any(|s| s.name.contains("处理数据函数") || s.name == "处理数据函数"));
 }
 
 #[test]
@@ -431,7 +418,10 @@ fn test_many_small_unicode_functions() {
     }
 
     let symbols = parser.parse(&code, Language::Python).unwrap();
-    let func_count = symbols.iter().filter(|s| s.kind == SymbolKind::Function).count();
+    let func_count = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .count();
     assert_eq!(func_count, 100, "Should find all 100 Unicode functions");
 }
 
@@ -460,7 +450,10 @@ def ελληνική():
 "#;
 
     let symbols = parser.parse(code, Language::Python).unwrap();
-    let func_count = symbols.iter().filter(|s| s.kind == SymbolKind::Function).count();
+    let func_count = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .count();
     assert_eq!(func_count, 6, "Should find all 6 multi-script functions");
 }
 

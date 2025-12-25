@@ -8,8 +8,8 @@
 
 use infiniloom_engine::index::{
     query::{
-        find_symbol, get_call_graph, get_call_graph_filtered, get_callers_by_name,
-        get_callees_by_name, get_references_by_name,
+        find_symbol, get_call_graph, get_call_graph_filtered, get_callees_by_name,
+        get_callers_by_name, get_references_by_name,
     },
     types::{
         DepGraph, FileEntry, FileId, IndexSymbol, IndexSymbolKind, Language, Span, SymbolId,
@@ -221,7 +221,10 @@ fn test_find_symbol_deduplicates_same_line() {
         results.len(),
         2,
         "Should deduplicate symbols on same file+line, got: {:?}",
-        results.iter().map(|s| (&s.file, s.line)).collect::<Vec<_>>()
+        results
+            .iter()
+            .map(|s| (&s.file, s.line))
+            .collect::<Vec<_>>()
     );
 
     // Verify both files are represented
@@ -398,11 +401,7 @@ fn test_get_callers_deduplicates() {
     // Getting callers of "target" should only return "caller" once
     let callers = get_callers_by_name(&index, &graph, "target");
 
-    assert_eq!(
-        callers.len(),
-        1,
-        "Should deduplicate callers with same ID"
-    );
+    assert_eq!(callers.len(), 1, "Should deduplicate callers with same ID");
 }
 
 // ============================================================================
@@ -420,10 +419,7 @@ fn test_get_references_includes_callers() {
     assert!(!refs.is_empty(), "Should find references");
 
     let caller_names: Vec<&str> = refs.iter().map(|r| r.symbol.name.as_str()).collect();
-    assert!(
-        caller_names.contains(&"main"),
-        "Should find main as a caller reference"
-    );
+    assert!(caller_names.contains(&"main"), "Should find main as a caller reference");
 }
 
 #[test]

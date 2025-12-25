@@ -313,7 +313,9 @@ impl SemanticCompressor {
                 let shown_content = pattern.repeat(instances_to_show);
                 // Safe: count * pattern_len is already at a valid boundary (start of next pattern or end)
                 let remainder_start = count * pattern_len;
-                let remainder = if remainder_start <= content.len() && content.is_char_boundary(remainder_start) {
+                let remainder = if remainder_start <= content.len()
+                    && content.is_char_boundary(remainder_start)
+                {
                     &content[remainder_start..]
                 } else {
                     ""
