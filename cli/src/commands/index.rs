@@ -131,11 +131,7 @@ fn build_index(
     }
 
     // Build options with exclusions
-    let build_opts = BuildOptions {
-        respect_gitignore: true,
-        exclude_dirs,
-        ..Default::default()
-    };
+    let build_opts = BuildOptions { respect_gitignore: true, exclude_dirs, ..Default::default() };
 
     // Build index (incremental support via Feature #4)
     let (index, graph, files_updated) = if incremental {
@@ -202,10 +198,7 @@ fn watch_for_changes(
     use std::time::Duration;
 
     println!();
-    eprintln!(
-        "{} Watching for file changes... (Ctrl+C to stop)",
-        "👀".cyan()
-    );
+    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
 
     let (tx, rx) = channel();
 
@@ -239,18 +232,20 @@ fn watch_for_changes(
                 if pending_rebuild && last_rebuild.elapsed() >= debounce_duration {
                     pending_rebuild = false;
                     println!();
-                    eprintln!(
-                        "{} File changes detected, rebuilding index...",
-                        "🔄".yellow()
-                    );
+                    eprintln!("{} File changes detected, rebuilding index...", "🔄".yellow());
                     // Pass exclude patterns but use incremental=true in watch mode
-                    if let Err(e) = build_index(storage, path, verbose, exclude, include_patterns, include_tests, true) {
+                    if let Err(e) = build_index(
+                        storage,
+                        path,
+                        verbose,
+                        exclude,
+                        include_patterns,
+                        include_tests,
+                        true,
+                    ) {
                         eprintln!("{} Failed to rebuild index: {}", "✗".red(), e);
                     }
-                    eprintln!(
-                        "{} Watching for file changes... (Ctrl+C to stop)",
-                        "👀".cyan()
-                    );
+                    eprintln!("{} Watching for file changes... (Ctrl+C to stop)", "👀".cyan());
                 }
             },
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

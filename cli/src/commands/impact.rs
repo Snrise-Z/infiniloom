@@ -80,7 +80,14 @@ pub fn cmd_impact(
     let _ = (&exclude, &include_patterns, include_tests, model);
 
     if is_symbol {
-        analyze_symbol_impact(&index, &graph, &target, show_call_graph, json_output, display_limit)?;
+        analyze_symbol_impact(
+            &index,
+            &graph,
+            &target,
+            show_call_graph,
+            json_output,
+            display_limit,
+        )?;
     } else {
         analyze_file_impact(&index, &graph, &target, json_output, display_limit)?;
     }

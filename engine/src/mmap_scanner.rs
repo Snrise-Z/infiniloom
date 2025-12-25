@@ -434,7 +434,9 @@ mod tests {
         let mapped = MappedFile::open(temp.path()).unwrap();
         assert!(mapped.len() > 0);
         assert!(!mapped.path().is_empty());
-        assert!(mapped.path().contains(temp.path().file_name().unwrap().to_str().unwrap()));
+        assert!(mapped
+            .path()
+            .contains(temp.path().file_name().unwrap().to_str().unwrap()));
     }
 
     #[test]
@@ -599,7 +601,9 @@ mod tests {
         writeln!(temp, "x = 1").unwrap();
 
         let scanner = MmapScanner::new();
-        scanner.scan_file(temp.path(), temp.path().parent().unwrap()).unwrap();
+        scanner
+            .scan_file(temp.path(), temp.path().parent().unwrap())
+            .unwrap();
 
         assert!(scanner.stats().files_scanned.load(Ordering::Relaxed) >= 1);
 
@@ -649,8 +653,12 @@ mod tests {
 
         // Should get 2 files (binary skipped)
         assert_eq!(results.len(), 2);
-        assert!(results.iter().any(|f| f.language == Some("python".to_string())));
-        assert!(results.iter().any(|f| f.language == Some("rust".to_string())));
+        assert!(results
+            .iter()
+            .any(|f| f.language == Some("python".to_string())));
+        assert!(results
+            .iter()
+            .any(|f| f.language == Some("rust".to_string())));
     }
 
     #[test]
@@ -831,7 +839,9 @@ mod tests {
         temp.write_all(content.as_bytes()).unwrap();
 
         let processor = StreamingProcessor::new(256);
-        let estimate = processor.estimate_tokens(temp.path(), TokenModel::Claude).unwrap();
+        let estimate = processor
+            .estimate_tokens(temp.path(), TokenModel::Claude)
+            .unwrap();
 
         // Claude has ~4 chars per token, so 1000 chars should be ~250 tokens
         assert!(estimate > 0);
@@ -867,7 +877,8 @@ mod tests {
     #[test]
     fn test_scanner_nonexistent_file() {
         let scanner = MmapScanner::new();
-        let result = scanner.scan_file(Path::new("/nonexistent/file.py"), Path::new("/nonexistent"));
+        let result =
+            scanner.scan_file(Path::new("/nonexistent/file.py"), Path::new("/nonexistent"));
         assert!(result.is_err());
     }
 

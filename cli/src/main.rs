@@ -814,16 +814,50 @@ fn main() -> Result<()> {
             include_patterns,
             include_tests,
         ),
-        Commands::Map { path, budget, model, output, exclude, include_patterns, include_tests, verbose } => {
-            commands::cmd_map(path, budget, model.map(|m| m.into()), output, exclude, include_patterns, include_tests, verbose)
-        },
+        Commands::Map {
+            path,
+            budget,
+            model,
+            output,
+            exclude,
+            include_patterns,
+            include_tests,
+            verbose,
+        } => commands::cmd_map(
+            path,
+            budget,
+            model.map(|m| m.into()),
+            output,
+            exclude,
+            include_patterns,
+            include_tests,
+            verbose,
+        ),
         Commands::Info { path } => commands::cmd_info(path),
         Commands::Init { path, format, template, output, force } => {
             commands::cmd_init(path, format, template, output, force)
         },
-        Commands::Index { path, force, status, verbose, watch, exclude, include_patterns, include_tests, incremental } => {
-            commands::cmd_index(path, force, status, verbose, watch, exclude, include_patterns, include_tests, incremental)
-        },
+        Commands::Index {
+            path,
+            force,
+            status,
+            verbose,
+            watch,
+            exclude,
+            include_patterns,
+            include_tests,
+            incremental,
+        } => commands::cmd_index(
+            path,
+            force,
+            status,
+            verbose,
+            watch,
+            exclude,
+            include_patterns,
+            include_tests,
+            incremental,
+        ),
         Commands::Diff {
             path,
             reference,
@@ -857,9 +891,31 @@ fn main() -> Result<()> {
             include_patterns,
             include_tests,
         ),
-        Commands::Impact { path, target, symbol, call_graph, json, verbose, exclude, include_patterns, include_tests, model, depth } => {
-            commands::cmd_impact(path, target, symbol, call_graph, json, verbose, exclude, include_patterns, include_tests, model.into(), depth)
-        },
+        Commands::Impact {
+            path,
+            target,
+            symbol,
+            call_graph,
+            json,
+            verbose,
+            exclude,
+            include_patterns,
+            include_tests,
+            model,
+            depth,
+        } => commands::cmd_impact(
+            path,
+            target,
+            symbol,
+            call_graph,
+            json,
+            verbose,
+            exclude,
+            include_patterns,
+            include_tests,
+            model.into(),
+            depth,
+        ),
         Commands::Chunk {
             path,
             strategy,

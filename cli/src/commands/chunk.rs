@@ -60,9 +60,7 @@ pub fn cmd_chunk(
             !exclude.iter().any(|pattern| {
                 f.relative_path.contains(pattern)
                     || f.relative_path.starts_with(pattern)
-                    || f.relative_path
-                        .split('/')
-                        .any(|part| part == pattern)
+                    || f.relative_path.split('/').any(|part| part == pattern)
             })
         });
     }
@@ -72,8 +70,7 @@ pub fn cmd_chunk(
         repo.files.retain(|f| {
             include_patterns.iter().any(|pattern| {
                 if pattern.contains('*') {
-                    glob::Pattern::new(pattern)
-                        .is_ok_and(|p| p.matches(&f.relative_path))
+                    glob::Pattern::new(pattern).is_ok_and(|p| p.matches(&f.relative_path))
                 } else {
                     f.relative_path.contains(pattern) || f.relative_path.ends_with(pattern)
                 }
@@ -84,7 +81,8 @@ pub fn cmd_chunk(
     // Exclude test files unless include_tests is true
     if !include_tests {
         use infiniloom_engine::default_ignores::{matches_any, TEST_IGNORES};
-        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+        repo.files
+            .retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
     }
 
     repo.metadata.total_files = repo.files.len() as u32;

@@ -536,10 +536,7 @@ pub fn format_timestamp(timestamp: u64) -> String {
     }
     let day = remaining_days as u32 + 1;
 
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
 }
 
 /// Check if a year is a leap year

@@ -81,8 +81,7 @@ pub fn cmd_diff(
         changes.retain(|c| {
             include_patterns.iter().any(|pattern| {
                 if pattern.contains('*') {
-                    glob::Pattern::new(pattern)
-                        .is_ok_and(|p| p.matches(&c.file_path))
+                    glob::Pattern::new(pattern).is_ok_and(|p| p.matches(&c.file_path))
                 } else {
                     c.file_path.contains(pattern) || c.file_path.ends_with(pattern)
                 }

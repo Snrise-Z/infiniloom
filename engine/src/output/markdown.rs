@@ -334,7 +334,10 @@ fn escape_markdown_cell(text: &str) -> String {
 #[allow(clippy::str_to_string)]
 mod tests {
     use super::*;
-    use crate::repomap::{FileIndexEntry, ModuleEdge, ModuleGraph, ModuleNode, RankedSymbol, RepoMap, RepoMapGenerator};
+    use crate::repomap::{
+        FileIndexEntry, ModuleEdge, ModuleGraph, ModuleNode, RankedSymbol, RepoMap,
+        RepoMapGenerator,
+    };
     use crate::types::{LanguageStats, RepoFile, RepoMetadata, TokenCounts};
 
     fn create_test_repo() -> Repository {
@@ -474,11 +477,7 @@ mod tests {
                 importance: 0.95,
             }],
             module_graph: ModuleGraph {
-                nodes: vec![ModuleNode {
-                    name: "main".to_string(),
-                    files: 1,
-                    tokens: 50,
-                }],
+                nodes: vec![ModuleNode { name: "main".to_string(), files: 1, tokens: 50 }],
                 edges: vec![],
             },
             file_index: vec![FileIndexEntry {
@@ -520,16 +519,8 @@ mod tests {
             ],
             module_graph: ModuleGraph {
                 nodes: vec![
-                    ModuleNode {
-                        name: "main".to_string(),
-                        files: 1,
-                        tokens: 100,
-                    },
-                    ModuleNode {
-                        name: "lib".to_string(),
-                        files: 1,
-                        tokens: 80,
-                    },
+                    ModuleNode { name: "main".to_string(), files: 1, tokens: 100 },
+                    ModuleNode { name: "lib".to_string(), files: 1, tokens: 80 },
                 ],
                 edges: vec![ModuleEdge {
                     from: "main-mod".to_string(),
@@ -888,10 +879,7 @@ mod tests {
         let map = RepoMap {
             summary: "Empty repository".to_string(),
             key_symbols: vec![],
-            module_graph: ModuleGraph {
-                nodes: vec![],
-                edges: vec![],
-            },
+            module_graph: ModuleGraph { nodes: vec![], edges: vec![] },
             file_index: vec![],
             token_count: 0,
         };

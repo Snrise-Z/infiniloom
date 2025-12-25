@@ -1199,7 +1199,11 @@ mod tests {
         let content = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let chunks = compressor.split_into_chunks(content);
         // Should force split by max_chunk_size when no other splitting works
-        assert!(chunks.len() >= 2, "Expected at least 2 chunks from force split, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "Expected at least 2 chunks from force split, got {}",
+            chunks.len()
+        );
     }
 
     #[test]
@@ -1317,7 +1321,10 @@ mod tests {
     fn test_compress_repetitive_line_low_ratio() {
         let compressor = SemanticCompressor::new();
         // Lines where no single line repeats enough
-        let content = (0..20).map(|i| format!("unique line {}", i)).collect::<Vec<_>>().join("\n");
+        let content = (0..20)
+            .map(|i| format!("unique line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
         let result = compressor.compress_repetitive(&content);
         // No significant repetition
         assert!(result.is_none());
@@ -1388,11 +1395,7 @@ mod tests {
         let chunks = compressor.split_into_chunks(content);
 
         for chunk in &chunks {
-            assert!(
-                chunk.content.len() <= 50,
-                "Chunk size {} exceeds max 50",
-                chunk.content.len()
-            );
+            assert!(chunk.content.len() <= 50, "Chunk size {} exceeds max 50", chunk.content.len());
         }
     }
 
@@ -1503,7 +1506,9 @@ mod tests {
         // Test that budget_ratio affects compression of content with paragraph breaks
         // This tests the chunk-based compression path
         let content = (0..20)
-            .map(|i| format!("This is paragraph number {} with some content to fill it out nicely.", i))
+            .map(|i| {
+                format!("This is paragraph number {} with some content to fill it out nicely.", i)
+            })
             .collect::<Vec<_>>()
             .join("\n\n");
 
