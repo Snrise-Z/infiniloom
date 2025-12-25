@@ -247,7 +247,8 @@ fn is_likely_binary_extension(path: &Path) -> bool {
 /// Check if content appears to be binary
 fn is_binary_content(content: &str) -> bool {
     // Check first 8KB for null bytes
-    let check_size = content.len().min(8192);
+    // Use floor_char_boundary to ensure we don't slice in the middle of a multi-byte UTF-8 character
+    let check_size = content.floor_char_boundary(content.len().min(8192));
     let sample = &content[..check_size];
 
     // If we find null bytes, it's likely binary
@@ -349,5 +350,55 @@ mod tests {
         assert!(matches_any_pattern("main.rs", &patterns));
         assert!(matches_any_pattern("main.ts", &patterns));
         assert!(!matches_any_pattern("main.py", &patterns));
+    }
+
+    #[test]
+    fn test_is_binary_content_unicode_boundary() {
+        // Test that is_binary_content doesn't panic when a multi-byte UTF-8 character
+        // spans the 8192 byte boundary. The bullet character • is 3 bytes (E2 80 A2).
+        // We place it so that it spans bytes 8190-8192.
+        let mut content = String::with_capacity(8200);
+        // Fill with ASCII 'a' until byte 8190
+        for _ in 0..8190 {
+            content.push('a');
+        }
+        // Add bullet '•' (3 bytes: E2 80 A2) spanning bytes 8190-8192
+        content.push('•');
+        // Add more content
+        content.push_str("more content after boundary");
+
+        // This should not panic - previously would panic with:
+        // "byte index 8192 is not a char boundary; it is inside '•'"
+        let result = is_binary_content(&content);
+        assert!(!result, "Text content should not be detected as binary");
+    }
+
+    #[test]
+    fn test_is_binary_content_various_unicode() {
+        // Test with various multi-byte Unicode characters near the boundary
+        let test_cases = [
+            ("Chinese", "中"),  // 3 bytes each
+            ("Japanese", "あ"), // 3 bytes
+            ("Korean", "한"),   // 3 bytes
+            ("Emoji", "😀"),    // 4 bytes
+            ("Arabic", "م"),    // 2 bytes
+        ];
+
+        for (name, char) in test_cases {
+            let char_bytes = char.len();
+            // Create content where the character would span the 8192 boundary
+            let fill_count = 8192 - (char_bytes - 1);
+            let mut content = String::with_capacity(8300);
+            for _ in 0..fill_count {
+                content.push('x');
+            }
+            content.push_str(char);
+            content.push_str("tail");
+
+            // Should not panic
+            let _ = is_binary_content(&content);
+            // Just verify it doesn't panic - the actual result doesn't matter for this test
+            assert!(content.len() > 8192, "{} test: content should exceed 8192 bytes", name);
+        }
     }
 }
