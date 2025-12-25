@@ -86,7 +86,6 @@ digest.txt
 
 # Internal development docs (not for public release)
 docs/RELEASE_PLAN.md
-docs/IMPLEMENTATION_STATUS.md
 
 # Binding-specific dev docs
 bindings/*/SUMMARY.md

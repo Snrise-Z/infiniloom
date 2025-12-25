@@ -320,6 +320,211 @@ All call graph functions have async versions:
 - `getReferencesAsync(path, symbolName)`
 - `getCallGraphAsync(path, options)`
 
+#### `indexStatus(path: string): IndexStatus`
+
+Get the status of an existing index.
+
+```javascript
+const { indexStatus } = require('infiniloom-node');
+
+const status = indexStatus('./my-repo');
+if (status.exists) {
+  console.log(`Index has ${status.symbolCount} symbols`);
+} else {
+  console.log('No index found - run buildIndex first');
+}
+```
+
+### Chunking API
+
+Split large repositories into manageable chunks for multi-turn LLM conversations.
+
+#### `chunk(path: string, options?: ChunkOptions): RepoChunk[]`
+
+Split repository into chunks for processing with limited context windows.
+
+```javascript
+const { chunk } = require('infiniloom-node');
+
+// Split large repo into manageable chunks
+const chunks = chunk('./my-large-repo', {
+  strategy: 'module',
+  maxTokens: 50000,
+  model: 'claude'
+});
+
+for (const c of chunks) {
+  console.log(`Chunk ${c.index + 1}/${c.total}: ${c.focus} (${c.tokens} tokens)`);
+  // Send c.content to LLM for analysis
+}
+
+// Use dependency-aware chunking
+const depChunks = chunk('./my-repo', {
+  strategy: 'dependency',
+  priorityFirst: true
+});
+```
+
+**ChunkOptions:**
+```typescript
+interface ChunkOptions {
+  strategy?: string;    // "fixed", "file", "module", "symbol", "semantic", "dependency"
+  maxTokens?: number;   // Maximum tokens per chunk (default: 8000)
+  overlap?: number;     // Token overlap between chunks (default: 0)
+  model?: string;       // Target model for token counting (default: "claude")
+  priorityFirst?: boolean; // Sort chunks by file priority (default: false)
+}
+```
+
+**RepoChunk:**
+```typescript
+interface RepoChunk {
+  index: number;     // Chunk index (0-based)
+  total: number;     // Total number of chunks
+  focus: string;     // Description of chunk focus
+  tokens: number;    // Token count
+  files: string[];   // Files in this chunk
+  content: string;   // Combined content
+}
+```
+
+### Impact Analysis API
+
+Analyze the impact of changes to understand what code is affected.
+
+#### `analyzeImpact(path: string, files: string[], options?: ImpactOptions): ImpactResult`
+
+Analyze the impact of changes to files or symbols.
+
+```javascript
+const { analyzeImpact, buildIndex } = require('infiniloom-node');
+
+// Build index first
+buildIndex('./my-repo');
+
+// Analyze impact of changing a file
+const impact = analyzeImpact('./my-repo', ['src/auth.js']);
+console.log(`Impact level: ${impact.impactLevel}`);
+console.log(`Summary: ${impact.summary}`);
+
+// See what else needs updating
+for (const dep of impact.dependentFiles) {
+  console.log(`  Dependent: ${dep}`);
+}
+
+for (const sym of impact.affectedSymbols) {
+  console.log(`  ${sym.impactType}: ${sym.name} in ${sym.file}`);
+}
+```
+
+**ImpactOptions:**
+```typescript
+interface ImpactOptions {
+  depth?: number;         // Depth of dependency traversal (1-3, default: 2)
+  includeTests?: boolean; // Include test files in analysis (default: false)
+}
+```
+
+**ImpactResult:**
+```typescript
+interface ImpactResult {
+  changedFiles: string[];
+  dependentFiles: string[];
+  testFiles: string[];
+  affectedSymbols: AffectedSymbol[];
+  impactLevel: string;  // "low", "medium", "high", "critical"
+  summary: string;
+}
+
+interface AffectedSymbol {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  impactType: string;
+}
+```
+
+### Diff Context API
+
+Get semantic context around code changes for AI-powered code review.
+
+#### `getDiffContext(path: string, options?: DiffContextOptions): DiffContext`
+
+Get context-aware diff with surrounding symbols and dependencies.
+
+```javascript
+const { getDiffContext, buildIndex } = require('infiniloom-node');
+
+// Build index for full context (optional but recommended)
+buildIndex('./my-repo');
+
+// Get context for uncommitted changes
+const context = getDiffContext('./my-repo');
+console.log(`Changed: ${context.changedFiles.length} files`);
+
+// Get context for last commit with diff content
+const commitContext = getDiffContext('./my-repo', {
+  fromRef: 'HEAD~1',
+  toRef: 'HEAD',
+  includeDiff: true
+});
+
+for (const f of commitContext.changedFiles) {
+  console.log(`${f.changeType}: ${f.path}`);
+  if (f.diff) {
+    console.log(f.diff);
+  }
+}
+
+// Get context for a PR (branch comparison)
+const prContext = getDiffContext('./my-repo', {
+  fromRef: 'main',
+  toRef: 'feature-branch',
+  depth: 3
+});
+console.log(`Related symbols: ${prContext.contextSymbols.length}`);
+console.log(`Related tests: ${prContext.relatedTests.length}`);
+```
+
+**DiffContextOptions:**
+```typescript
+interface DiffContextOptions {
+  fromRef?: string;     // Starting ref - "" for unstaged (default)
+  toRef?: string;       // Ending ref - "HEAD" (default)
+  depth?: number;       // Context expansion depth (1-3, default: 2)
+  budget?: number;      // Token budget for context (default: 50000)
+  includeDiff?: boolean; // Include actual diff content (default: false)
+}
+```
+
+**DiffContext:**
+```typescript
+interface DiffContext {
+  changedFiles: DiffFile[];
+  contextSymbols: ContextSymbol[];
+  relatedTests: string[];
+  totalTokens: number;
+}
+
+interface DiffFile {
+  path: string;
+  changeType: string;
+  additions: number;
+  deletions: number;
+  diff?: string;  // Only if includeDiff is true
+}
+
+interface ContextSymbol {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  reason: string;
+  signature?: string;
+}
+```
+
 #### `isGitRepo(path: string): boolean`
 
 Check if a path is a git repository.

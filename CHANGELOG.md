@@ -5,6 +5,88 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2025-01-24
+
+### Added
+
+- **Documentation Overhaul** - Comprehensive restructure of project documentation
+  - New `docs/README.md` - Documentation index and hub
+  - New `docs/CONFIGURATION.md` - Comprehensive configuration reference
+  - New `docs/getting-started/installation.md` - All installation methods
+  - New `docs/getting-started/quick-start.md` - 5-minute tutorial
+  - New `docs/guides/llm-optimization.md` - Model-specific tips
+  - New `docs/guides/large-repos.md` - Scaling strategies
+  - New `docs/guides/ci-integration.md` - CI/CD workflows
+
+### Changed
+
+- **README.md** - Reduced from 703 to 276 lines with better structure
+  - Added CI, coverage, npm, PyPI, MSRV badges
+  - Added collapsible sections for detailed tables
+  - Added real performance benchmarks
+  - Cleaner structure with quick navigation
+
+### Fixed
+
+- **CI Formatting** - Run `cargo fmt` on test files that were failing CI
+- **Version Bump** - Fixed v0.4.2 PyPI version conflict
+
+## [0.4.2] - 2025-01-24
+
+### Fixed
+
+- **UTF-8 Boundary Bugs** - Fixed panics when handling multi-byte Unicode characters
+  - Fixed `security.rs:redact()` panic when secrets contain multi-byte chars
+  - Fixed `semantic.rs:compress_repetitive()` panic at pattern boundaries
+  - Both fixes use character-based operations instead of byte slicing
+
+### Added
+
+- **112 New Tests** for Unicode safety across all string operations
+  - `unicode_boundary_tests.rs` - Parser UTF-8 safety (28 tests)
+  - `query_deduplication_tests.rs` - Symbol lookup deduplication (24 tests)
+  - `context_expansion_tests.rs` - ContextExpander functionality (23 tests)
+  - `string_slicing_boundary_tests.rs` - BudgetEnforcer/Tokenizer safety (37 tests)
+  - Coverage for Chinese, Japanese, Korean, Arabic, Hebrew, Cyrillic, Thai, Tamil, Khmer, Myanmar, Gujarati, emoji, and combining characters
+
+## [0.4.1] - 2025-01-24
+
+### Fixed
+
+- **CI Test Failures** - Fixed multiple CI issues
+  - Fixed clippy `derive_ord_xor_partial_ord` error in `ImportanceScore`
+  - Fixed Python `scan()` to read file contents for proper line counts
+  - Fixed Node.js test regex to match "Unknown model" error message
+  - Applied `cargo fmt` formatting fixes
+
+## [0.4.0] - 2025-01-24
+
+### Changed
+
+- **Major Architecture Refactoring** - Improved code organization and maintainability
+  - Modularized parser into `parser/` directory (21 languages)
+  - Modularized tokenizer into `tokenizer/` directory
+  - Modularized index into `builder/` and `context/` subdirectories
+  - Added shared bindings code in `bindings/common/`
+  - Refactored CLI commands into `cli/src/commands/` directory
+
+### Added
+
+- **Type Safety Improvements**
+  - New `newtypes.rs` for type-safe wrappers (`SymbolId`, `FileId`, `LineNumber`)
+  - New `constants.rs` for centralized configuration values
+
+- **Architecture Documentation**
+  - New `engine/ARCHITECTURE.md` with module dependency graph
+  - Moved `TEST_SPECIFICATION.md` to `docs/`
+  - Updated README.md with correct project structure
+
+### Removed
+
+- Removed `benchmarks/competitive/` (not production-ready)
+- Removed `tests/e2e/` (outdated test scripts)
+- Removed `docs/IMPROVEMENTS_TRACKER.md` (completed)
+
 ## [0.3.4] - 2025-12-23
 
 ### Added
@@ -19,6 +101,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full Python bindings with sync and async versions
   - Full Node.js bindings with sync and async versions
   - TypeScript type definitions for all call graph types
+
+## [0.3.3] - 2025-12-23
+
+### Added
+
+- **Python Async API** - Non-blocking async operations via `_async.py` module
+  - All main functions available as async versions
+  - Uses thread pool executor for non-blocking I/O
+
+- **Expanded Git Bindings**
+  - Python: `file_at_ref()`, `parse_diff_hunks()` added to `GitRepo`
+  - Python: Export `build_index`, `index_status`, `chunk`, `analyze_impact`, `get_diff_context`
+  - Node.js: `changed_only`, `base_sha`, `head_sha`, `staged_only` pack options
+  - Node.js: `include_related`, `related_depth` for context expansion
+
+### Fixed
+
+- **PyPI Wheel Builds** - All platforms now have working wheels
+  - macOS x64 wheel now built (was missing target parameter)
+  - Linux ARM64 wheel re-enabled with QEMU + manylinux_2_28
+  - npm CLI wrapper script permissions fixed (644 → 755)
 
 ## [0.3.2] - 2025-12-23
 
@@ -221,7 +324,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.4...v0.4.0
+[0.3.4]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.2.0...v0.3.0

@@ -317,6 +317,161 @@ async def analyze_codebase():
 asyncio.run(analyze_codebase())
 ```
 
+#### `index_status(path)`
+
+Get the status of an existing index.
+
+**Parameters:**
+- `path` (str): Path to repository root
+
+**Returns:** dict - Index status with `exists`, `file_count`, `symbol_count`, `last_built`, `version`
+
+```python
+import infiniloom
+
+status = infiniloom.index_status("/path/to/repo")
+if status["exists"]:
+    print(f"Index has {status['symbol_count']} symbols")
+else:
+    print("No index found - run build_index first")
+```
+
+### Chunking API
+
+Split large repositories into manageable chunks for multi-turn LLM conversations.
+
+#### `chunk(path, strategy="module", max_tokens=8000, overlap=0, model="claude", priority_first=False)`
+
+Split repository into chunks for processing with limited context windows.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `strategy` (str): Chunking strategy - "fixed", "file", "module", "symbol", "semantic", "dependency"
+- `max_tokens` (int): Maximum tokens per chunk (default: 8000)
+- `overlap` (int): Token overlap between chunks (default: 0)
+- `model` (str): Target model for token counting (default: "claude")
+- `priority_first` (bool): Sort chunks by file priority (default: False)
+
+**Returns:** list[dict] - List of chunks with `index`, `total`, `focus`, `tokens`, `files`, `content`
+
+```python
+import infiniloom
+
+# Split large repo into manageable chunks
+chunks = infiniloom.chunk("/path/to/large-repo", strategy="module", max_tokens=50000)
+
+for c in chunks:
+    print(f"Chunk {c['index']+1}/{c['total']}: {c['focus']} ({c['tokens']} tokens)")
+    # Send c['content'] to LLM for analysis
+
+# Use dependency-aware chunking for better context
+chunks = infiniloom.chunk("/path/to/repo", strategy="dependency", priority_first=True)
+```
+
+**Strategies:**
+- `fixed`: Split at fixed token boundaries
+- `file`: One file per chunk
+- `module`: Group by module/directory
+- `symbol`: Group by symbol (function/class)
+- `semantic`: Group by semantic similarity
+- `dependency`: Group by dependency relationships
+
+### Impact Analysis API
+
+Analyze the impact of changes to understand what code is affected.
+
+#### `analyze_impact(path, files, depth=2, include_tests=False)`
+
+Analyze the impact of changes to files or symbols.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `files` (list[str]): List of files to analyze
+- `depth` (int): Depth of dependency traversal (1-3, default: 2)
+- `include_tests` (bool): Include test files in analysis (default: False)
+
+**Returns:** dict - Impact analysis with:
+- `changed_files`: List of files being analyzed
+- `dependent_files`: Files that depend on changed files
+- `test_files`: Related test files
+- `affected_symbols`: List of affected symbols with name, kind, file, line, impact_type
+- `impact_level`: Impact severity ("low", "medium", "high", "critical")
+- `summary`: Human-readable summary
+
+```python
+import infiniloom
+
+# Build index first
+infiniloom.build_index("/path/to/repo")
+
+# Analyze impact of changing a file
+impact = infiniloom.analyze_impact("/path/to/repo", ["src/auth.py"])
+print(f"Impact level: {impact['impact_level']}")
+print(f"Summary: {impact['summary']}")
+
+# See what else needs updating
+for dep in impact['dependent_files']:
+    print(f"  Dependent: {dep}")
+
+for sym in impact['affected_symbols']:
+    print(f"  {sym['impact_type']}: {sym['name']} in {sym['file']}")
+```
+
+### Diff Context API
+
+Get semantic context around code changes for AI-powered code review.
+
+#### `get_diff_context(path, from_ref="", to_ref="HEAD", depth=2, budget=50000, include_diff=False)`
+
+Get context-aware diff with surrounding symbols and dependencies.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `from_ref` (str): Starting ref - "" for unstaged, "HEAD" for staged, commit hash, branch name
+- `to_ref` (str): Ending ref - "HEAD", commit hash, branch name
+- `depth` (int): Context expansion depth (1-3, default: 2)
+- `budget` (int): Token budget for context (default: 50000)
+- `include_diff` (bool): Include actual diff content (default: False)
+
+**Returns:** dict - Diff context with:
+- `changed_files`: List of changed files with path, change_type, additions, deletions, diff (if requested)
+- `context_symbols`: Related symbols with name, kind, file, line, reason, signature
+- `related_tests`: List of related test file paths
+- `total_tokens`: Estimated token count
+
+```python
+import infiniloom
+
+# Build index for full context (optional but recommended)
+infiniloom.build_index("/path/to/repo")
+
+# Get context for uncommitted changes
+context = infiniloom.get_diff_context("/path/to/repo")
+print(f"Changed: {len(context['changed_files'])} files")
+
+# Get context for last commit with diff content
+context = infiniloom.get_diff_context(
+    "/path/to/repo",
+    from_ref="HEAD~1",
+    to_ref="HEAD",
+    include_diff=True
+)
+for f in context['changed_files']:
+    print(f"{f['change_type']}: {f['path']}")
+    if 'diff' in f:
+        print(f['diff'])
+
+# Get context for a PR (branch comparison)
+context = infiniloom.get_diff_context(
+    "/path/to/repo",
+    from_ref="main",
+    to_ref="feature-branch",
+    depth=3
+)
+print(f"Related symbols: {len(context['context_symbols'])}")
+print(f"Related tests: {len(context['related_tests'])}")
+```
+
 ### Classes
 
 #### `Infiniloom(path)`

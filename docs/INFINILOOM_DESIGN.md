@@ -1,8 +1,12 @@
-# Infiniloom Enhanced Design: Ultimate Repository Context Tool
+# Infiniloom Design Document
+
+> **Note:** This document describes the design decisions and architecture of Infiniloom.
+> For planned but unimplemented features, see [ROADMAP.md](planning/ROADMAP.md).
+> For current implementation status, see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ## Executive Summary
 
-Building upon the initial analysis of Repomix and Gitingest, this document presents an enhanced design for **Infiniloom** - a next-generation repository context tool that leverages cutting-edge technologies, advanced AI techniques, and innovative architecture patterns to become the definitive solution for LLM-assisted code understanding.
+This document describes the design and architecture of **Infiniloom** - a high-performance repository context tool that leverages Tree-sitter parsing, PageRank ranking, and model-specific output formats to provide optimized context for LLM-assisted code understanding.
 
 ---
 
@@ -1313,12 +1317,13 @@ The project has been fully implemented in **pure Rust** for maximum performance 
 - [x] **Python Bindings**: PyO3 + Maturin
 - [x] **Node.js Bindings**: NAPI-RS
 
-### Future Enhancements (Planned - Phase 2, not implemented intentionally)
+### Future Enhancements
 
-- [ ] VSCode extension
-- [ ] MCP server integration
-- [ ] Local embedding support (CodeBERT/StarCoder)
-- [ ] Plugin SDK for custom analyzers
+See [ROADMAP.md](planning/ROADMAP.md) for planned features including:
+- IDE extensions (VS Code, JetBrains)
+- MCP server integration
+- Neural embeddings (CodeBERT/StarCoder)
+- Plugin SDK for custom analyzers
 
 ---
 
