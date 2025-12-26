@@ -1,8 +1,8 @@
 # Infiniloom Roadmap
 
 **Status:** Planning Document
-**Last Updated:** 2025-01-24
-**Current Version:** 0.4.3
+**Last Updated:** 2025-12-25
+**Current Version:** 0.4.8
 
 This document outlines planned features for future versions of Infiniloom. These features are **not yet implemented** and are subject to change based on community feedback and priorities.
 
@@ -11,7 +11,7 @@ This document outlines planned features for future versions of Infiniloom. These
 ## Overview
 
 Infiniloom has a solid foundation with:
-- AST-based symbol extraction (21 languages)
+- AST-based symbol extraction (22 languages)
 - PageRank-based ranking
 - Model-specific output formats
 - Secret detection and redaction

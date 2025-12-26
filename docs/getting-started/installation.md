@@ -113,7 +113,7 @@ infiniloom info
 Expected output:
 
 ```
-infiniloom 0.4.2
+infiniloom 0.4.8
 ```
 
 ## Updating
