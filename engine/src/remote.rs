@@ -524,8 +524,7 @@ mod tests {
 
     #[test]
     fn test_parse_with_branch_and_subdir() {
-        let repo =
-            RemoteRepo::parse("https://github.com/owner/repo/tree/main/src/lib").unwrap();
+        let repo = RemoteRepo::parse("https://github.com/owner/repo/tree/main/src/lib").unwrap();
         assert_eq!(repo.provider, GitProvider::GitHub);
         assert_eq!(repo.branch, Some("main".to_string()));
         assert_eq!(repo.subdir, Some("src/lib".to_string()));
@@ -533,8 +532,7 @@ mod tests {
 
     #[test]
     fn test_parse_with_blob_path() {
-        let repo =
-            RemoteRepo::parse("https://github.com/owner/repo/blob/main/README.md").unwrap();
+        let repo = RemoteRepo::parse("https://github.com/owner/repo/blob/main/README.md").unwrap();
         assert_eq!(repo.branch, Some("main".to_string()));
         assert_eq!(repo.subdir, Some("README.md".to_string()));
     }
@@ -854,7 +852,8 @@ mod tests {
         let repo = RemoteRepo::parse("owner/project").unwrap();
 
         // Test that clone() would use correct default path
-        let expected_pattern = format!("infiniloom-{}-{}", repo.owner.as_deref().unwrap_or("repo"), repo.name);
+        let expected_pattern =
+            format!("infiniloom-{}-{}", repo.owner.as_deref().unwrap_or("repo"), repo.name);
 
         // The default path should be in temp dir with owner and name
         assert_eq!(repo.owner.as_deref(), Some("owner"));

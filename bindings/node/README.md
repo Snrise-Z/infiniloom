@@ -187,10 +187,10 @@ Scan a repository with full configuration options.
 Count tokens in text for a specific model.
 
 **Parameters:**
-- `text` - Text to tokenize
+- `text` - Text to tokenize (null/undefined returns 0)
 - `model` - Optional model name (default: "claude")
 
-**Returns:** Token count
+**Returns:** Token count (0 for empty, null, or undefined input)
 
 #### `semanticCompress(text: string, similarityThreshold?: number, budgetRatio?: number): string`
 
@@ -199,9 +199,9 @@ Compress text using semantic compression while preserving important content.
 **Parameters:**
 - `text` - Text to compress
 - `similarityThreshold` - Threshold for grouping similar chunks (0.0-1.0, default: 0.7). Note: Only affects output when built with "embeddings" feature.
-- `budgetRatio` - Target size as ratio of original (0.0-1.0, default: 0.5). Lower values = more aggressive compression.
+- `budgetRatio` - Target size as ratio of original (0.0-1.0, default: 0.5). Lower values = more aggressive compression. Affects content as small as 10 characters. Use 1.0 to preserve content unchanged.
 
-**Returns:** Compressed text
+**Returns:** Compressed text (may include truncation markers showing percentage and character counts)
 
 #### `scanSecurity(path: string): SecurityFinding[]`
 
@@ -567,7 +567,7 @@ interface PackOptions {
   exclude?: string[];        // Glob patterns to exclude (e.g., ["**/*.test.ts"])
   includeTests?: boolean;    // Include test files (default: false)
   securityThreshold?: string;// Minimum severity to block: "critical", "high", "medium", "low"
-  tokenBudget?: number;      // Limit total output tokens (0 = no limit)
+  tokenBudget?: number;      // Limit total output tokens (0 = no limit, negative values rejected)
   // Git-based filtering options (PR review integration)
   changedOnly?: boolean;     // Only include files changed in git
   baseSha?: string;          // Base SHA/ref for diff comparison (e.g., "main", "HEAD~5")

@@ -29,7 +29,10 @@ export interface PackOptions {
   includeTests?: boolean
   /** Minimum security severity to block on: "critical", "high", "medium", "low" (default: "critical") */
   securityThreshold?: string
-  /** Token budget for total output (0 = no limit). Files are included by importance until budget is reached. */
+  /**
+   * Token budget for total output (0 = no limit). Files are included by importance until budget is reached.
+   * Negative values are invalid and will throw an error.
+   */
   tokenBudget?: number
   /** Only include files changed in git (requires baseSha or uses uncommitted changes) */
   changedOnly?: boolean
@@ -154,7 +157,7 @@ export declare function scanWithOptions(path: string, options?: ScanOptions | un
  * Count tokens in text for a specific model
  *
  * # Arguments
- * * `text` - Text to tokenize
+ * * `text` - Text to tokenize (null/undefined returns 0)
  * * `model` - Optional model name (default: "claude")
  *
  * # Returns
@@ -168,7 +171,7 @@ export declare function scanWithOptions(path: string, options?: ScanOptions | un
  * console.log(`Tokens: ${count}`);
  * ```
  */
-export declare function countTokens(text: string, model?: string | undefined | null): number
+export declare function countTokens(text?: string | undefined | null, model?: string | undefined | null): number
 /**
  * Compress text using semantic compression
  *
@@ -821,6 +824,12 @@ export interface ImpactOptions {
   depth?: number
   /** Include test files in analysis */
   includeTests?: boolean
+  /** Target model for token counting (default: "claude") */
+  model?: string
+  /** Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"]) */
+  exclude?: Array<string>
+  /** Glob patterns to include (e.g., ["src/**/*.ts"]) */
+  include?: Array<string>
 }
 /** Symbol affected by a change */
 export interface AffectedSymbol {
@@ -887,6 +896,12 @@ export interface DiffContextOptions {
   includeDiff?: boolean
   /** Output format: "xml", "markdown", "json" (default: "xml") */
   format?: string
+  /** Target model for token counting (default: "claude") */
+  model?: string
+  /** Glob patterns to exclude (e.g., ["**/*.test.ts", "dist/**"]) */
+  exclude?: Array<string>
+  /** Glob patterns to include (e.g., ["src/**/*.ts"]) */
+  include?: Array<string>
 }
 /** Context-aware diff result */
 export interface DiffContextResult {

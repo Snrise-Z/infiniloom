@@ -108,6 +108,8 @@ pub struct DiffLine {
 /// A diff hunk representing a contiguous block of changes
 #[derive(Debug, Clone)]
 pub struct DiffHunk {
+    /// File path this hunk belongs to (relative to repo root)
+    pub file: String,
     /// Starting line in the old file
     pub old_start: u32,
     /// Number of lines in the old file section
@@ -605,10 +607,35 @@ fn is_leap_year(year: i64) -> bool {
 fn parse_diff_hunks(diff_output: &str) -> Result<Vec<DiffHunk>, GitError> {
     let mut hunks = Vec::new();
     let mut current_hunk: Option<DiffHunk> = None;
+    let mut current_file = String::new();
     let mut old_line = 0u32;
     let mut new_line = 0u32;
 
     for line in diff_output.lines() {
+        // Reset file tracking when we see a new diff header
+        if line.starts_with("diff --git") {
+            // Save previous hunk if exists before starting new file
+            if let Some(hunk) = current_hunk.take() {
+                hunks.push(hunk);
+            }
+            current_file = String::new();
+            continue;
+        }
+        // Track file from "--- a/path" lines (old file path)
+        if let Some(path) = line.strip_prefix("--- a/") {
+            current_file = path.to_owned();
+            continue;
+        }
+        // Track file from "+++ b/path" lines (new file path - prefer this)
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_file = path.to_owned();
+            continue;
+        }
+        // Handle /dev/null for new or deleted files
+        if line.starts_with("--- /dev/null") || line.starts_with("+++ /dev/null") {
+            continue;
+        }
+
         // Check for hunk header: @@ -old_start,old_count +new_start,new_count @@ context
         if line.starts_with("@@") {
             // Save previous hunk if exists
@@ -622,6 +649,7 @@ fn parse_diff_hunks(diff_output: &str) -> Result<Vec<DiffHunk>, GitError> {
                 new_line = new_start;
 
                 current_hunk = Some(DiffHunk {
+                    file: current_file.clone(),
                     old_start,
                     old_count,
                     new_start,

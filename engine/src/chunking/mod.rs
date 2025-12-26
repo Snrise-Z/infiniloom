@@ -832,8 +832,8 @@ mod tests {
 
     #[test]
     fn test_chunker_with_model() {
-        let chunker =
-            Chunker::new(ChunkStrategy::Fixed { size: 1000 }, 1000).with_model(TokenizerModel::Gpt4o);
+        let chunker = Chunker::new(ChunkStrategy::Fixed { size: 1000 }, 1000)
+            .with_model(TokenizerModel::Gpt4o);
         assert_eq!(chunker.model, TokenizerModel::Gpt4o);
     }
 

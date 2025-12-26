@@ -916,3 +916,117 @@ fn test_token_counts_roundtrip() {
 
     assert_eq!(original, restored);
 }
+
+// ============================================================================
+// Bug Fix Tests - tiktoken panic handling
+// ============================================================================
+
+/// Test that tokenizer handles potentially problematic Unicode sequences
+/// without panicking. tiktoken can panic on certain malformed inputs;
+/// the fix uses catch_unwind to fall back to estimation.
+#[test]
+fn test_tiktoken_panic_recovery_unicode() {
+    let tokenizer = Tokenizer::new();
+
+    // Various Unicode edge cases that might cause issues
+    let test_cases = [
+        // Isolated surrogates (invalid UTF-8 would be caught by Rust, but test boundaries)
+        "\u{FFFD}\u{FFFD}\u{FFFD}",
+        // Zero-width characters
+        "\u{200B}\u{200C}\u{200D}\u{FEFF}",
+        // Very long combining character sequences
+        &format!("a{}", "\u{0300}".repeat(100)),
+        // Mix of scripts with unusual characters
+        "Test\u{0000}With\u{0001}Control\u{001F}Chars",
+        // Repeated emoji with skin tone modifiers
+        &"👨‍👩‍👧‍👦".repeat(50),
+        // RTL override characters
+        "\u{202E}reversed\u{202C}",
+    ];
+
+    for (i, test) in test_cases.iter().enumerate() {
+        let result = std::panic::catch_unwind(|| tokenizer.count(test, TokenModel::Gpt4o));
+        assert!(
+            result.is_ok(),
+            "Test case {} should not panic for GPT-4o: {:?}",
+            i,
+            test.chars().take(20).collect::<String>()
+        );
+
+        let result = std::panic::catch_unwind(|| tokenizer.count(test, TokenModel::Gpt4));
+        assert!(
+            result.is_ok(),
+            "Test case {} should not panic for GPT-4: {:?}",
+            i,
+            test.chars().take(20).collect::<String>()
+        );
+    }
+}
+
+/// Test tokenizer with binary-like content embedded in strings
+#[test]
+fn test_tiktoken_panic_recovery_binary_like() {
+    let tokenizer = Tokenizer::new();
+
+    // Content that looks like binary data but is valid UTF-8
+    let test_cases = [
+        // Random-looking bytes as UTF-8 string
+        "ÿþýüûúùø÷öõôóòñðïîíìëêéèçæåäãâáàß",
+        // Lots of null-adjacent characters
+        "\u{0001}\u{0002}\u{0003}\u{0004}\u{0005}",
+        // Very high Unicode codepoints
+        "\u{1F600}\u{1F601}\u{1F602}\u{1F923}\u{1F970}",
+        // Mixed valid UTF-8 that might confuse BPE
+        "AAAA\u{FFFF}BBBB\u{FFFE}CCCC",
+    ];
+
+    for (i, test) in test_cases.iter().enumerate() {
+        let count = tokenizer.count(test, TokenModel::Gpt4o);
+        assert!(count > 0, "Test case {} should return positive count", i);
+
+        let count = tokenizer.count(test, TokenModel::Gpt4);
+        assert!(count > 0, "Test case {} should return positive count", i);
+    }
+}
+
+/// Test that tokenizer gracefully handles very large inputs
+#[test]
+fn test_tiktoken_large_input_no_panic() {
+    let tokenizer = Tokenizer::new();
+
+    // 1MB of text
+    let large_text = "word ".repeat(200_000);
+
+    let result = std::panic::catch_unwind(|| tokenizer.count(&large_text, TokenModel::Gpt4o));
+    assert!(result.is_ok(), "Large input should not panic");
+
+    if let Ok(count) = result {
+        assert!(count > 100_000, "Should have many tokens for 1MB text");
+    }
+}
+
+/// Test tokenizer with strings at UTF-8 multi-byte boundaries
+#[test]
+fn test_tiktoken_utf8_boundary_safety() {
+    let tokenizer = Tokenizer::new();
+
+    // Create content where multi-byte UTF-8 characters are at strategic positions
+    // Chinese character 中 is 3 bytes (E4 B8 AD)
+    let test_cases = [
+        // Exactly at power-of-2 boundaries
+        format!("{}中", "a".repeat(255)),
+        format!("{}中", "a".repeat(256)),
+        format!("{}中", "a".repeat(1023)),
+        format!("{}中", "a".repeat(1024)),
+        format!("{}中", "a".repeat(4095)),
+        format!("{}中", "a".repeat(4096)),
+    ];
+
+    for (i, test) in test_cases.iter().enumerate() {
+        let count = tokenizer.count(test, TokenModel::Gpt4o);
+        assert!(count > 0, "Boundary test {} should work", i);
+
+        let count = tokenizer.count(test, TokenModel::Gpt4);
+        assert!(count > 0, "Boundary test {} should work", i);
+    }
+}

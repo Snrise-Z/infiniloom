@@ -5,6 +5,136 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2025-12-25
+
+### Performance
+
+- **Major Performance Optimization** - Fixed critical bottleneck in diff context APIs
+  - `getDiffContext()` / `get_diff_context()` now 20-27x faster (from ~2s to 75-103ms for 51 files)
+  - Changed from O(N) git subprocess calls to O(1) - single git call for all hunks
+  - Added `reconstruct_diff_from_hunks()` helper to reconstruct diff content in memory
+  - Applied optimization to both Node.js and Python bindings
+
+- **getChangedSymbolsFiltered Optimization** - Same O(1) git call pattern
+  - Previously made separate `diff_hunks()` call per file
+  - Now fetches all hunks once and groups by file in memory
+
+### Added
+
+- **Performance Test Suite** - 24 comprehensive benchmarks for Node.js bindings
+  - Tests all core functions, index queries, git/diff operations
+  - Scalability tests verify linear performance with commit range
+  - Located at `bindings/node/test/performance.test.js`
+
+### Fixed
+
+- **Stack Overflow on Large Repos** - Critical fix for repositories with 75K+ files
+  - Changed recursive visitor pattern to non-recursive iteration in file traversal
+  - Prevents stack overflow on deeply nested or extremely large repositories
+
+- **Stack Overflow on Non-Git Directories** - Critical fix for standalone directory scanning
+  - Same non-recursive visitor pattern applied to non-git directory processing
+  - `scan()` and `pack()` now handle large non-git directories safely
+
+- **tiktoken Panic Recovery** - Critical fix for certain file contents causing crashes
+  - Added `catch_unwind` wrapper around tiktoken BPE encoding calls
+  - Falls back to estimation-based counting if tiktoken panics on unusual byte sequences
+  - Affects GPT-4o (o200k_base) and GPT-4 (cl100k_base) token counting
+
+- **Token Budget Validation** - Medium fix for negative budget values
+  - `pack()` now validates `tokenBudget` parameter and rejects negative values
+  - Added `validate_token_budget()` helper function
+  - Throws clear error: "Token budget cannot be negative"
+
+- **countTokens Null/Undefined Handling** - Low priority fix for JavaScript edge cases
+  - `countTokens(null, model)` and `countTokens(undefined, model)` now return 0
+  - Previously crashed with TypeError
+
+- **semanticCompress budget_ratio Effectiveness** - Low priority fix for compression parameters
+  - `budget_ratio` now affects content as small as 10 characters (previously required 100+)
+  - Fixed threshold in `compress_heuristic()` to enable truncation for small content
+  - Added truncation marker showing percentage and character counts
+
+## [0.4.7] - 2025-12-25
+
+### Changed
+
+- **Bindings API Updates** (Python & Node.js)
+  - Add `model`, `exclude`, `include` parameters to `pack()` and `scan()`
+  - Fix Python `GitRepo.last_built` timestamp format (ISO 8601 strings)
+  - Update TypeScript definitions and tests
+
+### Fixed
+
+- **Clippy Warnings** - Fix `derive_ord_xor_partial_ord` in engine
+- **Scan Command** - Read file contents for proper line/language detection
+
+### Documentation
+
+- Add missing CLI options to diff, impact, chunk, map command docs
+- Add `focused` and `semantic` compression levels to all docs
+- Fix chunking strategies in large-repos guide (module, not directory)
+- Add filter options (-i, -e) documentation throughout
+
+## [0.4.6] - 2025-12-25
+
+### Fixed
+
+- **Unicode Boundary Panic** - Fix UTF-8 panic in `scan_security()` Python binding
+  - Fixed `is_binary_content()` in `bindings/common/scanner.rs`
+  - Multi-byte Unicode characters spanning 8192 byte boundary caused panic
+  - Now uses `floor_char_boundary()` for safe string slicing
+
+### Added
+
+- Tests for Unicode boundary handling (Chinese, Japanese, Korean, Emoji, Arabic)
+
+## [0.4.5] - 2025-12-25
+
+### Added
+
+- **New APIs** (Node.js & Python bindings)
+  - `getChangedSymbolsFiltered()` - Filter changed symbols by kind with changeType field
+  - `getTransitiveCallers()` - BFS traversal to find all direct/indirect callers with call paths
+  - `getCallSitesWithContext()` - Get call sites with surrounding code context
+
+### Fixed
+
+- Fix duplicate call sites in call graph queries
+- Fix contextSymbols being empty when hunk parsing fails
+- Fix relatedTests not finding test files by import graph
+- Fix contextSnippets population in getDiffContext
+- Fix testFiles detection in analyzeImpact
+
+### Added
+
+- 26 Rust engine tests for v0.4.5 features
+- 14 Node.js integration tests for new APIs
+
+## [0.4.4] - 2025-12-25
+
+### Added
+
+- **New APIs** (High Priority Features)
+  - `getCallSites()` - Find where a symbol is called with line numbers
+  - `getChangedSymbols()` - Get symbols modified in a diff
+  - `getSymbolsInFile()` - List all symbols in a file
+  - `getSymbolSource()` - Get symbol source code
+  - `getTestsForFile()` - Find related test files
+  - All new APIs include async variants (*Async suffix)
+
+### Fixed
+
+- contextSymbols now populated in getDiffContext (fallback for empty line_ranges)
+- relatedTests now finds test files via import graph + naming conventions
+- contextSnippets now generated from file content around changed lines
+- testFiles in analyzeImpact uses same fix
+- getCallSites returns actual call site line numbers (scans caller body)
+
+### Added
+
+- 34 new tests covering all bug fixes and features
+
 ## [0.4.3] - 2025-01-24
 
 ### Added
@@ -324,7 +454,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.7...v0.4.8
+[0.4.7]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.6...v0.4.7
+[0.4.6]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.5...v0.4.6
+[0.4.5]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.0...v0.4.1

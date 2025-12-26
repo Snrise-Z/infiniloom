@@ -69,10 +69,15 @@ impl Default for ScanConfig {
 }
 
 /// Intermediate struct for collecting file info before parallel processing
+#[derive(Clone)]
 struct FileInfo {
     path: std::path::PathBuf,
     relative_path: String,
 }
+
+/// Maximum files to process in a single parallel batch to avoid stack overflow.
+/// With 75K+ files, rayon's work-stealing can exhaust stack space.
+const MAX_PARALLEL_BATCH_SIZE: usize = 5000;
 
 /// Scan a repository and return a Repository struct
 pub fn scan_repository(path: &Path, config: ScanConfig) -> Result<Repository> {
@@ -85,11 +90,29 @@ pub fn scan_repository(path: &Path, config: ScanConfig) -> Result<Repository> {
     // Collect file paths first (fast)
     let file_infos = collect_file_paths(path, &config)?;
 
-    // Process files in parallel with thread-local parsers (lock-free)
-    let files: Vec<RepoFile> = file_infos
-        .into_par_iter()
-        .filter_map(|file_info| process_file(file_info, &config).ok().flatten())
-        .collect();
+    // Process files in batches to avoid stack overflow on large repos (75K+ files).
+    // Rayon's work-stealing uses recursion which can exhaust stack with many files.
+    let files: Vec<RepoFile> = if file_infos.len() <= MAX_PARALLEL_BATCH_SIZE {
+        // Small repo: process all at once
+        file_infos
+            .into_par_iter()
+            .filter_map(|file_info| process_file(file_info, &config).ok().flatten())
+            .collect()
+    } else {
+        // Large repo: process in batches to avoid stack overflow
+        let mut all_files = Vec::with_capacity(file_infos.len());
+        for chunk in file_infos.chunks(MAX_PARALLEL_BATCH_SIZE) {
+            let batch_files: Vec<RepoFile> = chunk
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_par_iter()
+                .filter_map(|file_info| process_file(file_info, &config).ok().flatten())
+                .collect();
+            all_files.extend(batch_files);
+        }
+        all_files
+    };
 
     // Calculate statistics
     let total_files = files.len() as u32;

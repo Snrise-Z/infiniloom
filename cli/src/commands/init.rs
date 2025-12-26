@@ -635,7 +635,8 @@ mod tests {
     #[test]
     fn test_typescript_template_yaml() {
         let template = generate_typescript_template("yaml");
-        assert!(template.contains("# Infiniloom Configuration - TypeScript/JavaScript Project Template"));
+        assert!(template
+            .contains("# Infiniloom Configuration - TypeScript/JavaScript Project Template"));
         assert!(template.contains("\"*.ts\""));
         assert!(template.contains("\"*.tsx\""));
         assert!(template.contains("\"*.js\""));
@@ -697,7 +698,8 @@ mod tests {
     #[test]
     fn test_typescript_template_toml() {
         let template = generate_typescript_template("toml");
-        assert!(template.contains("# Infiniloom Configuration - TypeScript/JavaScript Project Template"));
+        assert!(template
+            .contains("# Infiniloom Configuration - TypeScript/JavaScript Project Template"));
         assert!(template.contains("\"*.ts\""));
         assert!(template.contains("\"node_modules/*\""));
     }
@@ -729,8 +731,16 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&template).expect("Invalid JSON");
         assert_eq!(parsed["output"]["format"], "xml");
         assert_eq!(parsed["output"]["model"], "claude");
-        assert!(parsed["scan"]["include"].as_array().unwrap().iter().any(|v| v == "*.rs"));
-        assert!(parsed["scan"]["exclude"].as_array().unwrap().iter().any(|v| v == "target/*"));
+        assert!(parsed["scan"]["include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "*.rs"));
+        assert!(parsed["scan"]["exclude"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "target/*"));
     }
 
     #[test]
@@ -739,29 +749,49 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&template).expect("Invalid JSON");
         assert_eq!(parsed["output"]["format"], "markdown");
         assert_eq!(parsed["output"]["model"], "gpt4o");
-        assert!(parsed["scan"]["include"].as_array().unwrap().iter().any(|v| v == "*.py"));
+        assert!(parsed["scan"]["include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "*.py"));
     }
 
     #[test]
     fn test_typescript_template_json() {
         let template = generate_typescript_template("json");
         let parsed: serde_json::Value = serde_json::from_str(&template).expect("Invalid JSON");
-        assert!(parsed["scan"]["include"].as_array().unwrap().iter().any(|v| v == "*.ts"));
-        assert!(parsed["scan"]["exclude"].as_array().unwrap().iter().any(|v| v == "node_modules/*"));
+        assert!(parsed["scan"]["include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "*.ts"));
+        assert!(parsed["scan"]["exclude"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "node_modules/*"));
     }
 
     #[test]
     fn test_go_template_json() {
         let template = generate_go_template("json");
         let parsed: serde_json::Value = serde_json::from_str(&template).expect("Invalid JSON");
-        assert!(parsed["scan"]["include"].as_array().unwrap().iter().any(|v| v == "*.go"));
+        assert!(parsed["scan"]["include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "*.go"));
     }
 
     #[test]
     fn test_java_template_json() {
         let template = generate_java_template("json");
         let parsed: serde_json::Value = serde_json::from_str(&template).expect("Invalid JSON");
-        assert!(parsed["scan"]["include"].as_array().unwrap().iter().any(|v| v == "*.java"));
+        assert!(parsed["scan"]["include"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "*.java"));
     }
 
     // ============================================
@@ -955,13 +985,8 @@ mod tests {
 
         for template in templates {
             let temp_dir = tempfile::tempdir().unwrap();
-            let result = cmd_init(
-                temp_dir.path().to_path_buf(),
-                ConfigFormat::Yaml,
-                template,
-                None,
-                false,
-            );
+            let result =
+                cmd_init(temp_dir.path().to_path_buf(), ConfigFormat::Yaml, template, None, false);
             assert!(result.is_ok(), "Failed for template {:?}", template);
         }
     }
@@ -972,13 +997,8 @@ mod tests {
 
         for format in formats {
             let temp_dir = tempfile::tempdir().unwrap();
-            let result = cmd_init(
-                temp_dir.path().to_path_buf(),
-                format,
-                ConfigTemplate::Rust,
-                None,
-                false,
-            );
+            let result =
+                cmd_init(temp_dir.path().to_path_buf(), format, ConfigTemplate::Rust, None, false);
             assert!(result.is_ok(), "Failed for format {:?}", format);
         }
     }

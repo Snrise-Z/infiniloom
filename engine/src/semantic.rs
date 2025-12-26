@@ -532,24 +532,23 @@ impl SemanticCompressor {
     /// Compress using heuristic methods (fallback when embeddings unavailable)
     ///
     /// Bug #4 fix: Make budget_ratio more effective for all content types
+    /// Bug fix: Ensure budget_ratio always has an effect when < 1.0
     fn compress_heuristic(&self, content: &str) -> Result<String> {
         let chunks = self.split_into_chunks(content);
 
-        // Bug #4 fix: When no chunks can be created but content is large enough,
-        // apply character-level truncation based on budget_ratio.
-        // Only truncate if:
-        // 1. No chunks could be created
-        // 2. Content is larger than min_chunk_size (so small content passes through)
-        // 3. budget_ratio would actually reduce the size meaningfully
+        // When no chunks can be created, apply character-level truncation based on budget_ratio.
+        // This ensures budget_ratio always has an effect, even for small/unstructured content.
         if chunks.is_empty() {
-            // Only apply truncation for content larger than min_chunk_size
-            // Small content should pass through unchanged
-            if content.len() > self.config.min_chunk_size && self.config.budget_ratio < 1.0 {
+            // Apply truncation if:
+            // 1. budget_ratio < 1.0 (user wants compression)
+            // 2. Content is at least 10 chars (very short content passes through)
+            // 3. The truncation would actually reduce the size
+            if self.config.budget_ratio < 1.0 && content.len() >= 10 {
                 let target_len = (content.len() as f32 * self.config.budget_ratio) as usize;
                 if target_len > 0 && target_len < content.len() {
                     // Find a safe truncation point (word/line boundary)
                     let truncate_at = find_safe_truncation_point(content, target_len);
-                    if truncate_at < content.len() {
+                    if truncate_at < content.len() && truncate_at > 0 {
                         let truncated = &content[..truncate_at];
                         return Ok(format!(
                             "{}\n/* ... truncated to {:.0}% ({} of {} chars) ... */",
@@ -562,6 +561,26 @@ impl SemanticCompressor {
                 }
             }
             return Ok(content.to_owned());
+        }
+
+        // Special case: If we only have one chunk and budget_ratio < 1.0,
+        // truncate within that chunk instead of keeping it entirely
+        if chunks.len() == 1 && self.config.budget_ratio < 1.0 {
+            let chunk_content = &chunks[0].content;
+            let target_len = (chunk_content.len() as f32 * self.config.budget_ratio) as usize;
+            if target_len > 0 && target_len < chunk_content.len() {
+                let truncate_at = find_safe_truncation_point(chunk_content, target_len);
+                if truncate_at < chunk_content.len() && truncate_at > 0 {
+                    let truncated = &chunk_content[..truncate_at];
+                    return Ok(format!(
+                        "{}\n/* ... truncated to {:.0}% ({} of {} chars) ... */",
+                        truncated.trim_end(),
+                        self.config.budget_ratio * 100.0,
+                        truncate_at,
+                        chunk_content.len()
+                    ));
+                }
+            }
         }
 
         // Keep every Nth chunk based on budget ratio
@@ -911,12 +930,16 @@ mod tests {
 
     #[test]
     fn test_non_repetitive_content_unchanged() {
-        let compressor = SemanticCompressor::new();
+        // Use budget_ratio=1.0 to preserve content (default is 0.5 which truncates)
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 1.0,
+            ..Default::default()
+        });
         // Non-repetitive content should not trigger repetition compression
         let content = "This is some unique content that does not repeat.";
         let result = compressor.compress(content).unwrap();
 
-        // Short non-repetitive content should be returned as-is
+        // Short non-repetitive content should be returned as-is with budget_ratio=1.0
         assert_eq!(result, content);
     }
 
@@ -1231,12 +1254,13 @@ mod tests {
     fn test_compress_heuristic_empty_chunks() {
         let compressor = SemanticCompressor::with_config(SemanticConfig {
             min_chunk_size: 1000, // Force no chunks to be created
+            budget_ratio: 1.0,    // Use 1.0 to preserve content unchanged
             ..Default::default()
         });
 
         let content = "short content";
         let result = compressor.compress_heuristic(content).unwrap();
-        // Should return original when no chunks created
+        // Should return original when no chunks created and budget_ratio=1.0
         assert_eq!(result, content);
     }
 
@@ -1557,5 +1581,157 @@ mod tests {
         let result = compressor.compress(content).unwrap();
         // With budget_ratio 1.0, should return original content
         assert_eq!(result, content);
+    }
+
+    // ==========================================================================
+    // Bug #4 Fix Tests - budget_ratio effectiveness for small content
+    // ==========================================================================
+
+    /// Test that budget_ratio affects content >= 10 chars even without chunk boundaries.
+    /// This was the bug: small content wasn't being truncated because the threshold
+    /// was set to min_chunk_size (100) instead of a lower value (10).
+    #[test]
+    fn test_budget_ratio_affects_small_content() {
+        // Content that's over 10 chars but has no chunk boundaries
+        // Previously this wouldn't be compressed because it was under min_chunk_size
+        let content = "This is a short test string that should be affected by budget ratio.";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.3, // Keep only 30%
+            min_chunk_size: 100,
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+
+        // With budget_ratio 0.3, content should be truncated
+        assert!(
+            result.len() < content.len() || result.contains("truncated"),
+            "Small content with budget_ratio=0.3 should be compressed. Original: {}, Result: {}",
+            content.len(),
+            result.len()
+        );
+    }
+
+    /// Test that budget_ratio 1.0 preserves small content
+    #[test]
+    fn test_budget_ratio_one_preserves_small_content() {
+        let content = "Short content that should remain unchanged with budget_ratio=1.0";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 1.0,
+            min_chunk_size: 100,
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+
+        // With budget_ratio 1.0, should return original
+        assert_eq!(result, content, "budget_ratio=1.0 should preserve content");
+    }
+
+    /// Test that very short content (< 10 chars) passes through unchanged
+    #[test]
+    fn test_very_short_content_unchanged() {
+        let content = "tiny";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.1, // Even aggressive budget shouldn't affect very short content
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+
+        // Very short content should pass through
+        assert_eq!(result, content, "Very short content should be unchanged");
+    }
+
+    /// Test that budget_ratio affects medium content without chunk boundaries
+    #[test]
+    fn test_budget_ratio_medium_no_chunks() {
+        // Content that's long enough to compress but has no paragraph breaks
+        let content = "This is a medium length test content that has no paragraph breaks and should trigger the budget ratio truncation path because there are no chunk boundaries.";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.5,
+            min_chunk_size: 200, // Higher than content length
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+
+        // Should be compressed to ~50%
+        assert!(
+            result.len() < content.len(),
+            "Medium content with budget_ratio=0.5 should be compressed. Original: {}, Result: {}",
+            content.len(),
+            result.len()
+        );
+    }
+
+    /// Test that truncation marker includes percentage and char counts
+    #[test]
+    fn test_truncation_marker_format() {
+        let content = "A sufficiently long piece of content that will definitely be truncated when we set a low budget ratio.";
+
+        let compressor = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.3,
+            min_chunk_size: 200,
+            max_chunk_size: 2000,
+            ..Default::default()
+        });
+
+        let result = compressor.compress(content).unwrap();
+
+        // Should contain truncation marker with useful info
+        if result.contains("truncated") {
+            assert!(result.contains("%"), "Truncation marker should include percentage");
+            assert!(result.contains("chars"), "Truncation marker should include char count");
+        }
+    }
+
+    /// Test different budget ratios produce proportionally different outputs
+    #[test]
+    fn test_budget_ratio_proportional() {
+        let content = "This content is long enough to test different budget ratio values and see that they produce outputs of proportionally different sizes as expected.";
+
+        let compressor_20 = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.2,
+            min_chunk_size: 200,
+            ..Default::default()
+        });
+
+        let compressor_50 = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.5,
+            min_chunk_size: 200,
+            ..Default::default()
+        });
+
+        let compressor_80 = SemanticCompressor::with_config(SemanticConfig {
+            budget_ratio: 0.8,
+            min_chunk_size: 200,
+            ..Default::default()
+        });
+
+        let result_20 = compressor_20.compress(content).unwrap();
+        let result_50 = compressor_50.compress(content).unwrap();
+        let result_80 = compressor_80.compress(content).unwrap();
+
+        // Lower ratio should produce shorter output
+        assert!(
+            result_20.len() <= result_50.len(),
+            "20% ratio ({}) should be <= 50% ratio ({})",
+            result_20.len(),
+            result_50.len()
+        );
+        assert!(
+            result_50.len() <= result_80.len(),
+            "50% ratio ({}) should be <= 80% ratio ({})",
+            result_50.len(),
+            result_80.len()
+        );
     }
 }

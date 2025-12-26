@@ -2080,17 +2080,57 @@ fn get_diff_context(
     // Try to load existing index
     let storage = IndexStorage::new(&path_buf);
 
+    // OPTIMIZATION: Get all hunks in one git call instead of per-file
+    // This dramatically improves performance for diffs with many files
+    let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+    let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
+
+    let all_hunks: Vec<EngineGitDiffHunk> = if from_ref.is_empty() && to_ref.is_empty() {
+        git_repo.uncommitted_hunks(None).unwrap_or_default()
+    } else {
+        git_repo.diff_hunks(from, to, None).unwrap_or_default()
+    };
+
+    // Group hunks by file path and extract line ranges
+    let mut file_line_ranges: std::collections::HashMap<String, Vec<(u32, u32)>> =
+        std::collections::HashMap::new();
+    let mut file_diff_contents: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
+    // Build hunks-by-file map for efficient lookup
+    let mut hunks_by_file: std::collections::HashMap<&str, Vec<&EngineGitDiffHunk>> =
+        std::collections::HashMap::new();
+    for hunk in &all_hunks {
+        hunks_by_file.entry(&hunk.file).or_default().push(hunk);
+    }
+
+    // Process each changed file using pre-fetched hunks
+    for file in &changed {
+        if let Some(hunks) = hunks_by_file.get(file.path.as_str()) {
+            // Extract line ranges from hunks
+            let mut line_ranges = Vec::new();
+            for hunk in hunks {
+                if hunk.new_count > 0 {
+                    line_ranges.push((hunk.new_start, hunk.new_start + hunk.new_count - 1));
+                }
+            }
+            if !line_ranges.is_empty() {
+                file_line_ranges.insert(file.path.clone(), line_ranges);
+            }
+
+            // Reconstruct diff content from hunks (avoids additional git call)
+            let diff_content = reconstruct_diff_from_hunks(&all_hunks, &file.path);
+            if !diff_content.is_empty() {
+                file_diff_contents.insert(file.path.clone(), diff_content);
+            }
+        }
+    }
+
     // Build file contexts
     let mut changed_files_result: Vec<_> = Vec::new();
     for file in &changed {
         let diff_content = if include_diff {
-            let from = if from_ref.is_empty() {
-                "HEAD"
-            } else {
-                from_ref
-            };
-            let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
-            git_repo.diff_content(from, to, &file.path).ok()
+            file_diff_contents.get(&file.path).cloned()
         } else {
             None
         };
@@ -2120,19 +2160,11 @@ fn get_diff_context(
 
         let expander = ContextExpander::new(&index, &graph);
 
-        // Get diff hunks for each file to determine line ranges
-        let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
-        let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
-
         let changes: Vec<DiffChange> = changed
             .iter()
             .map(|f| {
-                // Get line ranges from diff hunks
-                let hunks = git_repo.diff_hunks(from, to, Some(&f.path)).unwrap_or_default();
-                let mut line_ranges: Vec<(u32, u32)> = hunks.iter()
-                    .filter(|h| h.new_count > 0)
-                    .map(|h| (h.new_start, h.new_start + h.new_count))
-                    .collect();
+                // Get line ranges from pre-fetched hunks
+                let mut line_ranges = file_line_ranges.get(&f.path).cloned().unwrap_or_default();
 
                 // Bug fix: If no line ranges found, include all symbol ranges
                 if line_ranges.is_empty() {
@@ -2163,7 +2195,7 @@ fn get_diff_context(
                         EngineFileStatus::Deleted => ChangeType::Deleted,
                         _ => ChangeType::Modified,
                     },
-                    diff_content: None,
+                    diff_content: file_diff_contents.get(&f.path).cloned(),
                 }
             })
             .collect();
@@ -2330,6 +2362,17 @@ fn get_changed_symbols_filtered(
 
     let changed_files = git_repo.diff_files(from, to).map_err(to_py_err)?;
 
+    // OPTIMIZATION: Get all hunks in one git call instead of per-file
+    // This dramatically improves performance for diffs with many files
+    let all_hunks: Vec<EngineGitDiffHunk> = git_repo.diff_hunks(from, to, None).unwrap_or_default();
+
+    // Build hunks-by-file map for efficient lookup
+    let mut hunks_by_file: std::collections::HashMap<&str, Vec<&EngineGitDiffHunk>> =
+        std::collections::HashMap::new();
+    for hunk in &all_hunks {
+        hunks_by_file.entry(&hunk.file).or_default().push(hunk);
+    }
+
     let kinds_set: Option<std::collections::HashSet<String>> = kinds
         .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
     let exclude_set: Option<std::collections::HashSet<String>> = exclude_kinds
@@ -2345,7 +2388,11 @@ fn get_changed_symbols_filtered(
             _ => "modified",
         };
 
-        let hunks = git_repo.diff_hunks(from, to, Some(&file.path)).unwrap_or_default();
+        // Use pre-fetched hunks from the map
+        let hunks: Vec<&EngineGitDiffHunk> = hunks_by_file
+            .get(file.path.as_str())
+            .cloned()
+            .unwrap_or_default();
 
         let file_entry = match index.get_file(&file.path) {
             Some(f) => f,
@@ -2724,6 +2771,37 @@ fn get_line_context_py(
         Some((start_idx + 1) as u32),
         Some(end_idx as u32),
     )
+}
+
+/// Reconstruct unified diff content from hunks for a specific file
+/// This avoids making additional git subprocess calls
+fn reconstruct_diff_from_hunks(hunks: &[EngineGitDiffHunk], file_path: &str) -> String {
+    let file_hunks: Vec<_> = hunks.iter().filter(|h| h.file == file_path).collect();
+    if file_hunks.is_empty() {
+        return String::new();
+    }
+
+    let mut output = String::new();
+    output.push_str(&format!("diff --git a/{} b/{}\n", file_path, file_path));
+    output.push_str(&format!("--- a/{}\n", file_path));
+    output.push_str(&format!("+++ b/{}\n", file_path));
+
+    for hunk in file_hunks {
+        output.push_str(&hunk.header);
+        output.push('\n');
+        for line in &hunk.lines {
+            let prefix = match line.change_type.as_str() {
+                "add" => "+",
+                "remove" => "-",
+                _ => " ",
+            };
+            output.push_str(prefix);
+            output.push_str(&line.content);
+            output.push('\n');
+        }
+    }
+
+    output
 }
 
 /// Python module definition

@@ -123,18 +123,31 @@ impl Tokenizer {
         }
     }
 
-    /// Count tokens using exact BPE encoding
+    /// Count tokens using exact BPE encoding.
+    /// Falls back to estimation if tiktoken panics (rare edge cases with unusual byte sequences).
     fn count_exact(&self, text: &str, model: TokenModel) -> u32 {
         if model.uses_o200k() {
             // All modern OpenAI models use o200k_base encoding
             // GPT-5.x, GPT-4o, O1, O3, O4
             let tokenizer = get_gpt4o_tokenizer();
-            tokenizer.encode_ordinary(text).len() as u32
+            // Catch panics from tiktoken on malformed input
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tokenizer.encode_ordinary(text).len() as u32
+            })) {
+                Ok(count) => count,
+                Err(_) => self.estimate(text, model), // Fallback to estimation on panic
+            }
         } else if model.uses_cl100k() {
             // Legacy OpenAI models use cl100k_base encoding
             // GPT-4, GPT-3.5-turbo
             let tokenizer = get_gpt4_tokenizer();
-            tokenizer.encode_ordinary(text).len() as u32
+            // Catch panics from tiktoken on malformed input
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tokenizer.encode_ordinary(text).len() as u32
+            })) {
+                Ok(count) => count,
+                Err(_) => self.estimate(text, model), // Fallback to estimation on panic
+            }
         } else {
             // Non-OpenAI models use estimation
             self.estimate(text, model)

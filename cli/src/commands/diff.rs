@@ -2120,11 +2120,7 @@ mod tests {
 
     #[test]
     fn test_merge_snippet_ranges_single() {
-        let ranges = vec![SnippetRange {
-            start: 1,
-            end: 5,
-            reasons: vec!["test".to_string()],
-        }];
+        let ranges = vec![SnippetRange { start: 1, end: 5, reasons: vec!["test".to_string()] }];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].start, 1);
@@ -2134,16 +2130,8 @@ mod tests {
     #[test]
     fn test_merge_snippet_ranges_non_overlapping() {
         let ranges = vec![
-            SnippetRange {
-                start: 1,
-                end: 5,
-                reasons: vec!["reason1".to_string()],
-            },
-            SnippetRange {
-                start: 10,
-                end: 15,
-                reasons: vec!["reason2".to_string()],
-            },
+            SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
+            SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 2);
@@ -2152,16 +2140,8 @@ mod tests {
     #[test]
     fn test_merge_snippet_ranges_overlapping() {
         let ranges = vec![
-            SnippetRange {
-                start: 1,
-                end: 10,
-                reasons: vec!["reason1".to_string()],
-            },
-            SnippetRange {
-                start: 5,
-                end: 15,
-                reasons: vec!["reason2".to_string()],
-            },
+            SnippetRange { start: 1, end: 10, reasons: vec!["reason1".to_string()] },
+            SnippetRange { start: 5, end: 15, reasons: vec!["reason2".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 1);
@@ -2174,16 +2154,8 @@ mod tests {
     fn test_merge_snippet_ranges_adjacent() {
         // Adjacent ranges (end+1 == start of next) should merge
         let ranges = vec![
-            SnippetRange {
-                start: 1,
-                end: 5,
-                reasons: vec!["reason1".to_string()],
-            },
-            SnippetRange {
-                start: 6,
-                end: 10,
-                reasons: vec!["reason2".to_string()],
-            },
+            SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
+            SnippetRange { start: 6, end: 10, reasons: vec!["reason2".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 1);
@@ -2195,16 +2167,8 @@ mod tests {
     fn test_merge_snippet_ranges_unsorted() {
         // Should sort before merging
         let ranges = vec![
-            SnippetRange {
-                start: 10,
-                end: 15,
-                reasons: vec!["reason2".to_string()],
-            },
-            SnippetRange {
-                start: 1,
-                end: 5,
-                reasons: vec!["reason1".to_string()],
-            },
+            SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_string()] },
+            SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 2);
@@ -2215,16 +2179,8 @@ mod tests {
     #[test]
     fn test_merge_snippet_ranges_duplicate_reasons() {
         let ranges = vec![
-            SnippetRange {
-                start: 1,
-                end: 10,
-                reasons: vec!["reason".to_string()],
-            },
-            SnippetRange {
-                start: 5,
-                end: 15,
-                reasons: vec!["reason".to_string()],
-            },
+            SnippetRange { start: 1, end: 10, reasons: vec!["reason".to_string()] },
+            SnippetRange { start: 5, end: 15, reasons: vec!["reason".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 1);
@@ -2236,16 +2192,8 @@ mod tests {
     fn test_merge_snippet_ranges_contained() {
         // One range completely contained in another
         let ranges = vec![
-            SnippetRange {
-                start: 1,
-                end: 20,
-                reasons: vec!["outer".to_string()],
-            },
-            SnippetRange {
-                start: 5,
-                end: 10,
-                reasons: vec!["inner".to_string()],
-            },
+            SnippetRange { start: 1, end: 20, reasons: vec!["outer".to_string()] },
+            SnippetRange { start: 5, end: 10, reasons: vec!["inner".to_string()] },
         ];
         let merged = merge_snippet_ranges(ranges);
         assert_eq!(merged.len(), 1);
@@ -2326,10 +2274,7 @@ mod tests {
             dependent_symbols: vec![],
             related_tests: vec![create_test_context_file("tests/test.rs", 150)],
             call_chains: vec![],
-            impact_summary: ImpactSummary {
-                level: ImpactLevel::Medium,
-                ..Default::default()
-            },
+            impact_summary: ImpactSummary { level: ImpactLevel::Medium, ..Default::default() },
             total_tokens: 500,
         };
 

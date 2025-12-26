@@ -484,6 +484,53 @@ infiniloom.pack("/path", model="gpt4o")
 
 ---
 
+## Recently Fixed Issues
+
+These issues have been fixed in recent versions. If you encounter them, upgrade to the latest version.
+
+### Stack overflow on large repositories (Fixed in v0.4.8)
+
+**Symptom:** Process crashes with stack overflow when processing repositories with 75,000+ files.
+
+**Solution:** Upgrade to v0.4.8+ which uses non-recursive file traversal.
+
+```bash
+# Upgrade via npm
+npm update infiniloom-node
+
+# Upgrade via pip
+pip install --upgrade infiniloom
+
+# Upgrade via Homebrew
+brew upgrade infiniloom
+```
+
+### Stack overflow on non-git directories (Fixed in v0.4.8)
+
+**Symptom:** `scan()` or `pack()` crashes on very large standalone directories (not git repositories).
+
+**Solution:** Same fix as above - upgrade to v0.4.8+.
+
+### tiktoken panic on certain files (Fixed in v0.4.8)
+
+**Symptom:** Crash with panic message related to tiktoken when counting tokens for certain unusual file contents.
+
+**Solution:** Upgrade to v0.4.8+ which wraps tiktoken calls with panic recovery and falls back to estimation.
+
+### countTokens crashes on null/undefined (Fixed in v0.4.8)
+
+**Symptom:** Node.js `countTokens(null, 'claude')` throws TypeError instead of returning 0.
+
+**Solution:** Upgrade to v0.4.8+ where null/undefined input returns 0.
+
+### semanticCompress parameters not effective on small content (Fixed in v0.4.8)
+
+**Symptom:** `semanticCompress()` with `budgetRatio < 1.0` doesn't compress text shorter than 100 characters.
+
+**Solution:** Upgrade to v0.4.8+ where `budgetRatio` affects content as small as 10 characters.
+
+---
+
 ## Getting Help
 
 If your issue isn't listed here:

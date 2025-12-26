@@ -2706,18 +2706,18 @@ mod tests {
 
     #[test]
     fn test_is_inside_string_escaped_quote() {
-        assert!(is_inside_string("\"hello\\\""));  // Ends with escaped quote, still open
+        assert!(is_inside_string("\"hello\\\"")); // Ends with escaped quote, still open
     }
 
     #[test]
     fn test_is_inside_string_escaped_then_close() {
-        assert!(!is_inside_string("\"hello\\\"world\""));  // Escaped quote then closing
+        assert!(!is_inside_string("\"hello\\\"world\"")); // Escaped quote then closing
     }
 
     #[test]
     fn test_is_inside_string_nested_quotes() {
-        assert!(!is_inside_string("\"it's a test\""));  // Single inside double
-        assert!(!is_inside_string("'he said \"hi\"'"));  // Double inside single
+        assert!(!is_inside_string("\"it's a test\"")); // Single inside double
+        assert!(!is_inside_string("'he said \"hi\"'")); // Double inside single
     }
 
     #[test]
@@ -2748,8 +2748,8 @@ mod tests {
         let input = "line1\n\nline2\n\nline3";
         let result = remove_empty_lines_from_content(input, true);
         assert!(result.contains("1:line1"));
-        assert!(result.contains("3:line2"));  // Original line 3 (index 2)
-        assert!(result.contains("5:line3"));  // Original line 5 (index 4)
+        assert!(result.contains("3:line2")); // Original line 3 (index 2)
+        assert!(result.contains("5:line3")); // Original line 5 (index 4)
     }
 
     #[test]
@@ -2867,10 +2867,7 @@ mod tests {
 
     #[test]
     fn test_escape_xml_multiple() {
-        assert_eq!(
-            escape_xml_text("<tag attr=\"val\">"),
-            "&lt;tag attr=&quot;val&quot;&gt;"
-        );
+        assert_eq!(escape_xml_text("<tag attr=\"val\">"), "&lt;tag attr=&quot;val&quot;&gt;");
     }
 
     #[test]
@@ -3069,7 +3066,8 @@ mod tests {
 
     #[test]
     fn test_extract_signatures_rust() {
-        let content = "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    // do something\n}";
+        let content =
+            "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    // do something\n}";
         let result = extract_signatures_heuristic(content, "rust");
         assert!(result.contains("fn main()"));
         assert!(result.contains("fn helper()"));
@@ -3122,10 +3120,7 @@ mod tests {
 
     #[test]
     fn test_token_tree_entry_serialization() {
-        let entry = TokenTreeEntry {
-            path: "src/main.rs".to_string(),
-            tokens: 1000,
-        };
+        let entry = TokenTreeEntry { path: "src/main.rs".to_string(), tokens: 1000 };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("src/main.rs"));
         assert!(json.contains("1000"));

@@ -2017,3 +2017,378 @@ test('buildIndex force overrides incremental', (t) => {
   assert.ok(status.exists, 'Index should exist after force rebuild')
   assert.strictEqual(status.fileCount, 1, 'Should have 1 file')
 })
+
+// ============================================================================
+// Bug Fix Tests - Input Validation
+// ============================================================================
+
+test('pack throws on empty path', () => {
+  assert.throws(
+    () => pack('', {}),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+  assert.throws(
+    () => pack('   ', {}),
+    /Path cannot be empty/i,
+    'Should reject whitespace-only path'
+  )
+})
+
+test('scan throws on empty path', () => {
+  assert.throws(
+    () => scan('', 'claude'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+})
+
+test('scanWithOptions throws on empty path', () => {
+  assert.throws(
+    () => scanWithOptions('', {}),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+})
+
+test('findSymbol throws on empty path or name', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => findSymbol('', 'test'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+
+  assert.throws(
+    () => findSymbol(dir, ''),
+    /Symbol name cannot be empty/i,
+    'Should reject empty symbol name'
+  )
+
+  assert.throws(
+    () => findSymbol(dir, '   '),
+    /Symbol name cannot be empty/i,
+    'Should reject whitespace-only symbol name'
+  )
+})
+
+test('getCallers throws on empty path or name', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const { getCallers } = require('..')
+
+  assert.throws(
+    () => getCallers('', 'test'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+
+  assert.throws(
+    () => getCallers(dir, ''),
+    /Symbol name cannot be empty/i,
+    'Should reject empty symbol name'
+  )
+})
+
+test('getCallees throws on empty path or name', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const { getCallees } = require('..')
+
+  assert.throws(
+    () => getCallees('', 'test'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+
+  assert.throws(
+    () => getCallees(dir, ''),
+    /Symbol name cannot be empty/i,
+    'Should reject empty symbol name'
+  )
+})
+
+test('getReferences throws on empty path or name', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getReferences('', 'test'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+
+  assert.throws(
+    () => getReferences(dir, ''),
+    /Symbol name cannot be empty/i,
+    'Should reject empty symbol name'
+  )
+})
+
+test('buildIndex throws on empty path', () => {
+  assert.throws(
+    () => buildIndex(''),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+})
+
+test('analyzeImpact throws on empty path or files', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => analyzeImpact('', ['file.ts']),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+
+  assert.throws(
+    () => analyzeImpact(dir, []),
+    /Files array cannot be empty/i,
+    'Should reject empty files array'
+  )
+
+  assert.throws(
+    () => analyzeImpact(dir, ['']),
+    /File path cannot be empty/i,
+    'Should reject empty file path in array'
+  )
+})
+
+test('getDiffContext throws on empty path', (t) => {
+  const dir = createGitRepo()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getDiffContext('', '', ''),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+})
+
+test('getChangedSymbols throws on empty path', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getChangedSymbols('', 'HEAD', 'HEAD'),
+    /Path cannot be empty/i,
+    'Should reject empty path'
+  )
+})
+
+// ============================================================================
+// Bug Fix Tests - countTokens edge cases
+// ============================================================================
+
+test('countTokens handles empty string', () => {
+  const count = countTokens('', 'claude')
+  assert.strictEqual(count, 0, 'Empty string should return 0 tokens')
+})
+
+test('countTokens handles whitespace-only string', () => {
+  const count = countTokens('   ', 'claude')
+  assert.ok(typeof count === 'number', 'Whitespace string should return a number')
+})
+
+// Bug fix: countTokens(null) should return 0 instead of crashing
+test('countTokens handles null input', () => {
+  const count = countTokens(null, 'claude')
+  assert.strictEqual(count, 0, 'null input should return 0 tokens')
+})
+
+// Bug fix: countTokens(undefined) should return 0 instead of crashing
+test('countTokens handles undefined input', () => {
+  const count = countTokens(undefined, 'claude')
+  assert.strictEqual(count, 0, 'undefined input should return 0 tokens')
+})
+
+// ============================================================================
+// Bug Fix Tests - tokenBudget validation
+// ============================================================================
+
+test('pack with negative tokenBudget throws error', (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => pack(dir, { format: 'json', tokenBudget: -1 }),
+    /Token budget cannot be negative/i,
+    'Negative tokenBudget should throw error'
+  )
+})
+
+test('pack with tokenBudget=-100 throws error', (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => pack(dir, { format: 'json', tokenBudget: -100 }),
+    /Token budget cannot be negative/i,
+    'Large negative tokenBudget should throw error'
+  )
+})
+
+test('pack with tokenBudget=0 is accepted (no limit)', (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  // tokenBudget=0 means "no limit" which should work
+  const output = pack(dir, { format: 'json', tokenBudget: 0 })
+  assert.ok(output.length > 0, 'tokenBudget=0 should work as no limit')
+})
+
+// ============================================================================
+// Bug Fix Tests - semanticCompress params effectiveness
+// ============================================================================
+
+test('semanticCompress budget_ratio affects small content', () => {
+  // Content that previously wasn't compressed (under 100 chars but over 10)
+  const text = 'Short content for testing budget ratio effectiveness with moderate length.'
+
+  // With budget_ratio=0.3 (30%), should compress
+  const compressed = semanticCompress(text, 0.7, 0.3)
+
+  // Result should be shorter or contain truncation marker
+  // The fix ensures budget_ratio < 1.0 triggers truncation for content >= 10 chars
+  assert.ok(
+    compressed.length < text.length || compressed.includes('truncated'),
+    `Small content with budget_ratio=0.3 should be compressed. Original: ${text.length}, Result: ${compressed.length}`
+  )
+})
+
+test('semanticCompress budget_ratio=1.0 preserves content', () => {
+  const text = 'Content that should be preserved with budget_ratio of 1.0 (keep 100%).'
+
+  // With budget_ratio=1.0, should keep everything
+  const compressed = semanticCompress(text, 0.7, 1.0)
+
+  // Should return original (no truncation marker)
+  assert.ok(
+    !compressed.includes('truncated') && !compressed.includes('compressed'),
+    'budget_ratio=1.0 should preserve content'
+  )
+})
+
+test('semanticCompress budget_ratio affects medium content without chunks', () => {
+  // Content without paragraph breaks (\\n\\n) that falls back to truncation
+  const text = 'This is a test of medium length content that has no paragraph breaks and should trigger the budget ratio truncation path instead of chunk-based compression since there are no chunk boundaries.'
+
+  const compressed = semanticCompress(text, 0.7, 0.5)
+
+  // With budget_ratio=0.5, should compress significantly
+  assert.ok(
+    compressed.length < text.length,
+    `Medium content should be compressed. Original: ${text.length}, Result: ${compressed.length}`
+  )
+})
+
+test('semanticCompress similarity_threshold documented behavior', () => {
+  // Note: similarity_threshold only affects clustering when embeddings feature is enabled
+  // Without embeddings feature, it has no effect - this is documented behavior
+  // This test verifies the function works regardless of threshold value
+
+  const text = 'Test content for similarity threshold parameter.'
+
+  const result1 = semanticCompress(text, 0.5, 1.0)
+  const result2 = semanticCompress(text, 0.9, 1.0)
+
+  // Both should work without error
+  assert.ok(result1.length > 0, 'similarity_threshold=0.5 should work')
+  assert.ok(result2.length > 0, 'similarity_threshold=0.9 should work')
+})
+
+// ============================================================================
+// Bug Fix Tests - getCallGraph with limits
+// ============================================================================
+
+test('getCallGraph respects maxNodes limit', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const { getCallGraph } = require('..')
+
+  // Get full graph first
+  const fullGraph = getCallGraph(dir)
+  const fullNodeCount = fullGraph.nodes.length
+
+  if (fullNodeCount > 5) {
+    // Get limited graph
+    const limitedGraph = getCallGraph(dir, { maxNodes: 5 })
+    assert.ok(
+      limitedGraph.nodes.length <= 5,
+      `maxNodes limit should be respected: got ${limitedGraph.nodes.length}, expected <= 5`
+    )
+  }
+})
+
+test('getCallGraph respects maxEdges limit', (t) => {
+  const dir = createCallChainRepo()
+  t.after(() => cleanup(dir))
+
+  const { getCallGraph } = require('..')
+
+  // Get full graph first
+  const fullGraph = getCallGraph(dir)
+  const fullEdgeCount = fullGraph.edges.length
+
+  if (fullEdgeCount > 3) {
+    // Get limited graph
+    const limitedGraph = getCallGraph(dir, { maxEdges: 3 })
+    assert.ok(
+      limitedGraph.edges.length <= 3,
+      `maxEdges limit should be respected: got ${limitedGraph.edges.length}, expected <= 3`
+    )
+  }
+})
+
+// ============================================================================
+// Bug Fix Tests - scanWithOptions exclude patterns
+// ============================================================================
+
+test('scanWithOptions exclude works without include patterns', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-exconly-'))
+  t.after(() => cleanup(dir))
+
+  // Create files including test files
+  fs.writeFileSync(path.join(dir, 'app.py'), 'def app(): pass\n')
+  fs.writeFileSync(path.join(dir, 'utils.py'), 'def utils(): pass\n')
+  fs.writeFileSync(path.join(dir, 'test_app.py'), 'def test_app(): pass\n')
+  fs.writeFileSync(path.join(dir, 'test_utils.py'), 'def test_utils(): pass\n')
+
+  // Exclude ONLY test files, no include pattern
+  const stats = scanWithOptions(dir, {
+    exclude: ['test_*.py'],
+    applyDefaultIgnores: false,
+    includeTests: true, // Don't apply default test ignores
+  })
+
+  // Should have 2 files (app.py, utils.py) - not the test files
+  assert.strictEqual(stats.totalFiles, 2, 'Exclude pattern should filter out test files even without include')
+})
+
+test('scanWithOptions with both include and exclude patterns', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-incexc-'))
+  t.after(() => cleanup(dir))
+
+  fs.writeFileSync(path.join(dir, 'app.py'), 'def app(): pass\n')
+  fs.writeFileSync(path.join(dir, 'main.py'), 'def main(): pass\n')
+  fs.writeFileSync(path.join(dir, 'test.py'), 'def test(): pass\n')
+  fs.writeFileSync(path.join(dir, 'app.js'), 'function app() {}\n')
+
+  // Include only .py files, exclude test.py
+  const stats = scanWithOptions(dir, {
+    include: ['*.py'],
+    exclude: ['test.py'],
+    applyDefaultIgnores: false,
+    includeTests: true,
+  })
+
+  // Should have 2 files (app.py, main.py) - not app.js or test.py
+  assert.strictEqual(stats.totalFiles, 2, 'Should have 2 Python files (excluding test.py)')
+})
