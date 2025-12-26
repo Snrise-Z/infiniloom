@@ -49,8 +49,43 @@ use napi_derive::napi;
 use std::path::PathBuf;
 
 // ============================================================================
+// Package Version
+// ============================================================================
+
+/// Get the package version
+///
+/// # Returns
+/// The version string of the infiniloom-node package
+///
+/// # Example
+/// ```javascript
+/// const { version } = require('infiniloom-node');
+///
+/// console.log(`infiniloom-node v${version()}`);
+/// ```
+#[napi]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ============================================================================
 // Input Validation Helpers
 // ============================================================================
+
+/// Validate path is not empty (accepts Option to handle null/undefined gracefully)
+fn validate_path_option(path: Option<&str>) -> Result<String> {
+    match path {
+        None => Err(Error::new(
+            Status::InvalidArg,
+            "Path cannot be null or undefined".to_string(),
+        )),
+        Some(p) if p.trim().is_empty() => Err(Error::new(
+            Status::InvalidArg,
+            "Path cannot be empty".to_string(),
+        )),
+        Some(p) => Ok(p.to_string()),
+    }
+}
 
 /// Validate path is not empty
 fn validate_path(path: &str) -> Result<()> {
@@ -63,15 +98,19 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate symbol name is not empty
-fn validate_symbol_name(name: &str) -> Result<()> {
-    if name.trim().is_empty() {
-        return Err(Error::new(
+/// Validate symbol name is not empty (accepts Option to handle null/undefined gracefully)
+fn validate_symbol_name_option(name: Option<&str>) -> Result<String> {
+    match name {
+        None => Err(Error::new(
+            Status::InvalidArg,
+            "Symbol name cannot be null or undefined".to_string(),
+        )),
+        Some(n) if n.trim().is_empty() => Err(Error::new(
             Status::InvalidArg,
             "Symbol name cannot be empty".to_string(),
-        ));
+        )),
+        Some(n) => Ok(n.to_string()),
     }
-    Ok(())
 }
 
 /// Validate file path is not empty
@@ -210,9 +249,9 @@ pub struct ScanOptions {
 /// });
 /// ```
 #[napi]
-pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
-    // Input validation
-    validate_path(&path)?;
+pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
 
     let opts = options.unwrap_or(PackOptions {
         format: None,
@@ -431,7 +470,7 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
 /// Scan a repository and return statistics
 ///
 /// # Arguments
-/// * `path` - Path to repository root
+/// * `path` - Path to repository root (null/undefined returns error)
 /// * `model` - Optional target model (default: "claude") - for backwards compatibility
 ///
 /// # Returns
@@ -446,9 +485,9 @@ pub fn pack(path: String, options: Option<PackOptions>) -> Result<String> {
 /// console.log(`Total tokens: ${stats.totalTokens}`);
 /// ```
 #[napi]
-pub fn scan(path: String, model: Option<String>) -> Result<ScanStats> {
-    // Input validation
-    validate_path(&path)?;
+pub fn scan(path: Option<String>, model: Option<String>) -> Result<ScanStats> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
 
     // Call scan_with_options with default options for backwards compatibility
     scan_with_options(path, Some(ScanOptions {
@@ -704,12 +743,21 @@ impl Infiniloom {
     /// Generate a repository map
     ///
     /// # Arguments
-    /// * `budget` - Token budget (default: 2000)
-    /// * `max_symbols` - Maximum symbols (default: 50)
+    /// * `options` - Options object with budget (default: 2000) and maxSymbols (default: 50)
+    ///
+    /// # Example
+    /// ```javascript
+    /// const loom = new Infiniloom('./my-repo');
+    /// const map = loom.generateMap({ budget: 3000, maxSymbols: 100 });
+    /// ```
     #[napi]
-    pub fn generate_map(&self, budget: Option<u32>, max_symbols: Option<u32>) -> Result<String> {
-        let token_budget = budget.unwrap_or(2000);
-        let max_syms = max_symbols.unwrap_or(50);
+    pub fn generate_map(&self, options: Option<GenerateMapOptions>) -> Result<String> {
+        let opts = options.unwrap_or(GenerateMapOptions {
+            budget: None,
+            max_symbols: None,
+        });
+        let token_budget = opts.budget.unwrap_or(2000);
+        let max_syms = opts.max_symbols.unwrap_or(50);
 
         let generator = RepoMapGenerator::builder()
             .token_budget(token_budget)
@@ -883,23 +931,47 @@ fn parse_security_threshold(threshold: Option<&str>) -> Result<Severity> {
 /// ```javascript
 /// const { semanticCompress } = require('infiniloom-node');
 ///
-/// // Compress to ~30% of original size
-/// const compressed = semanticCompress(longText, 0.7, 0.3);
+/// // Using options object (recommended)
+/// const compressed = semanticCompress(longText, { budgetRatio: 0.3 });
 ///
-/// // Aggressive compression to ~20%
-/// const veryCompressed = semanticCompress(longText, 0.7, 0.2);
+/// // With all options
+/// const custom = semanticCompress(longText, {
+///   similarityThreshold: 0.7,
+///   budgetRatio: 0.3,
+///   minChunkSize: 100,
+///   maxChunkSize: 2000
+/// });
 /// ```
 #[napi]
 pub fn semantic_compress(
-    text: String,
-    similarity_threshold: Option<f64>,
-    budget_ratio: Option<f64>,
+    text: Option<String>,
+    options: Option<SemanticCompressOptions>,
 ) -> Result<String> {
+    // Input validation - handle null/undefined gracefully
+    let text = match text {
+        None => return Err(Error::new(
+            Status::InvalidArg,
+            "Text cannot be null or undefined".to_string(),
+        )),
+        Some(t) if t.is_empty() => return Err(Error::new(
+            Status::InvalidArg,
+            "Text cannot be empty".to_string(),
+        )),
+        Some(t) => t,
+    };
+
+    let opts = options.unwrap_or(SemanticCompressOptions {
+        similarity_threshold: None,
+        budget_ratio: None,
+        min_chunk_size: None,
+        max_chunk_size: None,
+    });
+
     let config = SemanticConfig {
-        similarity_threshold: similarity_threshold.unwrap_or(0.7) as f32,
-        budget_ratio: budget_ratio.unwrap_or(0.5) as f32,
-        min_chunk_size: 100,
-        max_chunk_size: 2000,
+        similarity_threshold: opts.similarity_threshold.unwrap_or(0.7) as f32,
+        budget_ratio: opts.budget_ratio.unwrap_or(0.5) as f32,
+        min_chunk_size: opts.min_chunk_size.unwrap_or(100) as usize,
+        max_chunk_size: opts.max_chunk_size.unwrap_or(2000) as usize,
     };
 
     let compressor = SemanticCompressor::with_config(config);
@@ -1079,9 +1151,10 @@ impl GitRepo {
     /// * `path` - Path to the repository
     ///
     /// # Throws
-    /// Error if path is not a git repository
+    /// Error if path is null/undefined or not a git repository
     #[napi(constructor)]
-    pub fn new(path: String) -> Result<Self> {
+    pub fn new(path: Option<String>) -> Result<Self> {
+        let path = validate_path_option(path.as_deref())?;
         let path_buf = PathBuf::from(path);
         let inner = EngineGitRepo::open(&path_buf)
             .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
@@ -1479,7 +1552,8 @@ pub struct SecurityFinding {
 /// }
 /// ```
 #[napi]
-pub fn scan_security(path: String) -> Result<Vec<SecurityFinding>> {
+pub fn scan_security(path: Option<String>) -> Result<Vec<SecurityFinding>> {
+    let path = validate_path_option(path.as_deref())?;
     let repo = scan_repository_with_options(&path, TokenizerModel::Claude, true, true)?;
 
     let scanner = SecurityScanner::new();
@@ -1930,6 +2004,47 @@ pub struct CallGraphOptions {
     pub max_edges: Option<u32>,
 }
 
+/// Result from getSymbolSource containing source code and metadata
+#[napi(object)]
+pub struct SymbolSourceResult {
+    /// The source code of the symbol
+    pub source: String,
+    /// Path to the file containing the symbol (relative to repo root)
+    pub path: String,
+    /// Start line number (1-indexed)
+    pub start_line: u32,
+    /// End line number (1-indexed)
+    pub end_line: u32,
+    /// Symbol name
+    pub name: String,
+    /// Symbol kind (function, method, class, etc.)
+    pub kind: String,
+}
+
+/// Options for generateMap
+#[napi(object)]
+pub struct GenerateMapOptions {
+    /// Token budget for the map (default: 2000)
+    pub budget: Option<u32>,
+    /// Maximum number of symbols to include (default: 50)
+    pub max_symbols: Option<u32>,
+}
+
+/// Options for semanticCompress
+#[napi(object)]
+pub struct SemanticCompressOptions {
+    /// Threshold for grouping similar chunks (0.0-1.0, default: 0.7)
+    /// Note: Only affects output when built with "embeddings" feature.
+    pub similarity_threshold: Option<f64>,
+    /// Target size as ratio of original (0.0-1.0, default: 0.5)
+    /// Lower values = more aggressive compression
+    pub budget_ratio: Option<f64>,
+    /// Minimum chunk size in characters (default: 100)
+    pub min_chunk_size: Option<u32>,
+    /// Maximum chunk size in characters (default: 2000)
+    pub max_chunk_size: Option<u32>,
+}
+
 /// Feature #2: Filter options for symbol queries
 ///
 /// Allows filtering query results by symbol kind.
@@ -1972,8 +2087,8 @@ fn matches_query_filter(symbol: &SymbolInfo, filter: &Option<QueryFilter>) -> bo
 /// Requires an index to be built first (use `buildIndex`).
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `name` - Symbol name to search for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `name` - Symbol name to search for (null/undefined returns error)
 ///
 /// # Returns
 /// Array of matching symbols
@@ -1987,10 +2102,10 @@ fn matches_query_filter(symbol: &SymbolInfo, filter: &Option<QueryFilter>) -> bo
 /// console.log(`Found ${symbols.length} symbols named processRequest`);
 /// ```
 #[napi]
-pub fn find_symbol(path: String, name: String) -> Result<Vec<SymbolInfo>> {
-    // Input validation
-    validate_path(&path)?;
-    validate_symbol_name(&name)?;
+pub fn find_symbol(path: Option<String>, name: Option<String>) -> Result<Vec<SymbolInfo>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let name = validate_symbol_name_option(name.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
@@ -2008,8 +2123,8 @@ pub fn find_symbol(path: String, name: String) -> Result<Vec<SymbolInfo>> {
 /// Requires an index to be built first (use `buildIndex`).
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `symbol_name` - Name of the symbol to find callers for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `symbol_name` - Name of the symbol to find callers for (null/undefined returns error)
 ///
 /// # Returns
 /// Array of symbols that call the target symbol
@@ -2026,10 +2141,10 @@ pub fn find_symbol(path: String, name: String) -> Result<Vec<SymbolInfo>> {
 /// }
 /// ```
 #[napi]
-pub fn get_callers(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
-    // Input validation
-    validate_path(&path)?;
-    validate_symbol_name(&symbol_name)?;
+pub fn get_callers(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
@@ -2049,8 +2164,8 @@ pub fn get_callers(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>>
 /// Requires an index to be built first (use `buildIndex`).
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `symbol_name` - Name of the symbol to find callees for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `symbol_name` - Name of the symbol to find callees for (null/undefined returns error)
 ///
 /// # Returns
 /// Array of symbols that the target symbol calls
@@ -2067,10 +2182,10 @@ pub fn get_callers(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>>
 /// }
 /// ```
 #[napi]
-pub fn get_callees(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
-    // Input validation
-    validate_path(&path)?;
-    validate_symbol_name(&symbol_name)?;
+pub fn get_callees(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
@@ -2108,10 +2223,10 @@ pub fn get_callees(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>>
 /// }
 /// ```
 #[napi]
-pub fn get_references(path: String, symbol_name: String) -> Result<Vec<ReferenceInfo>> {
-    // Input validation
-    validate_path(&path)?;
-    validate_symbol_name(&symbol_name)?;
+pub fn get_references(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<ReferenceInfo>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
@@ -2389,9 +2504,9 @@ pub async fn get_references_filtered_async(
 /// console.log('Most called functions:', sorted.slice(0, 10));
 /// ```
 #[napi]
-pub fn get_call_graph(path: String, options: Option<CallGraphOptions>) -> Result<CallGraph> {
-    // Input validation
-    validate_path(&path)?;
+pub fn get_call_graph(path: Option<String>, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
@@ -2417,7 +2532,7 @@ pub fn get_call_graph(path: String, options: Option<CallGraphOptions>) -> Result
 
 /// Async version of findSymbol
 #[napi]
-pub async fn find_symbol_async(path: String, name: String) -> Result<Vec<SymbolInfo>> {
+pub async fn find_symbol_async(path: Option<String>, name: Option<String>) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || find_symbol(path, name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2425,7 +2540,7 @@ pub async fn find_symbol_async(path: String, name: String) -> Result<Vec<SymbolI
 
 /// Async version of getCallers
 #[napi]
-pub async fn get_callers_async(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+pub async fn get_callers_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || get_callers(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2433,7 +2548,7 @@ pub async fn get_callers_async(path: String, symbol_name: String) -> Result<Vec<
 
 /// Async version of getCallees
 #[napi]
-pub async fn get_callees_async(path: String, symbol_name: String) -> Result<Vec<SymbolInfo>> {
+pub async fn get_callees_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || get_callees(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2441,7 +2556,7 @@ pub async fn get_callees_async(path: String, symbol_name: String) -> Result<Vec<
 
 /// Async version of getReferences
 #[napi]
-pub async fn get_references_async(path: String, symbol_name: String) -> Result<Vec<ReferenceInfo>> {
+pub async fn get_references_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<ReferenceInfo>> {
     tokio::task::spawn_blocking(move || get_references(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2449,7 +2564,7 @@ pub async fn get_references_async(path: String, symbol_name: String) -> Result<V
 
 /// Async version of getCallGraph
 #[napi]
-pub async fn get_call_graph_async(path: String, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+pub async fn get_call_graph_async(path: Option<String>, options: Option<CallGraphOptions>) -> Result<CallGraph> {
     tokio::task::spawn_blocking(move || get_call_graph(path, options))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -3638,7 +3753,7 @@ fn format_diff_context_plain(
 /// const context = await packAsync('./my-repo', { format: 'xml' });
 /// ```
 #[napi]
-pub async fn pack_async(path: String, options: Option<PackOptions>) -> Result<String> {
+pub async fn pack_async(path: Option<String>, options: Option<PackOptions>) -> Result<String> {
     // Run synchronous pack in a blocking task
     tokio::task::spawn_blocking(move || pack(path, options))
         .await
@@ -3654,7 +3769,7 @@ pub async fn pack_async(path: String, options: Option<PackOptions>) -> Result<St
 /// const stats = await scanAsync('./my-repo', 'claude');
 /// ```
 #[napi]
-pub async fn scan_async(path: String, model: Option<String>) -> Result<ScanStats> {
+pub async fn scan_async(path: Option<String>, model: Option<String>) -> Result<ScanStats> {
     tokio::task::spawn_blocking(move || scan(path, model))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -3858,15 +3973,20 @@ pub fn get_symbols_in_file(
 /// const { getSymbolSource, buildIndex } = require('infiniloom-node');
 ///
 /// buildIndex('./my-repo');
-/// const source = getSymbolSource('./my-repo', 'authenticate', 'src/auth.ts');
-/// console.log(source);
+/// const result = getSymbolSource('./my-repo', 'authenticate', 'src/auth.ts');
+/// console.log(`Source at ${result.path}:${result.startLine}`);
+/// console.log(result.source);
 /// ```
 #[napi]
 pub fn get_symbol_source(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     file_path: Option<String>,
-) -> Result<String> {
+) -> Result<SymbolSourceResult> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
+
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -3910,7 +4030,34 @@ pub fn get_symbol_source(
     }
 
     let source = lines[start..end].join("\n");
-    Ok(source)
+
+    // Format symbol kind
+    use infiniloom_engine::index::types::IndexSymbolKind;
+    let kind = match symbol.kind {
+        IndexSymbolKind::Function => "function",
+        IndexSymbolKind::Method => "method",
+        IndexSymbolKind::Class => "class",
+        IndexSymbolKind::Struct => "struct",
+        IndexSymbolKind::Enum => "enum",
+        IndexSymbolKind::Interface => "interface",
+        IndexSymbolKind::Trait => "trait",
+        IndexSymbolKind::Constant => "constant",
+        IndexSymbolKind::Variable => "variable",
+        IndexSymbolKind::Module => "module",
+        IndexSymbolKind::Import => "import",
+        IndexSymbolKind::Export => "export",
+        IndexSymbolKind::TypeAlias => "type_alias",
+        IndexSymbolKind::Macro => "macro",
+    };
+
+    Ok(SymbolSourceResult {
+        source,
+        path: file.path.clone(),
+        start_line: symbol.span.start_line,
+        end_line: symbol.span.end_line,
+        name: symbol.name.clone(),
+        kind: kind.to_string(),
+    })
 }
 
 /// Get symbols that were changed in a diff
@@ -4312,10 +4459,10 @@ pub async fn get_symbols_in_file_async(
 /// Async version of getSymbolSource
 #[napi]
 pub async fn get_symbol_source_async(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     file_path: Option<String>,
-) -> Result<String> {
+) -> Result<SymbolSourceResult> {
     tokio::task::spawn_blocking(move || get_symbol_source(path, symbol_name, file_path))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?

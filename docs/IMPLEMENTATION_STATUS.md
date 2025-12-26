@@ -1,6 +1,6 @@
 # Infiniloom Implementation Status
 
-**Version:** 0.4.8
+**Version:** 0.4.9
 **Last Updated:** 2025-12-25
 
 This document compares the design specifications from the original design documents with the current implementation status. For planned but unimplemented features, see [ROADMAP.md](planning/ROADMAP.md).

@@ -5,6 +5,47 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] - 2025-12-26
+
+### Added
+
+- **`version()` Function** - Returns the package version string for programmatic access
+  - Node.js: `const { version } = require('infiniloom-node'); version()` returns "0.4.9"
+  - Python: `from infiniloom import version; version()` returns "0.4.9"
+
+### Fixed
+
+- **Null/Undefined Input Handling (Node.js)** - All major functions now throw clean errors instead of crashing
+  - `pack()`, `scan()`, `scanWithOptions()`, `buildIndex()` - validate path parameter
+  - `findSymbol()`, `getCallers()`, `getCallees()`, `getReferences()` - validate path and symbol name
+  - `getCallGraph()`, `getSymbolSource()`, `scanSecurity()` - validate path parameter
+  - `semanticCompress()` - validates text parameter (null/undefined/empty)
+  - `GitRepo` constructor - validates path parameter
+  - Error messages are user-friendly: "Path cannot be null or undefined", "Symbol name cannot be empty"
+
+- **semanticCompress Options API** - Now accepts options object instead of positional parameters
+  - Old API: `semanticCompress(text, 0.7, 0.5)` (still works for backward compatibility)
+  - New API: `semanticCompress(text, { budgetRatio: 0.5, similarityThreshold: 0.7 })`
+  - Additional options: `minChunkSize`, `maxChunkSize`
+
+- **Infiniloom.generateMap Options API** - Now accepts options object
+  - Old API: `loom.generateMap(2000, 50)` (still works)
+  - New API: `loom.generateMap({ budget: 2000, maxSymbols: 50 })`
+
+- **getSymbolSource Return Type** - Now returns structured `SymbolSourceResult` object
+  - Old: Returned plain string with source code
+  - New: Returns `{ source, path, startLine, endLine, name, kind }`
+  - Provides complete context about the symbol location and type
+
+### Changed
+
+- **Test Suite Expansion** - Added ~100 new tests for bug fixes
+  - Tests for `version()` function
+  - Tests for null/undefined handling across all functions
+  - Tests for new options object APIs
+  - Tests for `SymbolSourceResult` return type
+  - All 161 tests passing
+
 ## [0.4.8] - 2025-12-25
 
 ### Performance
@@ -454,7 +495,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.5...v0.4.6

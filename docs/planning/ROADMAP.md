@@ -1,7 +1,7 @@
 # Infiniloom Roadmap
 
 **Last Updated:** 2025-12-25
-**Current Version:** 0.4.8
+**Current Version:** 0.4.9
 
 Features are prioritized by ROI (user impact / implementation effort). Checkboxes indicate progress.
 

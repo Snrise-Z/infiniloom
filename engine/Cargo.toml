@@ -1,6 +1,6 @@
 [package]
 name = "infiniloom-engine"
-version = "0.4.8"
+version = "0.4.9"
 edition = "2021"
 rust-version = "1.91"
 description = "High-performance repository context engine for LLMs - AST parsing, token counting, and secret detection"
