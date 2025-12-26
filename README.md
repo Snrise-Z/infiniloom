@@ -2,300 +2,233 @@
 
 # Infiniloom
 
-**Transform codebases into optimized context for LLMs**
+**Help AI understand your codebase by giving it the right context, not all the context.**
 
 [![CI](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml/badge.svg)](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Topos-Labs/infiniloom/graph/badge.svg)](https://codecov.io/gh/Topos-Labs/infiniloom)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
 [![Crates.io](https://img.shields.io/crates/v/infiniloom.svg)](https://crates.io/crates/infiniloom)
 [![npm](https://img.shields.io/npm/v/infiniloom.svg)](https://www.npmjs.com/package/infiniloom)
 [![PyPI](https://img.shields.io/pypi/v/infiniloom.svg)](https://pypi.org/project/infiniloom/)
-[![MSRV](https://img.shields.io/badge/MSRV-1.91+-orange.svg)](https://www.rust-lang.org/)
-
-[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
 
 </div>
 
 ---
 
-Infiniloom extracts code, symbols, and structure from repositories and outputs them in formats optimized for Claude, GPT, Gemini, and other LLMs.
+## The Problem
 
-- **Fast** — Pure Rust, processes 1000+ files in <500ms
-- **Smart** — AST-based symbol extraction (21 languages), PageRank ranking
-- **Secure** — Automatic secret detection and redaction
-- **Flexible** — XML, Markdown, JSON, YAML output formats
+When you ask an AI to help with code, quality depends almost entirely on what context you provide. Most approaches fail:
 
-## Installation
+- **Pasting random files** gives the AI fragments without structure or relationships
+- **Dumping entire repositories** overwhelms the AI with noise and irrelevant code
+- **Token limits** force you to leave out important context, leading to incorrect suggestions
+- **AI doesn't know what it doesn't know** — it can't ask for the files it needs
+- **Copy-paste workflows** are slow, error-prone, and don't scale
+- **Every question requires re-gathering context** from scratch
 
-```bash
-npm install -g infiniloom      # Cross-platform (recommended)
-cargo install infiniloom       # Rust users
-brew tap Topos-Labs/infiniloom && brew install --cask infiniloom  # macOS
-```
+The result: AI gives generic answers, hallucinates function signatures, or misses critical dependencies — not because the AI is bad, but because the context is bad.
 
-<details>
-<summary>More installation options</summary>
+---
 
-| Method | Command | Notes |
-|--------|---------|-------|
-| **npm** | `npm install -g infiniloom` | Easiest, cross-platform |
-| **Homebrew Cask** | `brew install --cask infiniloom` | macOS, pre-built binary |
-| **Homebrew Formula** | `brew install infiniloom` | macOS, builds from source |
-| **Cargo** | `cargo install infiniloom` | Rust users |
-| **pip** | `pip install infiniloom` | Python library |
-| **npm library** | `npm install infiniloom-node` | Node.js library |
+## What Infiniloom Does
 
-**From source:**
-```bash
-git clone https://github.com/Topos-Labs/infiniloom.git
-cd infiniloom && cargo build --release
-```
+Infiniloom reads your codebase and produces a structured summary designed specifically for AI consumption.
 
-</details>
+Think of it like this: instead of handing someone a filing cabinet and saying "figure it out," you give them a well-organized briefing document that highlights what matters.
+
+Here's how it works:
+
+1. **Analyzes structure** — Infiniloom understands how your code is organized: which files exist, how they relate, what languages are used.
+
+2. **Extracts meaning** — It identifies the important pieces: functions, classes, interfaces, types. Not just text, but semantic units that AI can reason about.
+
+3. **Ranks importance** — Using techniques similar to how search engines rank web pages, it determines which code is central to your project and which is peripheral.
+
+4. **Filters noise** — Generated files, build artifacts, vendored dependencies, and other distractions are automatically excluded.
+
+5. **Formats for AI** — The output is structured in ways that different AI models understand best — XML for Claude, Markdown for GPT, YAML for Gemini.
+
+The result is a context package that helps AI give you accurate, relevant answers about your actual code.
+
+---
+
+## What You Can Do With It
+
+### For Developers
+
+- **AI-assisted code review** — Give your AI the context to understand what a pull request actually changes
+- **Ask architectural questions** — "How does authentication flow through this system?"
+- **Generate documentation** — Let AI explain your code with full visibility into dependencies
+- **Onboard faster** — Understand a new codebase in hours instead of weeks
+- **Debug complex issues** — Provide AI with the relevant code paths, not just the error message
+
+### For AI / RAG / Agents
+
+- **Build better context** — Prepare high-quality input for LLM applications
+- **Reduce token usage** — Send what matters, not everything
+- **Improve answer accuracy** — Relevant context produces relevant answers
+- **Enable code-aware agents** — Give autonomous systems the context they need to act correctly
+
+### For Non-Engineers
+
+- **Understand what a system does** — Ask questions about code in plain English
+- **Review system logic** — Audit how software makes decisions without reading code yourself
+- **Communicate with engineering** — Use AI as a translator between technical and non-technical perspectives
+
+---
 
 ## Quick Start
 
-```bash
-# Pack repository for Claude (XML format)
-infiniloom pack . --format xml --output context.xml
-
-# Scan repository statistics
-infiniloom scan .
-
-# Generate symbol map with PageRank ranking
-infiniloom map . --budget 2000
-
-# Get context for staged changes (AI code review)
-infiniloom diff . --staged --include-diff
-```
-
-### Output Formats
+**Install:**
 
 ```bash
-infiniloom pack . --format xml       # Claude (prompt caching hints)
-infiniloom pack . --format markdown  # GPT-4/GPT-4o
-infiniloom pack . --format yaml      # Gemini
-infiniloom pack . --format json      # Programmatic use
-infiniloom pack . --format toon      # Token-efficient (~40% smaller)
-infiniloom pack . --format plain     # Simple plain text
+npm install -g infiniloom
 ```
 
-## All Commands
-
-| Command | Description | Key Options |
-|---------|-------------|-------------|
-| [`pack`](docs/commands/pack.md) | Transform repo into LLM context | `--format` `--model` `--compression` `--max-tokens` |
-| [`scan`](docs/commands/scan.md) | Repository statistics | `--model` `--json` `--security-check` |
-| [`map`](docs/commands/map.md) | PageRank symbol map | `--budget` `--model` |
-| [`index`](docs/commands/index.md) | Build symbol index | `--force` `--status` `--incremental` |
-| [`diff`](docs/commands/diff.md) | Context for code changes | `--staged` `--depth` `--include-diff` |
-| [`impact`](docs/commands/impact.md) | Analyze change impact | `--symbol` `--call-graph` `--depth` |
-| [`chunk`](docs/commands/chunk.md) | Split for multi-turn | `--strategy` `--max-tokens` `--overlap` |
-| [`init`](docs/commands/init.md) | Create config file | `--format` `--template` |
-| [`info`](docs/commands/info.md) | Show version/config | |
-
-See [Command Reference](docs/commands/) for complete documentation.
-
-## Performance
-
-| Repository | Files | Tokens | Time |
-|------------|-------|--------|------|
-| infiniloom | 174 | 667K | 420ms |
-| medium project | 1,200 | 1.8M | 1.8s |
-
-*Benchmarks on M2 MacBook Pro, including full AST parsing and symbol extraction.*
-
-## Features
-
-### Model-Specific Optimization
-
-| Model | Format | Optimizations |
-|-------|--------|---------------|
-| **Claude** | XML | Prompt caching hints, CDATA sections |
-| **GPT-4/4o** | Markdown | Tables, code fences, hierarchical headers |
-| **Gemini** | YAML | Query at end, structured hierarchy |
-| **Any** | TOON | ~40% smaller than JSON |
-
-### Smart Filtering
+**Generate context for your repository:**
 
 ```bash
-infiniloom pack . --include "*.rs" --exclude "tests/*"
-infiniloom pack . --max-tokens 50000      # Token budget
-infiniloom pack . --top-files 50          # Limit to N most important files
-infiniloom pack . --compression aggressive # Remove comments, docstrings
+infiniloom pack . --output context.xml
 ```
 
-### Security Scanning
+This produces an XML file containing your codebase's structure, key symbols, and content — ready to paste into Claude, GPT, or any other AI assistant.
 
-Automatically detects and redacts API keys, tokens, private keys, and credentials:
+---
 
-```bash
-infiniloom pack . --security-check   # Scan and report
-infiniloom pack . --redact-secrets   # Redact with [REDACTED]
-```
+## Core Capabilities
 
-### Git Integration
+| Capability | Why It Matters |
+|------------|----------------|
+| **Repository analysis** | Understands project structure, languages, and file relationships automatically |
+| **Symbol extraction** | Identifies functions, classes, and types — the units AI reasons about |
+| **Importance ranking** | Highlights central code, deprioritizes utilities and boilerplate |
+| **Noise reduction** | Excludes generated files, dependencies, and artifacts by default |
+| **Security filtering** | Detects and redacts API keys, tokens, and credentials before they reach AI |
+| **Multiple output formats** | XML, Markdown, YAML, JSON — optimized for different AI models |
+| **Token-aware packaging** | Respects context limits so you can fit within model constraints |
+| **Git integration** | Understands diffs, branches, and commit history for change-aware context |
+| **21 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, and more |
 
-```bash
-infiniloom pack . --include-logs --logs-count 10  # Recent commits
-infiniloom pack . --include-diffs                  # Uncommitted changes
-infiniloom pack github:facebook/react              # Remote repos
-```
+---
 
-### Diff Context for AI Code Reviews
+## CLI Overview
 
-```bash
-infiniloom index .                    # Build symbol index
-infiniloom diff . --staged            # Context for staged changes
-infiniloom diff . HEAD~1              # Context for last commit
-infiniloom diff . main..feature       # Context for branch diff
-infiniloom impact . src/auth.rs       # What depends on this file?
-```
+| Command | What It Does |
+|---------|--------------|
+| `pack` | Analyze a repository and generate AI-ready context |
+| `scan` | Show repository statistics: files, tokens, languages |
+| `map` | Generate a ranked overview of key symbols |
+| `diff` | Build context focused on recent changes |
+| `index` | Create a symbol index for fast queries |
+| `impact` | Analyze what depends on a file or function |
+| `chunk` | Split large repositories for multi-turn conversations |
+| `init` | Create a configuration file |
 
-<details>
-<summary><strong>Supported Languages (21)</strong></summary>
+See the [Command Reference](docs/commands/) for detailed documentation.
 
-| Language | Symbols Extracted |
-|----------|-------------------|
-| Python | Functions, Classes, Methods, Decorators |
-| JavaScript/TypeScript | Functions, Classes, Interfaces, Types |
-| Rust | Functions, Structs, Enums, Traits, Impl blocks |
-| Go | Functions, Methods, Structs, Interfaces |
-| Java | Classes, Interfaces, Methods, Enums |
-| C/C++ | Functions, Structs, Classes |
-| C# | Classes, Methods, Interfaces, Properties |
-| Ruby | Classes, Modules, Methods |
-| PHP | Classes, Functions, Methods |
-| Kotlin | Classes, Functions, Interfaces |
-| Swift | Classes, Structs, Functions, Protocols |
-| Scala | Classes, Objects, Traits, Functions |
-| Haskell | Functions, Types, Data, Typeclasses |
-| Elixir | Modules, Functions, Macros |
-| Clojure | Functions, Macros, Vars |
-| OCaml | Functions, Modules, Types |
-| Lua | Functions, Tables |
-| R | Functions, Classes |
-| Bash | Functions |
+---
 
-</details>
+## How This Is Different
 
-<details>
-<summary><strong>Supported LLM Models (20+)</strong></summary>
+**Compared to "just paste the code":**
 
-**Exact tokenization (tiktoken):**
-- GPT-5.2, GPT-5.1, GPT-5, O4-mini, O3, O1 (o200k_base)
-- GPT-4o, GPT-4o-mini (o200k_base)
-- GPT-4, GPT-3.5-turbo (cl100k_base)
+Infiniloom understands code structure. It knows the difference between a core business function and a utility helper. It understands imports, dependencies, and relationships. Pasting files gives AI text; Infiniloom gives AI understanding.
 
-**Calibrated estimation:**
-- Claude (Anthropic)
-- Gemini (Google)
-- Llama 3/4, CodeLlama (Meta)
-- Mistral, Mixtral (Mistral AI)
-- DeepSeek V3/R1
-- Qwen (Alibaba)
-- Cohere Command R+
-- Grok (xAI)
+**Compared to generic RAG tools:**
 
-</details>
+Most RAG systems treat code as documents. They chunk by character count, embed text, and retrieve by similarity. This misses the structure that makes code meaningful. Infiniloom preserves semantic boundaries — functions stay whole, relationships stay intact.
 
-<details>
-<summary><strong>Compression Levels</strong></summary>
+**Compared to embedding-based approaches:**
 
-| Level | Reduction | What's Removed |
-|-------|-----------|----------------|
-| `none` | 0% | Nothing |
-| `minimal` | 10-20% | Empty lines, trailing whitespace |
-| `balanced` | 30-40% | Comments, redundant whitespace |
-| `aggressive` | 50-60% | Docstrings, inline comments |
-| `extreme` | 70-80% | Everything except signatures |
-| `focused` | ~75% | Key symbols with small surrounding context |
-| `semantic` | 60-70% | Heuristic-based smart compression |
+Embeddings are useful for "find code similar to X." They're less useful for "understand how X works." Infiniloom focuses on comprehension: what exists, how it connects, what matters. This is about building complete context, not searching fragments.
 
-</details>
+**Our philosophy:**
 
-## Language Bindings
+Context quality beats context quantity. A smaller, well-structured context produces better AI responses than a larger, noisier one. Infiniloom prioritizes signal over volume.
 
-### Python
+---
 
-```python
-import infiniloom
+## Who This Is For
 
-context = infiniloom.pack("/path/to/repo", format="xml", model="claude")
-stats = infiniloom.scan("/path/to/repo")
-```
+**Good fit:**
 
-### Node.js
+- Developers using AI assistants for code review, debugging, or documentation
+- Teams building AI-powered developer tools or code analysis products
+- Engineers working with large or unfamiliar codebases
+- Anyone who needs AI to understand real production code, not toy examples
 
-```javascript
-const { pack, scan } = require('infiniloom-node');
+**Probably not needed:**
 
-const context = pack('./repo', { format: 'xml', model: 'claude' });
-const stats = scan('./repo');
-```
+- Single-file scripts or small utilities (just paste them directly)
+- Projects where you already have perfect context (rare, but possible)
+- Use cases where code search is more important than code comprehension
 
-## Configuration
+---
 
-Create `.infiniloom.yaml` with `infiniloom init`:
+## Project Status
 
-```yaml
-output:
-  format: xml
-  model: claude
-  compression: balanced
-  token_budget: 100000
+Infiniloom is **stable and actively maintained**.
 
-scan:
-  include: ["*.rs", "*.py", "*.ts"]
-  exclude: ["tests/*", "docs/*"]
+**What's solid today:**
+- Core packing workflow across 21 languages
+- All output formats (XML, Markdown, YAML, JSON)
+- Security scanning and secret redaction
+- Git-aware diff context
+- Python and Node.js bindings
 
-security:
-  scan_secrets: true
-  redact_secrets: true
-```
+**Coming next:**
+- Improved call graph analysis
+- IDE integrations
+- Streaming output for very large repositories
+- Enhanced support for monorepo structures
 
-See [Configuration Guide](docs/CONFIGURATION.md) for all options.
+---
 
-## Documentation
+## Installation Options
 
-| Document | Description |
-|----------|-------------|
-| [Cheat Sheet](docs/CHEATSHEET.md) | Quick reference for all commands |
-| [Command Reference](docs/commands/) | Detailed CLI documentation |
-| [Configuration](docs/CONFIGURATION.md) | Config files and environment variables |
-| [LLM Optimization](docs/guides/llm-optimization.md) | Model-specific tips |
-| [Large Repositories](docs/guides/large-repos.md) | Scaling strategies |
-| [CI/CD Integration](docs/guides/ci-integration.md) | Automation workflows |
-| [FAQ](docs/FAQ.md) | Frequently asked questions |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
-| [Output Formats](docs/INFINILOOM_OUTPUT_FORMATS.md) | Format specifications |
-| [Architecture](docs/INFINILOOM_DESIGN.md) | System design |
+| Method | Command |
+|--------|---------|
+| **npm** (recommended) | `npm install -g infiniloom` |
+| **Homebrew** (macOS) | `brew tap Topos-Labs/infiniloom && brew install --cask infiniloom` |
+| **Cargo** (Rust users) | `cargo install infiniloom` |
+| **pip** (Python library) | `pip install infiniloom` |
+| **From source** | `git clone https://github.com/Topos-Labs/infiniloom && cd infiniloom && cargo build --release` |
+
+---
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+We welcome contributions of all kinds: bug reports, feature requests, documentation improvements, and code.
+
+- **Found a bug?** [Open an issue](https://github.com/Topos-Labs/infiniloom/issues)
+- **Have an idea?** Start a [discussion](https://github.com/Topos-Labs/infiniloom/discussions)
+- **Want to contribute code?** See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ```bash
-cargo test --workspace    # Run tests (800+)
+cargo test --workspace    # Run tests
 cargo clippy --workspace  # Lint
 cargo fmt --all           # Format
 ```
+
+---
+
+## Documentation
+
+- [Cheat Sheet](docs/CHEATSHEET.md) — Quick reference
+- [Command Reference](docs/commands/) — Detailed CLI documentation
+- [Configuration Guide](docs/CONFIGURATION.md) — Config files and options
+- [FAQ](docs/FAQ.md) — Common questions answered
+
+---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
-## Acknowledgments
-
-- [Tree-sitter](https://tree-sitter.github.io/) — Fast, reliable parsing
-- [tiktoken-rs](https://github.com/zurawiki/tiktoken-rs) — Accurate token counting
-- [Aider](https://github.com/paul-gauthier/aider) — Repo-map concept inspiration
-
 ---
 
 <div align="center">
 
-Made with care by [Topos Labs](https://github.com/Topos-Labs)
+Made by [Topos Labs](https://github.com/Topos-Labs)
 
 </div>
