@@ -964,7 +964,7 @@ if (isGitRepo('./my-project')) {
 - **O3** / **O3-mini** - O3 reasoning models
 - **O1** / **O1-mini** / **O1-preview** - O1 reasoning models
 
-### OpenAI GPT-4 Series
+### OpenAI GPT-4 Series (Legacy)
 - **GPT-4o** / **GPT-4o-mini** - GPT-4o models (o200k_base tokenizer)
 - **GPT-4** - GPT-4 (cl100k_base tokenizer)
 - **GPT-3.5-turbo** - GPT-3.5

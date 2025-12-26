@@ -30,7 +30,7 @@ This creates `context.xml` containing your entire codebase in a Claude-optimized
 
 **Pro tip**: Claude's prompt caching works well with Infiniloom's XML format. Include the context at the start of conversations for best results.
 
-### GPT-4 / ChatGPT
+### GPT-4o / GPT-5 / ChatGPT
 
 ```bash
 infiniloom pack . --format markdown --output context.md
@@ -99,7 +99,7 @@ infiniloom pack . --exclude "**/*.test.*" --exclude "**/__tests__/*"
 ### Token Budget
 
 ```bash
-# Limit to 50K tokens (fits GPT-4's context)
+# Limit to 50K tokens (fits smaller context windows)
 infiniloom pack . --max-tokens 50000
 
 # Or limit by file count

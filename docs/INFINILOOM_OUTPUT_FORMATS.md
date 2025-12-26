@@ -26,7 +26,7 @@ Phase 2 (not implemented intentionally): LLMLingua/AutoCompressors and other AI 
 | Model Family | Primary Format | Secondary | Rationale |
 |--------------|----------------|-----------|-----------|
 | **Claude** | XML | Markdown | "Clearly separate parts...reduce misinterpretation" |
-| **GPT-4/4o** | Markdown | JSON | Good code fence handling, structured outputs |
+| **GPT-4o/GPT-5** | Markdown | JSON | Good code fence handling, structured outputs |
 | **Gemini** | Plain/Structured | Any | 1M context, query at end |
 | **Code Llama** | Infill format | Plain | Trained on FIM, 100K context |
 | **Local (Ollama)** | Compressed | Chunked | Small context, efficiency critical |

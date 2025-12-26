@@ -2,7 +2,7 @@
 
 High-performance repository context generator for LLMs.
 
-Transform your codebase into optimized context for Claude, GPT-4, Gemini, and other Large Language Models.
+Transform your codebase into optimized context for Claude, GPT-4o/GPT-5, Gemini, and other Large Language Models.
 
 ## Installation
 

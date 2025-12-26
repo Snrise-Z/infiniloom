@@ -101,8 +101,10 @@ Supported Models
 ----------------
 
 - **claude**: Anthropic Claude (default)
-- **gpt**: OpenAI GPT-4
-- **gpt-4o**: OpenAI GPT-4o
+- **gpt-5**, **gpt-5.1**, **gpt-5.2**: OpenAI GPT-5 series
+- **gpt-4o**, **gpt-4o-mini**: OpenAI GPT-4o
+- **o3**, **o1**: OpenAI reasoning models
+- **gpt-4**: OpenAI GPT-4 (legacy)
 - **gemini**: Google Gemini
 - **llama**: Meta Llama
 

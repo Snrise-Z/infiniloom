@@ -4,7 +4,7 @@
 
 ### What is Infiniloom?
 
-Infiniloom is a high-performance tool that transforms codebases into optimized context for Large Language Models (LLMs) like Claude, GPT-4, and Gemini. It extracts code, symbols, and structure from repositories and outputs them in formats specifically optimized for each AI model.
+Infiniloom is a high-performance tool that transforms codebases into optimized context for Large Language Models (LLMs) like Claude, GPT-4o/GPT-5, and Gemini. It extracts code, symbols, and structure from repositories and outputs them in formats specifically optimized for each AI model.
 
 ### Why not just copy-paste my code?
 
@@ -44,7 +44,7 @@ All text files are included regardless of language; symbol extraction is languag
 | LLM | Recommended Format | Why |
 |-----|-------------------|-----|
 | Claude | `xml` | Prompt caching hints, CDATA sections |
-| GPT-4/GPT-4o | `markdown` | Tables, code fences, headers |
+| GPT-4o/GPT-5 | `markdown` | Tables, code fences, headers |
 | Gemini | `yaml` | Query at end, structured hierarchy |
 | Limited context | `toon` | ~40% smaller than other formats |
 | Programmatic | `json` | Standard parsing |

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Infiniloom** is a high-performance repository context generator for Large Language Models. It transforms codebases into optimized formats for Claude, GPT-4, Gemini, and other LLMs. Built in pure Rust for maximum performance and portability.
+**Infiniloom** is a high-performance repository context generator for Large Language Models. It transforms codebases into optimized formats for Claude, GPT-4o/GPT-5, Gemini, and other LLMs. Built in pure Rust for maximum performance and portability.
 
 Key capabilities:
 - AST-based symbol extraction using Tree-sitter (21 languages with full support)

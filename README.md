@@ -46,7 +46,7 @@ Here's how it works:
 
 4. **Filters noise** — Generated files, build artifacts, vendored dependencies, and other distractions are automatically excluded.
 
-5. **Formats for AI** — The output is structured in ways that different AI models understand best — XML for Claude, Markdown for GPT, YAML for Gemini.
+5. **Formats for AI** — The output is structured in ways that different AI models understand best — XML for Claude, Markdown for GPT-4o/GPT-5, YAML for Gemini.
 
 The result is a context package that helps AI give you accurate, relevant answers about your actual code.
 

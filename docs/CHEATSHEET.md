@@ -36,7 +36,7 @@ infiniloom pack github:facebook/react          # Remote repository
 
 ```bash
 infiniloom pack . --format xml         # Claude (default, prompt caching)
-infiniloom pack . --format markdown    # GPT-4/GPT-4o
+infiniloom pack . --format markdown    # GPT-4o/GPT-5
 infiniloom pack . --format yaml        # Gemini
 infiniloom pack . --format json        # Programmatic use
 infiniloom pack . --format toon        # Token-efficient (~40% smaller)
@@ -422,7 +422,7 @@ security:
 | Format | Best For | Optimizations |
 |--------|----------|---------------|
 | `xml` | Claude | Prompt caching, CDATA sections |
-| `markdown` | GPT-4/4o | Tables, headers, code fences |
+| `markdown` | GPT-4o/GPT-5 | Tables, headers, code fences |
 | `yaml` | Gemini | Structured hierarchy |
 | `json` | Programmatic | Standard parsing |
 | `toon` | Limited context | ~40% smaller |

@@ -32,7 +32,7 @@ infiniloom init --template typescript  # Pre-configured for TypeScript
 # Output settings
 output:
   format: xml              # xml, markdown, json, yaml, toon, plain
-  model: claude            # claude, gpt4o, gpt4, gemini, llama, etc.
+  model: claude            # claude, gpt5, gpt4o, gpt4, gemini, llama, etc.
   compression: balanced    # none, minimal, balanced, aggressive, extreme
   token_budget: 100000     # 0 = no limit
   line_numbers: true       # Include line numbers in output
@@ -350,7 +350,7 @@ repos:
 | Format | Best For | Description |
 |--------|----------|-------------|
 | `xml` | Claude | Prompt caching hints, CDATA sections |
-| `markdown` | GPT-4/GPT-4o | Tables, code fences |
+| `markdown` | GPT-4o/GPT-5 | Tables, code fences |
 | `yaml` | Gemini | Structured hierarchy |
 | `json` | Programmatic | Full metadata |
 | `toon` | Any | ~40% smaller than JSON |

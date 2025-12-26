@@ -324,8 +324,8 @@ infiniloom diff --include-history --include-diff --format xml
 | Model | Context Window | Recommended Budget |
 |-------|---------------|-------------------|
 | Claude 3.5 | 200K | 100,000-150,000 |
+| GPT-5/GPT-4o | 128K | 80,000-100,000 |
 | GPT-4 Turbo | 128K | 80,000-100,000 |
-| GPT-4o | 128K | 80,000-100,000 |
 | Gemini 1.5 | 1M | 200,000-500,000 |
 
 ### Effective Prompts
