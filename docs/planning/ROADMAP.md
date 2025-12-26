@@ -1,82 +1,52 @@
 # Infiniloom Roadmap
 
-**Status:** Planning Document
 **Last Updated:** 2025-12-25
 **Current Version:** 0.4.8
 
-This document outlines planned features for future versions of Infiniloom. Features are prioritized by ROI (user impact / implementation effort).
+Features are prioritized by ROI (user impact / implementation effort). Checkboxes indicate progress.
 
 ---
 
-## Overview
+## v0.5.0 — Highest ROI (Next Release)
 
-Infiniloom has a solid foundation with:
-- AST-based symbol extraction (22 languages)
-- PageRank-based ranking
-- Model-specific output formats
-- Secret detection and redaction
-- Git context engine (index, diff, impact)
-- Python and Node.js bindings
+### MCP Server Integration
+> Native integration with Claude Desktop, Claude Code, Cursor, and other MCP clients.
 
----
+- [ ] Expose `pack` as MCP tool
+- [ ] Expose `scan` as MCP tool
+- [ ] Expose `map` as MCP tool
+- [ ] Expose `diff` as MCP tool
+- [ ] Expose `impact` as MCP tool
+- [ ] Resource provider for repository files
+- [ ] Automatic context selection based on conversation
 
-## Priority 1: Highest ROI (Next Release)
-
-### 1.1 MCP Server Integration
-
-**Priority:** Critical
-**Effort:** Small
-**Target:** v0.5.0
-
-Model Context Protocol server for direct integration with Claude Desktop, Claude Code, and other MCP-compatible clients.
-
-**Capabilities:**
-- Expose `pack`, `scan`, `map`, `diff`, `impact` as MCP tools
-- Resource access for repository files
-- Automatic context selection based on conversation
-
-**Why Critical:**
-- MCP is becoming the standard for AI-tool integration
-- Small effort (core functionality exists, just needs MCP wrapper)
-- Eliminates copy-paste friction entirely
-- Works with Claude Desktop, Cursor, and other MCP clients
+**Why Critical:** MCP is the standard for AI-tool integration. Small effort since core functionality exists.
 
 ---
 
-### 1.2 Streaming Output
+### Streaming Output
+> Handle massive repositories (100K+ files) with streaming output.
 
-**Priority:** High
-**Effort:** Medium
-**Target:** v0.5.0
+- [ ] Chunked output generation
+- [ ] Memory-limited processing
+- [ ] Progress callbacks
+- [ ] Async iterator API for Python/Node bindings
+- [ ] Integration with MCP streaming
 
-Stream output for massive repositories and real-time API integrations.
-
-**Capabilities:**
-- Chunked output generation for 100K+ file repos
-- Memory-limited processing
-- Progress callbacks
-- Integration with MCP streaming
-
-**Why High Priority:**
-- Required for MCP integration with large repos
-- Enables real-time processing
-- Current blocking I/O limits scalability
-
-**API:**
-```python
-async for chunk in infiniloom.stream("/huge/repo"):
-    await send_to_api(chunk)
-```
+**Why High:** Required for MCP integration with large repos. Current blocking I/O limits scalability.
 
 ---
 
-### 1.3 GitHub Action
+### GitHub Action
+> Official GitHub Action for CI/CD integration.
 
-**Priority:** High
-**Effort:** Small
-**Target:** v0.5.0
+- [ ] Create `infiniloom/pack-action` repository
+- [ ] Publish to GitHub Marketplace
+- [ ] Support all pack options (format, model, compression)
+- [ ] Output artifact upload
+- [ ] Documentation and examples
 
-Official GitHub Action for CI/CD integration.
+**Why High:** Very common CI use case. Trivial to implement (wrapper around CLI).
 
 **Usage:**
 ```yaml
@@ -87,196 +57,172 @@ Official GitHub Action for CI/CD integration.
     output: context.xml
 ```
 
-**Why High Priority:**
-- Very common use case (CI-generated context)
-- Trivial to implement (wrapper around CLI)
-- Increases adoption in team workflows
+---
+
+## v0.6.0 — High ROI
+
+### Smart Context Selection
+> Given a task description, automatically select the most relevant files.
+
+- [ ] Task-aware file selection using PageRank + index
+- [ ] CLI: `infiniloom context "implement auth" --budget 50000`
+- [ ] Integration with MCP for conversational context building
+- [ ] Relevance scoring output
+
+**Why Valuable:** Solves the "what files should I include?" problem. Leverages existing infrastructure.
 
 ---
 
-## Priority 2: High ROI (v0.6.0)
+### Prompt Templates
+> Pre-built templates for common development tasks.
 
-### 2.1 Smart Context Selection
+- [ ] `code-review` — Review changes for bugs, style, security
+- [ ] `explain` — Explain how code works
+- [ ] `document` — Generate documentation
+- [ ] `refactor` — Suggest refactoring improvements
+- [ ] `test` — Generate test cases
+- [ ] CLI: `infiniloom pack . --template code-review`
+- [ ] Custom template support from config file
 
-**Priority:** High
-**Effort:** Medium
+**Why Valuable:** Zero-effort implementation (markdown templates). Helps users get better LLM results.
 
-Given a task description, automatically select the most relevant files.
+---
 
-**Capabilities:**
-- Task-aware file selection using existing PageRank + index
-- "What files do I need to understand X?" → returns optimized context
-- Integration with MCP for conversational context building
+### Watch Mode for Index
+> Automatic index updates on file changes.
+
+- [ ] `infiniloom index --watch` command
+- [ ] File system event detection
+- [ ] Incremental re-indexing on change
+- [ ] Integration with IDE extensions
+
+**Current:** `infiniloom pack --watch` exists. Index requires manual rebuild.
+
+---
+
+### VS Code Extension
+> Native VS Code integration.
+
+- [ ] Command: "Infiniloom: Pack Repository"
+- [ ] Command: "Infiniloom: Pack Selected Files"
+- [ ] Status bar token count
+- [ ] Right-click context menu
+- [ ] Configuration UI
+- [ ] Publish to VS Code Marketplace
+
+**Note:** MCP integration may reduce the need for this, as Claude Code integrates via MCP.
+
+---
+
+## v0.7.0 — Medium ROI
+
+### Direct LLM Integration
+> Built-in LLM querying with automatic context management.
+
+- [ ] `infiniloom ask "question" [path]` command
+- [ ] Support ANTHROPIC_API_KEY and OPENAI_API_KEY
+- [ ] Automatic context sizing based on model
+- [ ] Streaming responses
+- [ ] Cost estimation
 
 **CLI:**
 ```bash
-infiniloom context "implement user authentication" --budget 50000
+infiniloom ask "explain authentication flow" src/auth/
+infiniloom ask "find security issues" --staged
 ```
 
-**Why Valuable:**
-- Solves the "what files should I include?" problem
-- Leverages existing infrastructure (index, PageRank)
-- High user value, medium implementation effort
+---
+
+### GitHub App
+> GitHub App for PR integration.
+
+- [ ] Bot command: `/infiniloom context`
+- [ ] Auto-comment PR context for AI review
+- [ ] Webhook integration
+- [ ] GitHub App listing
 
 ---
 
-### 2.2 Prompt Templates
+### JetBrains Plugin
+> Plugin for IntelliJ-based IDEs.
 
-**Priority:** High
-**Effort:** Small
-
-Pre-built prompt templates for common development tasks.
-
-**Templates:**
-- `code-review` - Review changes for bugs, style, security
-- `explain` - Explain how code works
-- `document` - Generate documentation
-- `refactor` - Suggest refactoring improvements
-- `test` - Generate test cases
-
-**CLI:**
-```bash
-infiniloom pack . --template code-review --staged
-infiniloom pack . --template explain --include "src/auth/*"
-```
-
-**Why Valuable:**
-- Zero-effort implementation (just markdown templates)
-- Immediately useful for common workflows
-- Helps users get better results from LLMs
+- [ ] Basic pack/scan functionality
+- [ ] Tool window UI
+- [ ] Publish to JetBrains Marketplace
 
 ---
 
-### 2.3 Watch Mode for Index
+## Backlog — Low ROI
 
-**Priority:** Medium
-**Effort:** Small
+### Semantic Code Embeddings
+> Neural embeddings for semantic search.
 
-Automatic index updates on file changes.
+- [ ] CodeBERT/StarCoder integration via candle
+- [ ] Vector store (in-memory, SQLite)
+- [ ] Semantic search CLI
 
-**Current State:**
-- `infiniloom pack --watch` exists
-- Index requires manual `infiniloom index` run
-
-**Planned:**
-- `infiniloom index --watch` for continuous updates
-- File system events trigger incremental re-indexing
+**Rationale for Low Priority:** Large effort, unclear value when LLMs understand code semantically.
 
 ---
 
-### 2.4 VS Code Extension
+### Trigram Search
+> Fast code search using trigram indexing.
 
-**Priority:** Medium
-**Effort:** Medium
+- [ ] Trigram index builder
+- [ ] Regex search
+- [ ] BM25 ranking
 
-Native VS Code integration.
-
-**Features:**
-- Command: "Pack Repository" → clipboard
-- Command: "Pack Selected Files"
-- Status bar token count
-- Right-click context menu
-
-**Note:** MCP integration (1.1) may reduce the need for this, as Claude Code already integrates via MCP.
+**Rationale for Low Priority:** Ripgrep/grep already excellent. Not core to mission.
 
 ---
 
-## Priority 3: Medium ROI (Future)
+### Multi-Modal Context
+> Include images/diagrams in context.
 
-### 3.1 Direct LLM Integration
-
-**Priority:** Medium
-**Effort:** Medium
-
-Built-in LLM querying with automatic context management.
-
-**CLI:**
-```bash
-# Uses ANTHROPIC_API_KEY or OPENAI_API_KEY
-infiniloom ask "explain how authentication works" src/auth/
-infiniloom ask "find security vulnerabilities" --staged
-```
-
-**Considerations:**
-- Requires API key management
-- May overlap with MCP use case
-- Could be valuable for scripting/CI
+- [ ] Include PNG/SVG from docs/
+- [ ] Auto-generate UML diagrams
+- [ ] Base64 encoding option
 
 ---
 
-### 3.2 GitHub App
+### Plugin SDK
+> Extensible plugin system.
 
-**Priority:** Medium
-**Effort:** Medium
+- [ ] Plugin API design
+- [ ] Language enhancer plugins
+- [ ] Output exporter plugins
 
-GitHub App for PR integration.
-
-**Features:**
-- Bot command: `/infiniloom context` in PR comments
-- Auto-comment with context for AI review
-- Integration with GitHub Actions
+**Rationale for Low Priority:** Too early for extensibility. Focus on core features first.
 
 ---
 
-### 3.3 JetBrains Plugin
+## Completed
 
-**Priority:** Low
-**Effort:** Medium
+### v0.4.x
+- [x] AST-based symbol extraction (22 languages)
+- [x] PageRank-based symbol ranking
+- [x] Model-specific output formats (XML, Markdown, YAML, JSON, TOON)
+- [x] Secret detection and redaction
+- [x] Git context engine (index, diff, impact)
+- [x] Python bindings (PyPI: `infiniloom`)
+- [x] Node.js bindings (npm: `infiniloom-node`)
+- [x] Call graph query API
+- [x] Incremental caching
+- [x] Watch mode for pack
+- [x] Remote repository support (github:owner/repo)
+- [x] Chunking strategies (semantic, module, dependency)
 
-Plugin for IntelliJ-based IDEs.
+### v0.3.x
+- [x] Initial Git integration
+- [x] npm and PyPI packages
 
----
+### v0.2.x
+- [x] Semantic compression (heuristic)
+- [x] Fuzz testing
 
-## Priority 4: Low ROI (Backlog)
-
-### 4.1 Semantic Code Embeddings
-
-**Priority:** Low
-**Effort:** Large
-
-Neural embeddings for semantic search.
-
-**Rationale for Low Priority:**
-- Large implementation effort (ML infrastructure)
-- LLMs already understand code semantically
-- Unclear user demand
-- Can revisit if there's clear need
-
----
-
-### 4.2 Trigram Search
-
-**Priority:** Low
-**Effort:** Medium
-
-Fast code search using trigram indexing.
-
-**Rationale for Low Priority:**
-- Ripgrep/grep already excellent
-- Not core to Infiniloom's mission
-- Can use existing tools
-
----
-
-### 4.3 Multi-Modal Context
-
-**Priority:** Low
-**Effort:** Medium
-
-Include images/diagrams in context.
-
----
-
-### 4.4 Plugin SDK
-
-**Priority:** Low
-**Effort:** Large
-
-Extensible plugin system.
-
-**Rationale for Low Priority:**
-- Too early for extensibility
-- Focus on core features first
+### v0.1.x
+- [x] pack, scan, map commands
+- [x] Tree-sitter parsing
 
 ---
 
@@ -287,30 +233,16 @@ Extensible plugin system.
 | SCIP Navigation | IDEs have this built-in |
 | GPU token counting | CPU is fast enough |
 | Cloud-hosted version | Focus on local-first privacy |
-| Nickel config language | Over-engineering; YAML/TOML sufficient |
-| Real-time collaboration | Out of scope for CLI tool |
-
----
-
-## Release Plan
-
-| Version | Target | Features |
-|---------|--------|----------|
-| **0.5.0** | Q1 2025 | MCP Server, Streaming, GitHub Action |
-| **0.6.0** | Q2 2025 | Smart Context, Prompt Templates, Index Watch |
-| **0.7.0** | Q3 2025 | VS Code Extension, Direct LLM Integration |
+| Nickel config | Over-engineering; YAML/TOML sufficient |
+| Custom language grammars | 22 languages cover 99% of use cases |
 
 ---
 
 ## Contributing
 
-If you'd like to contribute to any of these features:
+**Most Wanted:**
+1. MCP Server implementation
+2. GitHub Action wrapper
+3. Prompt templates
 
-1. Open an issue on GitHub to discuss
-2. Check existing issues tagged `roadmap` or `enhancement`
-3. PRs welcome for any planned features
-
-**Most Wanted Contributions:**
-- MCP Server implementation
-- GitHub Action wrapper
-- Prompt templates
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
