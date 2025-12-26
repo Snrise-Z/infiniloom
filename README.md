@@ -101,7 +101,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | **Multiple output formats** | XML, Markdown, YAML, JSON — optimized for different AI models |
 | **Token-aware packaging** | Respects context limits so you can fit within model constraints |
 | **Git integration** | Understands diffs, branches, and commit history for change-aware context |
-| **22 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, and more |
+| **21 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, and more |
 
 ---
 
@@ -164,17 +164,17 @@ Context quality beats context quantity. A smaller, well-structured context produ
 Infiniloom is **stable and actively maintained**.
 
 **What's solid today:**
-- Core packing workflow across 22 languages
+- Core packing workflow across 21 languages
 - All output formats (XML, Markdown, YAML, JSON)
 - Security scanning and secret redaction
 - Git-aware diff context
 - Python and Node.js bindings
 
 **Coming next:**
-- Improved call graph analysis
-- IDE integrations
+- MCP server integration for Claude Desktop and other MCP clients
 - Streaming output for very large repositories
-- Enhanced support for monorepo structures
+- GitHub Action for CI/CD workflows
+- VS Code extension
 
 ---
 

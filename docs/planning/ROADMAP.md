@@ -199,7 +199,7 @@ infiniloom ask "find security issues" --staged
 ## Completed
 
 ### v0.4.x
-- [x] AST-based symbol extraction (22 languages)
+- [x] AST-based symbol extraction (21 languages)
 - [x] PageRank-based symbol ranking
 - [x] Model-specific output formats (XML, Markdown, YAML, JSON, TOON)
 - [x] Secret detection and redaction
@@ -234,7 +234,7 @@ infiniloom ask "find security issues" --staged
 | GPU token counting | CPU is fast enough |
 | Cloud-hosted version | Focus on local-first privacy |
 | Nickel config | Over-engineering; YAML/TOML sufficient |
-| Custom language grammars | 22 languages cover 99% of use cases |
+| Custom language grammars | 21 languages cover 99% of use cases |
 
 ---
 
