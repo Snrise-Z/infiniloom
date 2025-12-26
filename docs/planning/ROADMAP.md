@@ -4,7 +4,7 @@
 **Last Updated:** 2025-12-25
 **Current Version:** 0.4.8
 
-This document outlines planned features for future versions of Infiniloom. These features are **not yet implemented** and are subject to change based on community feedback and priorities.
+This document outlines planned features for future versions of Infiniloom. Features are prioritized by ROI (user impact / implementation effort).
 
 ---
 
@@ -18,151 +18,51 @@ Infiniloom has a solid foundation with:
 - Git context engine (index, diff, impact)
 - Python and Node.js bindings
 
-The features below represent the next phase of development.
-
 ---
 
-## Phase 2: Advanced Intelligence
+## Priority 1: Highest ROI (Next Release)
 
-### 2.1 Semantic Code Embeddings
+### 1.1 MCP Server Integration
 
-**Priority:** High
-**Estimated Effort:** Large
+**Priority:** Critical
+**Effort:** Small
+**Target:** v0.5.0
 
-Neural embeddings for semantic search and similarity using CodeBERT/StarCoder.
+Model Context Protocol server for direct integration with Claude Desktop, Claude Code, and other MCP-compatible clients.
 
-**Planned Capabilities:**
-- Vector-based code search ("find functions that handle authentication")
-- Semantic similarity between code sections
-- Embedding-enhanced context selection
-- Support for local on-device embeddings (privacy)
-
-**Potential API:**
-```python
-from infiniloom.embeddings import CodeEmbedder
-
-embedder = CodeEmbedder(model="starcoderbase", on_device=True)
-embedder.index("/path/to/repo")
-results = embedder.search("function that handles user authentication", top_k=5)
-```
-
-**Implementation Notes:**
-- Would integrate with candle-transformers (already an optional dependency)
-- Vector store options: in-memory, SQLite, or external (Qdrant/ChromaDB)
-- Current `semantic.rs` uses character-frequency heuristics as a placeholder
-
----
-
-### 2.2 Trigram Search (Zoekt-Style)
-
-**Priority:** Medium
-**Estimated Effort:** Medium
-
-Fast code search using trigram indexing for interactive use cases.
-
-**Planned Capabilities:**
-- Regex search across codebase
-- Symbol and definition search
-- BM25 ranking for results
-- Sub-second search on large repos
-
-**Potential CLI:**
-```bash
-infiniloom search "def authenticate" --language python --path "src/**"
-```
-
----
-
-### 2.3 SCIP-Based Navigation
-
-**Priority:** Low
-**Estimated Effort:** Large
-
-Integration with Sourcegraph's SCIP for precise code intelligence.
-
-**Planned Capabilities:**
-- Precise go-to-definition
-- Find all references
-- Find implementations of interfaces/traits
-- Hover documentation
-
----
-
-## Phase 2: Platform Integration
-
-### 2.4 IDE Extensions
-
-**Priority:** High
-**Estimated Effort:** Medium
-
-Native IDE integrations for VS Code, JetBrains, and Neovim.
-
-**VS Code Extension Features:**
-- Command: "Pack Repository" → generates context to clipboard
-- Command: "Pack Selected Files" → partial context
-- Status bar token count
-- Configuration UI
-
-**JetBrains Plugin:**
-- Similar functionality via IntelliJ Platform SDK
-
-**Neovim:**
-- Lua plugin using CLI backend
-
----
-
-### 2.5 MCP Server Integration
-
-**Priority:** High
-**Estimated Effort:** Small
-
-Model Context Protocol server for direct integration with Claude and other MCP-compatible clients.
-
-**Planned Capabilities:**
-- Expose `pack`, `scan`, `map`, `diff` as MCP tools
-- Automatic context selection based on conversation
+**Capabilities:**
+- Expose `pack`, `scan`, `map`, `diff`, `impact` as MCP tools
 - Resource access for repository files
+- Automatic context selection based on conversation
+
+**Why Critical:**
+- MCP is becoming the standard for AI-tool integration
+- Small effort (core functionality exists, just needs MCP wrapper)
+- Eliminates copy-paste friction entirely
+- Works with Claude Desktop, Cursor, and other MCP clients
 
 ---
 
-### 2.6 GitHub App / Action
+### 1.2 Streaming Output
 
-**Priority:** Medium
-**Estimated Effort:** Medium
+**Priority:** High
+**Effort:** Medium
+**Target:** v0.5.0
 
-GitHub integration for automated context generation.
+Stream output for massive repositories and real-time API integrations.
 
-**GitHub Action:**
-```yaml
-- uses: infiniloom/context-action@v1
-  with:
-    path: ./
-    format: xml
-    output: context.xml
-```
-
-**GitHub App:**
-- Auto-comment PR context for AI review
-- Bot command: `/infiniloom context` in PR comments
-
----
-
-## Phase 2: Advanced Processing
-
-### 2.7 Streaming with Backpressure
-
-**Priority:** Medium
-**Estimated Effort:** Medium
-
-Handle massive repositories (100K+ files) with streaming output.
-
-**Planned Capabilities:**
-- Chunked output generation
+**Capabilities:**
+- Chunked output generation for 100K+ file repos
 - Memory-limited processing
 - Progress callbacks
-- Pause/resume support
+- Integration with MCP streaming
 
-**Potential API:**
+**Why High Priority:**
+- Required for MCP integration with large repos
+- Enables real-time processing
+- Current blocking I/O limits scalability
+
+**API:**
 ```python
 async for chunk in infiniloom.stream("/huge/repo"):
     await send_to_api(chunk)
@@ -170,114 +70,247 @@ async for chunk in infiniloom.stream("/huge/repo"):
 
 ---
 
-### 2.8 Multi-Modal Context
+### 1.3 GitHub Action
 
-**Priority:** Low
-**Estimated Effort:** Medium
+**Priority:** High
+**Effort:** Small
+**Target:** v0.5.0
 
-Include visual context for multi-modal LLMs.
+Official GitHub Action for CI/CD integration.
 
-**Planned Capabilities:**
-- Include architecture diagrams (PNG/SVG from docs/)
-- Auto-generate UML class diagrams from code
-- Include UI screenshots for frontend code
-- Base64 encoding or URL references
+**Usage:**
+```yaml
+- uses: infiniloom/pack-action@v1
+  with:
+    path: ./
+    format: xml
+    output: context.xml
+```
+
+**Why High Priority:**
+- Very common use case (CI-generated context)
+- Trivial to implement (wrapper around CLI)
+- Increases adoption in team workflows
 
 ---
 
-### 2.9 Watch Mode for Index
+## Priority 2: High ROI (v0.6.0)
+
+### 2.1 Smart Context Selection
+
+**Priority:** High
+**Effort:** Medium
+
+Given a task description, automatically select the most relevant files.
+
+**Capabilities:**
+- Task-aware file selection using existing PageRank + index
+- "What files do I need to understand X?" → returns optimized context
+- Integration with MCP for conversational context building
+
+**CLI:**
+```bash
+infiniloom context "implement user authentication" --budget 50000
+```
+
+**Why Valuable:**
+- Solves the "what files should I include?" problem
+- Leverages existing infrastructure (index, PageRank)
+- High user value, medium implementation effort
+
+---
+
+### 2.2 Prompt Templates
+
+**Priority:** High
+**Effort:** Small
+
+Pre-built prompt templates for common development tasks.
+
+**Templates:**
+- `code-review` - Review changes for bugs, style, security
+- `explain` - Explain how code works
+- `document` - Generate documentation
+- `refactor` - Suggest refactoring improvements
+- `test` - Generate test cases
+
+**CLI:**
+```bash
+infiniloom pack . --template code-review --staged
+infiniloom pack . --template explain --include "src/auth/*"
+```
+
+**Why Valuable:**
+- Zero-effort implementation (just markdown templates)
+- Immediately useful for common workflows
+- Helps users get better results from LLMs
+
+---
+
+### 2.3 Watch Mode for Index
 
 **Priority:** Medium
-**Estimated Effort:** Small
+**Effort:** Small
 
 Automatic index updates on file changes.
 
 **Current State:**
-- `infiniloom pack --watch` exists (regenerates output on changes)
+- `infiniloom pack --watch` exists
 - Index requires manual `infiniloom index` run
 
 **Planned:**
-- `infiniloom index --watch` for continuous index updates
-- Integration with IDE extensions for real-time navigation
+- `infiniloom index --watch` for continuous updates
+- File system events trigger incremental re-indexing
 
 ---
 
-## Phase 2: Extensibility
+### 2.4 VS Code Extension
 
-### 2.10 Plugin SDK
+**Priority:** Medium
+**Effort:** Medium
 
-**Priority:** Low
-**Estimated Effort:** Large
+Native VS Code integration.
 
-Extensible plugin system for custom analyzers and transformers.
+**Features:**
+- Command: "Pack Repository" → clipboard
+- Command: "Pack Selected Files"
+- Status bar token count
+- Right-click context menu
 
-**Planned Plugin Types:**
-- Language enhancers (additional analysis per language)
-- Output exporters (Notion, Confluence, etc.)
-- Analysis plugins (complexity, duplication)
-- Integration plugins (Jira, Linear, Slack)
+**Note:** MCP integration (1.1) may reduce the need for this, as Claude Code already integrates via MCP.
 
-**Potential API:**
-```python
-from infiniloom.plugins import Plugin, hook
+---
 
-class MyPlugin(Plugin):
-    @hook("file.read")
-    def process_file(self, file):
-        # Custom file processing
-        return file
+## Priority 3: Medium ROI (Future)
+
+### 3.1 Direct LLM Integration
+
+**Priority:** Medium
+**Effort:** Medium
+
+Built-in LLM querying with automatic context management.
+
+**CLI:**
+```bash
+# Uses ANTHROPIC_API_KEY or OPENAI_API_KEY
+infiniloom ask "explain how authentication works" src/auth/
+infiniloom ask "find security vulnerabilities" --staged
 ```
 
+**Considerations:**
+- Requires API key management
+- May overlap with MCP use case
+- Could be valuable for scripting/CI
+
 ---
 
-### 2.11 Configuration Language (Nickel)
+### 3.2 GitHub App
+
+**Priority:** Medium
+**Effort:** Medium
+
+GitHub App for PR integration.
+
+**Features:**
+- Bot command: `/infiniloom context` in PR comments
+- Auto-comment with context for AI review
+- Integration with GitHub Actions
+
+---
+
+### 3.3 JetBrains Plugin
 
 **Priority:** Low
-**Estimated Effort:** Medium
+**Effort:** Medium
 
-Advanced typed configuration using Nickel.
+Plugin for IntelliJ-based IDEs.
 
-**Current State:**
-- YAML/TOML/JSON config supported
-- Basic validation
+---
 
-**Planned:**
-- Type contracts for config validation
-- Custom transformer definitions
-- Composable configuration
+## Priority 4: Low ROI (Backlog)
+
+### 4.1 Semantic Code Embeddings
+
+**Priority:** Low
+**Effort:** Large
+
+Neural embeddings for semantic search.
+
+**Rationale for Low Priority:**
+- Large implementation effort (ML infrastructure)
+- LLMs already understand code semantically
+- Unclear user demand
+- Can revisit if there's clear need
+
+---
+
+### 4.2 Trigram Search
+
+**Priority:** Low
+**Effort:** Medium
+
+Fast code search using trigram indexing.
+
+**Rationale for Low Priority:**
+- Ripgrep/grep already excellent
+- Not core to Infiniloom's mission
+- Can use existing tools
+
+---
+
+### 4.3 Multi-Modal Context
+
+**Priority:** Low
+**Effort:** Medium
+
+Include images/diagrams in context.
+
+---
+
+### 4.4 Plugin SDK
+
+**Priority:** Low
+**Effort:** Large
+
+Extensible plugin system.
+
+**Rationale for Low Priority:**
+- Too early for extensibility
+- Focus on core features first
 
 ---
 
 ## Not Planned
 
-The following features have been evaluated but are **not currently planned**:
-
 | Feature | Reason |
 |---------|--------|
-| GPU token counting | CPU is fast enough, adds complexity |
-| Real-time collaboration | Out of scope for CLI tool |
+| SCIP Navigation | IDEs have this built-in |
+| GPU token counting | CPU is fast enough |
 | Cloud-hosted version | Focus on local-first privacy |
-| Custom language support | 21 languages cover 99% of use cases |
+| Nickel config language | Over-engineering; YAML/TOML sufficient |
+| Real-time collaboration | Out of scope for CLI tool |
 
 ---
 
-## Contributing to Roadmap
+## Release Plan
 
-If you'd like to contribute to any of these features or suggest new ones:
+| Version | Target | Features |
+|---------|--------|----------|
+| **0.5.0** | Q1 2025 | MCP Server, Streaming, GitHub Action |
+| **0.6.0** | Q2 2025 | Smart Context, Prompt Templates, Index Watch |
+| **0.7.0** | Q3 2025 | VS Code Extension, Direct LLM Integration |
+
+---
+
+## Contributing
+
+If you'd like to contribute to any of these features:
 
 1. Open an issue on GitHub to discuss
-2. Check existing issues tagged `roadmap` or `phase-2`
+2. Check existing issues tagged `roadmap` or `enhancement`
 3. PRs welcome for any planned features
 
----
-
-## Version History
-
-| Version | Features |
-|---------|----------|
-| 0.1.0 | Initial release - pack, scan, map |
-| 0.2.0 | Semantic compression, fuzz testing |
-| 0.3.x | Git bindings, Call Graph API, npm/PyPI packages |
-| 0.4.x | Architecture refactoring, documentation, UTF-8 safety |
-| 0.5.0 (planned) | IDE extensions, MCP server |
-| 0.6.0 (planned) | Embeddings, semantic search |
+**Most Wanted Contributions:**
+- MCP Server implementation
+- GitHub Action wrapper
+- Prompt templates
