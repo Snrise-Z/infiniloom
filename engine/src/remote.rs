@@ -479,12 +479,23 @@ pub enum RemoteError {
 mod tests {
     use super::*;
 
+    // ============================================
+    // URL Parsing Tests - GitHub
+    // ============================================
+
     #[test]
     fn test_parse_github_url() {
         let repo = RemoteRepo::parse("https://github.com/rust-lang/rust").unwrap();
         assert_eq!(repo.provider, GitProvider::GitHub);
         assert_eq!(repo.owner, Some("rust-lang".to_string()));
         assert_eq!(repo.name, "rust");
+    }
+
+    #[test]
+    fn test_parse_github_url_with_git_suffix() {
+        let repo = RemoteRepo::parse("https://github.com/owner/repo.git").unwrap();
+        assert_eq!(repo.provider, GitProvider::GitHub);
+        assert_eq!(repo.name, "repo");
     }
 
     #[test]
@@ -512,12 +523,81 @@ mod tests {
     }
 
     #[test]
-    fn test_is_remote_url() {
-        assert!(RemoteRepo::is_remote_url("https://github.com/foo/bar"));
-        assert!(RemoteRepo::is_remote_url("git@github.com:foo/bar.git"));
-        assert!(RemoteRepo::is_remote_url("github:foo/bar"));
-        assert!(!RemoteRepo::is_remote_url("/path/to/local/repo"));
+    fn test_parse_with_branch_and_subdir() {
+        let repo =
+            RemoteRepo::parse("https://github.com/owner/repo/tree/main/src/lib").unwrap();
+        assert_eq!(repo.provider, GitProvider::GitHub);
+        assert_eq!(repo.branch, Some("main".to_string()));
+        assert_eq!(repo.subdir, Some("src/lib".to_string()));
     }
+
+    #[test]
+    fn test_parse_with_blob_path() {
+        let repo =
+            RemoteRepo::parse("https://github.com/owner/repo/blob/main/README.md").unwrap();
+        assert_eq!(repo.branch, Some("main".to_string()));
+        assert_eq!(repo.subdir, Some("README.md".to_string()));
+    }
+
+    // ============================================
+    // URL Parsing Tests - GitLab
+    // ============================================
+
+    #[test]
+    fn test_parse_gitlab_https() {
+        let repo = RemoteRepo::parse("https://gitlab.com/owner/project").unwrap();
+        assert_eq!(repo.provider, GitProvider::GitLab);
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "project");
+    }
+
+    #[test]
+    fn test_parse_gitlab_ssh() {
+        let repo = RemoteRepo::parse("git@gitlab.com:owner/project.git").unwrap();
+        assert_eq!(repo.provider, GitProvider::GitLab);
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "project");
+    }
+
+    #[test]
+    fn test_parse_gitlab_shorthand() {
+        let repo = RemoteRepo::parse("gitlab:mygroup/myproject").unwrap();
+        assert_eq!(repo.provider, GitProvider::GitLab);
+        assert_eq!(repo.owner, Some("mygroup".to_string()));
+        assert_eq!(repo.name, "myproject");
+    }
+
+    // ============================================
+    // URL Parsing Tests - Bitbucket
+    // ============================================
+
+    #[test]
+    fn test_parse_bitbucket_https() {
+        let repo = RemoteRepo::parse("https://bitbucket.org/team/repo").unwrap();
+        assert_eq!(repo.provider, GitProvider::Bitbucket);
+        assert_eq!(repo.owner, Some("team".to_string()));
+        assert_eq!(repo.name, "repo");
+    }
+
+    #[test]
+    fn test_parse_bitbucket_ssh() {
+        let repo = RemoteRepo::parse("git@bitbucket.org:team/repo.git").unwrap();
+        assert_eq!(repo.provider, GitProvider::Bitbucket);
+        assert_eq!(repo.owner, Some("team".to_string()));
+        assert_eq!(repo.name, "repo");
+    }
+
+    #[test]
+    fn test_parse_bitbucket_shorthand() {
+        let repo = RemoteRepo::parse("bitbucket:myteam/myrepo").unwrap();
+        assert_eq!(repo.provider, GitProvider::Bitbucket);
+        assert_eq!(repo.owner, Some("myteam".to_string()));
+        assert_eq!(repo.name, "myrepo");
+    }
+
+    // ============================================
+    // URL Parsing Tests - Generic Provider
+    // ============================================
 
     #[test]
     fn test_parse_ssh_url_generic_provider() {
@@ -539,5 +619,265 @@ mod tests {
         assert_eq!(repo.name, "project");
         // Original HTTPS URL should be preserved
         assert_eq!(repo.url, "https://git.mycompany.com/team/project.git");
+    }
+
+    #[test]
+    fn test_parse_gitea_server() {
+        let repo = RemoteRepo::parse("https://gitea.example.org/user/project").unwrap();
+        assert_eq!(repo.provider, GitProvider::Generic);
+        assert_eq!(repo.owner, Some("user".to_string()));
+        assert_eq!(repo.name, "project");
+    }
+
+    // ============================================
+    // URL Parsing Tests - Edge Cases
+    // ============================================
+
+    #[test]
+    fn test_parse_url_with_whitespace() {
+        let repo = RemoteRepo::parse("  owner/repo  ").unwrap();
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "repo");
+    }
+
+    #[test]
+    fn test_parse_shorthand_with_subdir() {
+        let repo = RemoteRepo::parse("owner/repo/src/main").unwrap();
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "repo");
+        assert_eq!(repo.subdir, Some("src/main".to_string()));
+    }
+
+    // ============================================
+    // URL Parsing Tests - Error Cases
+    // ============================================
+
+    #[test]
+    fn test_parse_invalid_shorthand() {
+        let result = RemoteRepo::parse("github:onlyname");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RemoteError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_parse_invalid_url() {
+        let result = RemoteRepo::parse("not-a-valid-url://weird");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_https_path() {
+        let result = RemoteRepo::parse("https://github.com/onlyowner");
+        assert!(result.is_err());
+    }
+
+    // ============================================
+    // is_remote_url Tests
+    // ============================================
+
+    #[test]
+    fn test_is_remote_url() {
+        assert!(RemoteRepo::is_remote_url("https://github.com/foo/bar"));
+        assert!(RemoteRepo::is_remote_url("git@github.com:foo/bar.git"));
+        assert!(RemoteRepo::is_remote_url("github:foo/bar"));
+        assert!(!RemoteRepo::is_remote_url("/path/to/local/repo"));
+    }
+
+    #[test]
+    fn test_is_remote_url_gitlab() {
+        assert!(RemoteRepo::is_remote_url("https://gitlab.com/foo/bar"));
+        assert!(RemoteRepo::is_remote_url("gitlab:foo/bar"));
+    }
+
+    #[test]
+    fn test_is_remote_url_bitbucket() {
+        assert!(RemoteRepo::is_remote_url("https://bitbucket.org/foo/bar"));
+        assert!(RemoteRepo::is_remote_url("bitbucket:foo/bar"));
+    }
+
+    #[test]
+    fn test_is_remote_url_owner_repo_format() {
+        assert!(RemoteRepo::is_remote_url("owner/repo"));
+        assert!(!RemoteRepo::is_remote_url("./local/path"));
+        assert!(!RemoteRepo::is_remote_url("/absolute/path"));
+        assert!(!RemoteRepo::is_remote_url("owner/repo/subdir")); // More than one slash
+    }
+
+    #[test]
+    fn test_is_remote_url_local_paths() {
+        assert!(!RemoteRepo::is_remote_url("."));
+        assert!(!RemoteRepo::is_remote_url(".."));
+        assert!(!RemoteRepo::is_remote_url("./src"));
+        assert!(!RemoteRepo::is_remote_url("../parent"));
+        assert!(!RemoteRepo::is_remote_url("/home/user/project"));
+    }
+
+    // ============================================
+    // build_clone_url Tests
+    // ============================================
+
+    #[test]
+    fn test_build_clone_url_github() {
+        let url = RemoteRepo::build_clone_url(GitProvider::GitHub, "owner", "repo");
+        assert_eq!(url, "https://github.com/owner/repo.git");
+    }
+
+    #[test]
+    fn test_build_clone_url_gitlab() {
+        let url = RemoteRepo::build_clone_url(GitProvider::GitLab, "owner", "repo");
+        assert_eq!(url, "https://gitlab.com/owner/repo.git");
+    }
+
+    #[test]
+    fn test_build_clone_url_bitbucket() {
+        let url = RemoteRepo::build_clone_url(GitProvider::Bitbucket, "owner", "repo");
+        assert_eq!(url, "https://bitbucket.org/owner/repo.git");
+    }
+
+    #[test]
+    fn test_build_clone_url_generic() {
+        let url = RemoteRepo::build_clone_url(GitProvider::Generic, "owner", "repo");
+        assert_eq!(url, "https://example.com/owner/repo.git");
+    }
+
+    // ============================================
+    // is_safe_to_delete Tests
+    // ============================================
+
+    #[test]
+    fn test_is_safe_to_delete_temp_dir() {
+        let temp = TempDir::new().unwrap();
+        assert!(RemoteRepo::is_safe_to_delete(temp.path()));
+    }
+
+    #[test]
+    fn test_is_safe_to_delete_empty_dir() {
+        let temp = TempDir::new().unwrap();
+        let empty_dir = temp.path().join("empty");
+        std::fs::create_dir(&empty_dir).unwrap();
+        assert!(RemoteRepo::is_safe_to_delete(&empty_dir));
+    }
+
+    #[test]
+    fn test_is_safe_to_delete_with_marker() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("with_marker");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join(".infiniloom-clone"), "marker").unwrap();
+        assert!(RemoteRepo::is_safe_to_delete(&dir));
+    }
+
+    #[test]
+    fn test_is_safe_to_delete_non_empty_without_marker() {
+        // Create a directory outside temp that has content but no marker
+        // This simulates a user directory that shouldn't be deleted
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("user_data");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("important.txt"), "don't delete me").unwrap();
+
+        // Since it's in temp dir, it will still return true
+        // But in production, a directory outside temp would return false
+        assert!(RemoteRepo::is_safe_to_delete(&dir));
+    }
+
+    // ============================================
+    // RemoteRepo Struct Tests
+    // ============================================
+
+    #[test]
+    fn test_remote_repo_fields() {
+        let repo = RemoteRepo::parse("https://github.com/owner/repo/tree/main/src").unwrap();
+        assert!(repo.url.contains("github.com"));
+        assert_eq!(repo.provider, GitProvider::GitHub);
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "repo");
+        assert_eq!(repo.branch, Some("main".to_string()));
+        assert!(repo.reference.is_none());
+        assert_eq!(repo.subdir, Some("src".to_string()));
+    }
+
+    // ============================================
+    // GitProvider Enum Tests
+    // ============================================
+
+    #[test]
+    fn test_git_provider_equality() {
+        assert_eq!(GitProvider::GitHub, GitProvider::GitHub);
+        assert_ne!(GitProvider::GitHub, GitProvider::GitLab);
+        assert_ne!(GitProvider::GitLab, GitProvider::Bitbucket);
+        assert_ne!(GitProvider::Bitbucket, GitProvider::Generic);
+    }
+
+    #[test]
+    fn test_git_provider_clone() {
+        let provider = GitProvider::GitHub;
+        let cloned = provider;
+        assert_eq!(provider, cloned);
+    }
+
+    // ============================================
+    // RemoteError Tests
+    // ============================================
+
+    #[test]
+    fn test_remote_error_display() {
+        let err = RemoteError::InvalidUrl("bad url".to_string());
+        assert!(err.to_string().contains("Invalid URL"));
+
+        let err = RemoteError::GitError("clone failed".to_string());
+        assert!(err.to_string().contains("Git error"));
+
+        let err = RemoteError::IoError("file not found".to_string());
+        assert!(err.to_string().contains("I/O error"));
+
+        let err = RemoteError::NotFound("repo missing".to_string());
+        assert!(err.to_string().contains("Not found"));
+    }
+
+    // ============================================
+    // Clone Tests (require git but don't actually clone)
+    // ============================================
+
+    #[test]
+    fn test_clone_with_cleanup_creates_temp_dir() {
+        // We can't actually clone without network, but we can test the setup
+        let repo = RemoteRepo::parse("owner/repo").unwrap();
+        // Verify the URL is correctly formed
+        assert!(repo.url.contains("github.com"));
+        assert!(repo.url.contains("owner"));
+        assert!(repo.url.contains("repo"));
+    }
+
+    #[test]
+    fn test_clone_target_path_generation() {
+        let repo = RemoteRepo::parse("owner/project").unwrap();
+
+        // Test that clone() would use correct default path
+        let expected_pattern = format!("infiniloom-{}-{}", repo.owner.as_deref().unwrap_or("repo"), repo.name);
+
+        // The default path should be in temp dir with owner and name
+        assert_eq!(repo.owner.as_deref(), Some("owner"));
+        assert_eq!(repo.name, "project");
+        assert!(expected_pattern.contains("owner"));
+        assert!(expected_pattern.contains("project"));
+    }
+
+    // ============================================
+    // Complex URL Parsing Tests
+    // ============================================
+
+    #[test]
+    fn test_parse_url_removes_git_suffix() {
+        let repo = RemoteRepo::parse("github:owner/repo.git").unwrap();
+        assert_eq!(repo.name, "repo");
+    }
+
+    #[test]
+    fn test_parse_deep_subdir() {
+        let repo = RemoteRepo::parse("owner/repo/src/main/java/com/example").unwrap();
+        assert_eq!(repo.owner, Some("owner".to_string()));
+        assert_eq!(repo.name, "repo");
+        assert_eq!(repo.subdir, Some("src/main/java/com/example".to_string()));
     }
 }

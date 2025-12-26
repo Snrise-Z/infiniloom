@@ -571,3 +571,357 @@ fn create_chunk_repo(
 
     chunk_repo
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use infiniloom_engine::chunking::{ChunkContext, ChunkFile, CrossReference};
+    use infiniloom_engine::Chunk;
+
+    // ============================================
+    // file_priority_score Tests
+    // ============================================
+
+    #[test]
+    fn test_file_priority_entry_points_rust() {
+        assert_eq!(file_priority_score("src/main.rs"), 100.0);
+        assert_eq!(file_priority_score("main.rs"), 100.0);
+    }
+
+    #[test]
+    fn test_file_priority_entry_points_python() {
+        assert_eq!(file_priority_score("main.py"), 100.0);
+        assert_eq!(file_priority_score("src/__main__.py"), 100.0);
+    }
+
+    #[test]
+    fn test_file_priority_entry_points_javascript() {
+        assert_eq!(file_priority_score("index.ts"), 100.0);
+        assert_eq!(file_priority_score("index.js"), 100.0);
+        assert_eq!(file_priority_score("app.ts"), 100.0);
+        assert_eq!(file_priority_score("app.js"), 100.0);
+    }
+
+    #[test]
+    fn test_file_priority_entry_points_other() {
+        assert_eq!(file_priority_score("main.go"), 100.0);
+        assert_eq!(file_priority_score("main.java"), 100.0);
+    }
+
+    #[test]
+    fn test_file_priority_config_files() {
+        assert_eq!(file_priority_score("Cargo.toml"), 90.0);
+        assert_eq!(file_priority_score("package.json"), 90.0);
+        assert_eq!(file_priority_score("pyproject.toml"), 90.0);
+        assert_eq!(file_priority_score("go.mod"), 90.0);
+        assert_eq!(file_priority_score("pom.xml"), 90.0);
+        assert_eq!(file_priority_score("build.gradle"), 90.0);
+    }
+
+    #[test]
+    fn test_file_priority_core_modules() {
+        assert_eq!(file_priority_score("src/lib.rs"), 80.0);
+        assert_eq!(file_priority_score("src/mod.rs"), 80.0);
+        assert_eq!(file_priority_score("app/lib/utils.py"), 80.0);
+        // Note: "core/" at start doesn't match "/core/" pattern, needs slash before
+        assert_eq!(file_priority_score("app/core/engine.rs"), 80.0);
+    }
+
+    #[test]
+    fn test_file_priority_api_handlers() {
+        assert_eq!(file_priority_score("src/api/users.rs"), 75.0);
+        assert_eq!(file_priority_score("app/handlers/auth.py"), 75.0);
+        // Note: "index.ts" would match entry point pattern first, use different filename
+        assert_eq!(file_priority_score("server/routes/list.ts"), 75.0);
+        assert_eq!(file_priority_score("app/controllers/home.rb"), 75.0);
+        assert_eq!(file_priority_score("api/endpoints/data.go"), 75.0);
+    }
+
+    #[test]
+    fn test_file_priority_source_code() {
+        assert_eq!(file_priority_score("src/parser.rs"), 60.0);
+        assert_eq!(file_priority_score("app/src/module.py"), 60.0);
+    }
+
+    #[test]
+    fn test_file_priority_tests() {
+        // Note: paths starting with "src/" match source code (60.0) BEFORE test check
+        // Note: paths with "/lib/" match core modules (80.0) BEFORE test check
+        // Note: "test_main.py" ends with "main.py" which matches entry point (100.0)
+        // Use paths that only match test patterns
+        assert_eq!(file_priority_score("tests/test_parser.py"), 20.0);
+        assert_eq!(file_priority_score("pkg/parser_test.rs"), 20.0);
+        assert_eq!(file_priority_score("app.test.ts"), 20.0);
+        assert_eq!(file_priority_score("widget.spec.js"), 20.0);
+        assert_eq!(file_priority_score("test_utils.py"), 20.0);
+        assert_eq!(file_priority_score("handler_test.go"), 20.0);
+    }
+
+    #[test]
+    fn test_file_priority_utilities() {
+        // Note: paths starting with "src/" match source code (60.0) BEFORE utilities check
+        // Note: paths with "/lib/", "/core/" match core modules (80.0) BEFORE utilities
+        // Use paths that only match utilities patterns
+        assert_eq!(file_priority_score("pkg/utils/helpers.rs"), 30.0);
+        assert_eq!(file_priority_score("app/helpers/string.py"), 30.0);
+        assert_eq!(file_priority_score("pkg/util/date.ts"), 30.0);
+        assert_eq!(file_priority_score("pkg/common/types.rs"), 30.0);
+        assert_eq!(file_priority_score("pkg/shared/constants.py"), 30.0);
+    }
+
+    #[test]
+    fn test_file_priority_examples_docs() {
+        // Note: paths need to contain "/examples/" etc. with leading slash
+        // Paths like "examples/" at root don't have leading slash
+        assert_eq!(file_priority_score("project/examples/basic.rs"), 10.0);
+        assert_eq!(file_priority_score("project/docs/api.md"), 10.0);
+        assert_eq!(file_priority_score("project/example/demo.py"), 10.0);
+        // .md files match via ends_with
+        assert_eq!(file_priority_score("README.md"), 10.0);
+    }
+
+    #[test]
+    fn test_file_priority_default() {
+        assert_eq!(file_priority_score("some/random/file.rs"), 50.0);
+        assert_eq!(file_priority_score("data/config.json"), 50.0);
+    }
+
+    #[test]
+    fn test_file_priority_case_insensitive() {
+        // Function converts to lowercase before matching
+        assert_eq!(file_priority_score("MAIN.RS"), 100.0);
+        assert_eq!(file_priority_score("Cargo.Toml"), 90.0);
+        assert_eq!(file_priority_score("SRC/LIB.RS"), 80.0);
+    }
+
+    // ============================================
+    // format_extension Tests
+    // ============================================
+
+    #[test]
+    fn test_format_extension_xml() {
+        assert_eq!(format_extension(OutputFormat::Xml), "xml");
+    }
+
+    #[test]
+    fn test_format_extension_markdown() {
+        assert_eq!(format_extension(OutputFormat::Markdown), "md");
+    }
+
+    #[test]
+    fn test_format_extension_json() {
+        assert_eq!(format_extension(OutputFormat::Json), "json");
+    }
+
+    #[test]
+    fn test_format_extension_yaml() {
+        assert_eq!(format_extension(OutputFormat::Yaml), "yaml");
+    }
+
+    #[test]
+    fn test_format_extension_toon() {
+        assert_eq!(format_extension(OutputFormat::Toon), "toon");
+    }
+
+    #[test]
+    fn test_format_extension_plain() {
+        assert_eq!(format_extension(OutputFormat::Plain), "txt");
+    }
+
+    // ============================================
+    // generate_chunk_summary Tests
+    // ============================================
+
+    fn create_test_chunk(
+        index: usize,
+        total: usize,
+        focus: &str,
+        tokens: u32,
+        files: Vec<ChunkFile>,
+        cross_refs: Vec<CrossReference>,
+        has_overlap: bool,
+    ) -> Chunk {
+        Chunk {
+            index,
+            total,
+            focus: focus.to_string(),
+            tokens,
+            files,
+            context: ChunkContext {
+                previous_summary: None,
+                current_focus: focus.to_string(),
+                next_preview: None,
+                cross_references: cross_refs,
+                overlap_content: if has_overlap {
+                    Some("overlap content".to_string())
+                } else {
+                    None
+                },
+            },
+        }
+    }
+
+    fn create_chunk_file(path: &str) -> ChunkFile {
+        ChunkFile {
+            path: path.to_string(),
+            content: "// content".to_string(),
+            tokens: 100,
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_basic() {
+        let chunk = create_test_chunk(
+            0,
+            5,
+            "Core module",
+            1000,
+            vec![create_chunk_file("src/main.rs")],
+            vec![],
+            false,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("Chunk 1/5"));
+        assert!(summary.contains("Core module"));
+        assert!(summary.contains("main.rs"));
+        assert!(summary.contains("1000 tokens"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_multiple_files() {
+        let chunk = create_test_chunk(
+            2,
+            10,
+            "API handlers",
+            2500,
+            vec![
+                create_chunk_file("src/api/users.rs"),
+                create_chunk_file("src/api/auth.rs"),
+                create_chunk_file("src/api/posts.rs"),
+            ],
+            vec![],
+            false,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("Chunk 3/10"));
+        assert!(summary.contains("users.rs"));
+        assert!(summary.contains("auth.rs"));
+        assert!(summary.contains("posts.rs"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_more_than_5_files() {
+        let chunk = create_test_chunk(
+            0,
+            3,
+            "Large module",
+            5000,
+            vec![
+                create_chunk_file("file1.rs"),
+                create_chunk_file("file2.rs"),
+                create_chunk_file("file3.rs"),
+                create_chunk_file("file4.rs"),
+                create_chunk_file("file5.rs"),
+                create_chunk_file("file6.rs"),
+                create_chunk_file("file7.rs"),
+            ],
+            vec![],
+            false,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("+2 more"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_no_files() {
+        let chunk = create_test_chunk(0, 1, "Empty", 0, vec![], vec![], false);
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("no files"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_with_cross_references() {
+        let chunk = create_test_chunk(
+            0,
+            2,
+            "Module A",
+            1000,
+            vec![create_chunk_file("src/a.rs")],
+            vec![
+                CrossReference {
+                    symbol: "foo".to_string(),
+                    chunk_index: 1,
+                    file: "src/b.rs".to_string(),
+                },
+                CrossReference {
+                    symbol: "bar".to_string(),
+                    chunk_index: 1,
+                    file: "src/c.rs".to_string(),
+                },
+            ],
+            false,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("Refs: 2"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_with_overlap() {
+        let chunk = create_test_chunk(
+            1,
+            3,
+            "Module B",
+            1500,
+            vec![create_chunk_file("src/b.rs")],
+            vec![],
+            true,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("[has overlap from previous]"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_extracts_filename() {
+        let chunk = create_test_chunk(
+            0,
+            1,
+            "Test",
+            100,
+            vec![create_chunk_file("very/long/nested/path/to/file.rs")],
+            vec![],
+            false,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        // Should extract just the filename, not the full path
+        assert!(summary.contains("file.rs"));
+        assert!(!summary.contains("very/long"));
+    }
+
+    #[test]
+    fn test_generate_chunk_summary_full_info() {
+        let chunk = create_test_chunk(
+            4,
+            10,
+            "API endpoints",
+            3500,
+            vec![
+                create_chunk_file("src/api/endpoint1.rs"),
+                create_chunk_file("src/api/endpoint2.rs"),
+            ],
+            vec![CrossReference {
+                symbol: "helper".to_string(),
+                chunk_index: 2,
+                file: "src/utils.rs".to_string(),
+            }],
+            true,
+        );
+        let summary = generate_chunk_summary(&chunk);
+        assert!(summary.contains("Chunk 5/10"));
+        assert!(summary.contains("API endpoints"));
+        assert!(summary.contains("endpoint1.rs"));
+        assert!(summary.contains("~3500 tokens"));
+        assert!(summary.contains("Refs: 1"));
+        assert!(summary.contains("[has overlap from previous]"));
+    }
+}

@@ -41,6 +41,24 @@ impl TokenCounts {
         Self::default()
     }
 
+    /// Create counts with all fields set to the same value
+    /// Useful for testing
+    #[cfg(test)]
+    pub fn default_with_value(value: u32) -> Self {
+        Self {
+            o200k: value,
+            cl100k: value,
+            claude: value,
+            gemini: value,
+            llama: value,
+            mistral: value,
+            deepseek: value,
+            qwen: value,
+            cohere: value,
+            grok: value,
+        }
+    }
+
     /// Get count for a specific model
     pub fn get(&self, model: TokenModel) -> u32 {
         match model {

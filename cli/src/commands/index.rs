@@ -276,3 +276,115 @@ fn chrono_humanize(timestamp: u64) -> String {
         format!("{} days ago", diff / 86400)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============================================
+    // chrono_humanize Tests
+    // ============================================
+
+    fn get_current_time() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn test_chrono_humanize_seconds_ago() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 30);
+        assert!(result.contains("seconds ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_minutes_ago() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 300); // 5 minutes
+        assert!(result.contains("minutes ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_hours_ago() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 7200); // 2 hours
+        assert!(result.contains("hours ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_days_ago() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 172800); // 2 days
+        assert!(result.contains("days ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_just_now() {
+        let now = get_current_time();
+        let result = chrono_humanize(now);
+        assert!(result.contains("0 seconds ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_59_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 59);
+        assert!(result.contains("seconds ago"));
+        assert!(result.contains("59"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_60_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 60);
+        assert!(result.contains("minutes ago"));
+        assert!(result.contains("1"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_3599_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 3599); // 59 minutes 59 seconds
+        assert!(result.contains("minutes ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_3600_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 3600); // Exactly 1 hour
+        assert!(result.contains("hours ago"));
+        assert!(result.contains("1"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_86399_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 86399); // 23 hours 59 minutes 59 seconds
+        assert!(result.contains("hours ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_boundary_86400_seconds() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 86400); // Exactly 1 day
+        assert!(result.contains("days ago"));
+        assert!(result.contains("1"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_future_timestamp() {
+        let now = get_current_time();
+        // Future timestamp should saturate to 0
+        let result = chrono_humanize(now + 1000);
+        assert!(result.contains("0 seconds ago"));
+    }
+
+    #[test]
+    fn test_chrono_humanize_old_timestamp() {
+        let now = get_current_time();
+        let result = chrono_humanize(now - 604800); // 7 days
+        assert!(result.contains("7 days ago"));
+    }
+}
