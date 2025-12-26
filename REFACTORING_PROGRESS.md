@@ -9,9 +9,8 @@ This document tracks the progress of codebase improvements identified during the
 **Estimated Duplicate Code:** ~1,200 lines
 
 **Progress Summary:**
-- **Completed:** 6 issues (~610 lines saved)
-- **Partial:** 1 issue (scanner - shared types extracted, ~45 lines; full unification needs design)
-- **Remaining Estimate:** ~250 lines (after full scanner unification)
+- **Completed:** 7 issues (~810 lines saved)
+- **All identified refactoring issues have been resolved**
 
 ---
 
@@ -21,10 +20,8 @@ This document tracks the progress of codebase improvements identified during the
 
 | # | Issue | Status | Files Changed | Lines Saved |
 |---|-------|--------|---------------|-------------|
-| 1 | Unify Scanner (CLI + Bindings) | [~] Partial | 5 | ~45* |
+| 1 | Unify Scanner (CLI + Bindings) | [x] Done | 12 | ~200 |
 | 2 | Consolidate Language Detection | [x] Done | 3 | ~170 |
-
-*Note: Phase 1 complete (shared types + binary detection). Full unification requires architectural decisions.
 
 ### Phase 2: Medium - API Consistency
 
@@ -47,47 +44,55 @@ This document tracks the progress of codebase improvements identified during the
 
 ### Issue 1: Scanner Duplication (CLI vs Bindings)
 
-**Problem:** `cli/src/scanner.rs` (~970 lines) and `bindings/common/src/scanner.rs` (~430 lines) implement similar functionality with different architectures.
+**Problem:** `cli/src/scanner.rs` (~970 lines) and `bindings/common/src/scanner.rs` (~430 lines) implemented similar functionality with different architectures.
 
-**Architectural Differences:**
-| Feature | CLI Scanner | Bindings Scanner |
-|---------|-------------|------------------|
-| Architecture | Pipelined with crossbeam channels | Simple rayon parallel |
-| Tokenization | Quick estimation (~4 chars/token) | Accurate tiktoken counting |
-| Large files | Memory-mapped I/O (mmap) | Regular read with batching |
-| Caching | Incremental hash-based cache | None |
-| Git info | Branch/commit detection | None |
-| Dependencies | Extracts external deps | None |
-| Dir structure | Tree generation | None |
+**Solution - COMPLETED:**
+Created unified scanner in `engine/src/scanner/` with configurable features:
 
-**Phase 1 - COMPLETED (Shared Types):**
-Created `engine/src/scanner/` module with:
-- `mod.rs` - `ScannerConfig` struct, `FileInfo` struct
-- `common.rs` - `is_binary_extension()`, `is_binary_content()`, `BINARY_EXTENSIONS` const
+**New Engine Scanner Modules:**
+- `mod.rs` - Enhanced `ScannerConfig` with performance tuning options
+- `walk.rs` - File collection with ignore crate (gitignore-respecting)
+- `io.rs` - Smart file reading (mmap vs regular based on size)
+- `process.rs` - File processing with configurable tokenization
+- `pipelined.rs` - Pipelined scanning with crossbeam channels
+- `parallel.rs` - `UnifiedScanner` struct and `scan_repository()` function
 
-Files modified:
-- `engine/src/scanner/mod.rs` - New shared types (created)
-- `engine/src/scanner/common.rs` - Binary detection utilities (created)
-- `engine/src/lib.rs` - Export scanner module
-- `cli/src/scanner.rs` - Import `is_binary_extension` from engine, remove local copy (~30 lines)
-- `bindings/common/src/scanner.rs` - Import `is_binary_extension` from engine, remove local copy (~15 lines)
+**Key ScannerConfig Options:**
+```rust
+pub struct ScannerConfig {
+    pub include_hidden: bool,
+    pub respect_gitignore: bool,
+    pub read_contents: bool,
+    pub max_file_size: u64,
+    pub skip_symbols: bool,
+    // Performance tuning
+    pub use_mmap: bool,           // Memory-mapped I/O for large files
+    pub accurate_tokens: bool,     // tiktoken vs fast estimation
+    pub use_pipelining: bool,      // Pipelined architecture for large repos
+    pub batch_size: usize,         // Stack overflow prevention
+}
+```
 
-**Remaining Work (Phase 2 - Future):**
-Still duplicated (~250 lines):
-- Walk builder setup - similar pattern
-- Statistics aggregation - similar logic
-- `is_binary_content()` - bindings uses `&str`, CLI uses `&[u8]`
+**CLI Configuration:**
+- Uses fast token estimation (`accurate_tokens: false`)
+- Keeps CLI-specific features: git info, dependencies, directory structure, incremental caching
 
-**Recommended Approach (Future Work):**
-1. Create `engine/src/scanner/parallel.rs`:
-   - Simple parallel scanner (current bindings approach)
+**Bindings Configuration:**
+- Uses accurate tiktoken counting (`accurate_tokens: true`)
+- Simplified implementation (~100 lines vs previous ~400)
 
-2. Create `engine/src/scanner/pipelined.rs`:
-   - Pipelined scanner with channels (current CLI approach)
+**Files Created/Modified:**
+- `engine/src/scanner/mod.rs` - Enhanced config and re-exports
+- `engine/src/scanner/walk.rs` - File collection (NEW)
+- `engine/src/scanner/io.rs` - Smart file reading (NEW)
+- `engine/src/scanner/process.rs` - File processing (NEW)
+- `engine/src/scanner/pipelined.rs` - Pipelined scanning (NEW)
+- `engine/src/scanner/parallel.rs` - UnifiedScanner (NEW)
+- `engine/Cargo.toml` - Added crossbeam-channel dependency
+- `cli/src/scanner.rs` - Rewritten to use UnifiedScanner
+- `bindings/common/src/scanner.rs` - Rewritten to use UnifiedScanner
 
-3. Let CLI and bindings choose appropriate implementation
-
-**Status:** Phase 1 complete. Full unification requires architectural design decisions.
+**Status:** COMPLETED - Both CLI and bindings now use unified scanner from engine
 
 ---
 
@@ -180,7 +185,7 @@ Still duplicated (~250 lines):
 | 2025-12-26 | 7 | Added 100K entry limit to TOKEN_CACHE with automatic cleanup | 0d5a09a |
 | 2025-12-26 | 2 | Created `detect_file_language()` in engine, removed 170-line duplicate from CLI | 0d5a09a |
 | 2025-12-26 | 4 | Created `bindings/common/src/diff_utils.rs` with shared diff utilities, updated Node and Python bindings | 0d5a09a |
-| 2025-12-26 | 1 | Phase 1: Created `engine/src/scanner/` module with shared types and binary detection utilities | pending |
+| 2025-12-26 | 1 | Created unified scanner in engine with pipelined architecture, mmap support, configurable tokenization; CLI and bindings now use shared implementation | pending |
 
 ---
 

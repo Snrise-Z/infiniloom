@@ -1,49 +1,19 @@
 //! Repository scanner for language bindings
 //!
-//! This is a pure Rust scanner similar to the CLI's scanner, adapted for bindings.
-//! Used by both Python and Node.js bindings.
+//! This module wraps the unified scanner from the engine with bindings-specific defaults:
+//! - Accurate token counting via tiktoken (for API use cases)
+//! - Pipelined scanning for large repositories
+//! - Batching to prevent stack overflow on very large repos
 
-use anyhow::{Context, Result};
-use ignore::WalkBuilder;
-use rayon::prelude::*;
-use std::collections::HashMap;
+use anyhow::Result;
 use std::path::Path;
 
-use infiniloom_engine::parser::{Language, Parser};
-use infiniloom_engine::scanner::is_binary_extension;
-use infiniloom_engine::tokenizer::TokenCounts;
-use infiniloom_engine::tokenizer::Tokenizer;
-use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository};
+use infiniloom_engine::scanner::{scan_repository as unified_scan, ScannerConfig};
+use infiniloom_engine::types::Repository;
 
-// Thread-local parser for each rayon worker
-// This avoids mutex contention by giving each thread its own parser
-thread_local! {
-    static THREAD_PARSER: std::cell::RefCell<Parser> = std::cell::RefCell::new(Parser::new());
-    static THREAD_TOKENIZER: Tokenizer = Tokenizer::new();
-}
-
-/// Parse content using thread-local parser (lock-free)
-fn parse_with_thread_local(content: &str, path: &Path) -> Vec<infiniloom_engine::types::Symbol> {
-    THREAD_PARSER.with(|parser| {
-        let mut parser = parser.borrow_mut();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if let Some(lang) = Language::from_extension(ext) {
-                parser.parse(content, lang).unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        }
-    })
-}
-
-/// Count tokens using thread-local tokenizer (accurate via tiktoken)
-fn count_tokens_accurate(content: &str) -> TokenCounts {
-    THREAD_TOKENIZER.with(|tokenizer| tokenizer.count_all(content))
-}
-
-/// Configuration for repository scanning
+/// Configuration for repository scanning (bindings-specific)
+///
+/// This provides a simpler configuration interface for the language bindings.
 pub struct ScanConfig {
     /// Include hidden files (starting with .)
     pub include_hidden: bool,
@@ -69,209 +39,31 @@ impl Default for ScanConfig {
     }
 }
 
-/// Intermediate struct for collecting file info before parallel processing
-#[derive(Clone)]
-struct FileInfo {
-    path: std::path::PathBuf,
-    relative_path: String,
+impl From<ScanConfig> for ScannerConfig {
+    fn from(config: ScanConfig) -> Self {
+        ScannerConfig {
+            include_hidden: config.include_hidden,
+            respect_gitignore: config.respect_gitignore,
+            read_contents: config.read_contents,
+            max_file_size: config.max_file_size,
+            skip_symbols: config.skip_symbols,
+            // Bindings use accurate token counting by default
+            accurate_tokens: true,
+            use_mmap: true,
+            use_pipelining: true,
+            ..Default::default()
+        }
+    }
 }
-
-/// Maximum files to process in a single parallel batch to avoid stack overflow.
-/// With 75K+ files, rayon's work-stealing can exhaust stack space.
-const MAX_PARALLEL_BATCH_SIZE: usize = 5000;
 
 /// Scan a repository and return a Repository struct
+///
+/// Uses the unified scanner from engine with bindings-specific defaults:
+/// - Accurate token counting (tiktoken)
+/// - Pipelined processing for large repos
 pub fn scan_repository(path: &Path, config: ScanConfig) -> Result<Repository> {
-    let repo_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    // Collect file paths first (fast)
-    let file_infos = collect_file_paths(path, &config)?;
-
-    // Process files in batches to avoid stack overflow on large repos (75K+ files).
-    // Rayon's work-stealing uses recursion which can exhaust stack with many files.
-    let files: Vec<RepoFile> = if file_infos.len() <= MAX_PARALLEL_BATCH_SIZE {
-        // Small repo: process all at once
-        file_infos
-            .into_par_iter()
-            .filter_map(|file_info| process_file(file_info, &config).ok().flatten())
-            .collect()
-    } else {
-        // Large repo: process in batches to avoid stack overflow
-        let mut all_files = Vec::with_capacity(file_infos.len());
-        for chunk in file_infos.chunks(MAX_PARALLEL_BATCH_SIZE) {
-            let batch_files: Vec<RepoFile> = chunk
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .into_par_iter()
-                .filter_map(|file_info| process_file(file_info, &config).ok().flatten())
-                .collect();
-            all_files.extend(batch_files);
-        }
-        all_files
-    };
-
-    // Calculate statistics
-    let total_files = files.len() as u32;
-    let mut total_lines: u64 = 0;
-    let mut total_tokens = TokenCounts::default();
-    let mut language_counts: HashMap<String, (u32, u64)> = HashMap::new(); // (files, lines)
-
-    for file in &files {
-        if let Some(ref content) = file.content {
-            let lines = content.lines().count() as u64;
-            total_lines += lines;
-
-            // Accumulate token counts
-            total_tokens.o200k += file.token_count.o200k;
-            total_tokens.cl100k += file.token_count.cl100k;
-            total_tokens.claude += file.token_count.claude;
-            total_tokens.gemini += file.token_count.gemini;
-            total_tokens.llama += file.token_count.llama;
-            total_tokens.mistral += file.token_count.mistral;
-            total_tokens.deepseek += file.token_count.deepseek;
-            total_tokens.qwen += file.token_count.qwen;
-            total_tokens.cohere += file.token_count.cohere;
-            total_tokens.grok += file.token_count.grok;
-
-            if let Some(ref lang) = file.language {
-                let entry = language_counts.entry(lang.clone()).or_insert((0, 0));
-                entry.0 += 1; // files
-                entry.1 += lines; // lines
-            }
-        }
-    }
-
-    // Build language stats
-    let languages: Vec<LanguageStats> = language_counts
-        .into_iter()
-        .map(|(lang, (files, lines))| {
-            let percentage = if total_files > 0 {
-                (files as f32 / total_files as f32) * 100.0
-            } else {
-                0.0
-            };
-            LanguageStats { language: lang, files, lines, percentage }
-        })
-        .collect();
-
-    let metadata =
-        RepoMetadata { total_files, total_lines, total_tokens, languages, ..Default::default() };
-
-    Ok(Repository { name: repo_name, path: path.to_path_buf(), files, metadata })
-}
-
-/// Collect file paths without reading contents
-fn collect_file_paths(path: &Path, config: &ScanConfig) -> Result<Vec<FileInfo>> {
-    let mut file_infos = Vec::new();
-
-    let walker = WalkBuilder::new(path)
-        .hidden(!config.include_hidden)
-        .git_ignore(config.respect_gitignore)
-        .git_global(config.respect_gitignore)
-        .git_exclude(config.respect_gitignore)
-        .build();
-
-    for entry in walker.flatten() {
-        let entry_path = entry.path();
-        if !entry_path.is_file() {
-            continue;
-        }
-
-        // Skip binary files by checking extension
-        if is_binary_extension(entry_path) {
-            continue;
-        }
-
-        // Calculate relative path
-        let relative_path = entry_path
-            .strip_prefix(path)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| entry_path.to_string_lossy().to_string());
-
-        file_infos.push(FileInfo { path: entry_path.to_path_buf(), relative_path });
-    }
-
-    Ok(file_infos)
-}
-
-/// Process a single file
-fn process_file(file_info: FileInfo, config: &ScanConfig) -> Result<Option<RepoFile>> {
-    // Check file size
-    let metadata = std::fs::metadata(&file_info.path).context("Failed to get file metadata")?;
-    if metadata.len() > config.max_file_size {
-        return Ok(None);
-    }
-
-    // Detect language (use name() for lowercase consistency in APIs)
-    let language = file_info
-        .path
-        .extension()
-        .and_then(|e| e.to_str())
-        .and_then(Language::from_extension)
-        .map(|l| l.name().to_string());
-
-    // Read content if requested
-    let (content, token_count, symbols, size_bytes) = if config.read_contents {
-        let content =
-            std::fs::read_to_string(&file_info.path).context("Failed to read file content")?;
-
-        // Skip binary files based on content
-        if is_binary_content(&content) {
-            return Ok(None);
-        }
-
-        let size = content.len() as u64;
-        let tokens = count_tokens_accurate(&content);
-
-        // Extract symbols unless skipped
-        let symbols = if config.skip_symbols {
-            Vec::new()
-        } else {
-            parse_with_thread_local(&content, &file_info.path)
-        };
-
-        (Some(content), tokens, symbols, size)
-    } else {
-        (None, TokenCounts::default(), Vec::new(), metadata.len())
-    };
-
-    Ok(Some(RepoFile {
-        path: file_info.path,
-        relative_path: file_info.relative_path,
-        language,
-        size_bytes,
-        token_count,
-        symbols,
-        importance: 0.5, // Default importance, will be recalculated by rank_files
-        content,
-    }))
-}
-
-/// Check if content appears to be binary
-fn is_binary_content(content: &str) -> bool {
-    // Check first 8KB for null bytes
-    // Use floor_char_boundary to ensure we don't slice in the middle of a multi-byte UTF-8 character
-    let check_size = content.floor_char_boundary(content.len().min(8192));
-    let sample = &content[..check_size];
-
-    // If we find null bytes, it's likely binary
-    if sample.contains('\0') {
-        return true;
-    }
-
-    // Check for high ratio of non-printable characters
-    let non_printable = sample
-        .chars()
-        .filter(|c| !c.is_ascii_graphic() && !c.is_whitespace())
-        .count();
-
-    let ratio = non_printable as f64 / check_size as f64;
-    ratio > 0.3 // More than 30% non-printable = likely binary
+    let scanner_config: ScannerConfig = config.into();
+    unified_scan(path, scanner_config)
 }
 
 /// Simple glob pattern matching for include/exclude patterns
@@ -302,6 +94,9 @@ pub fn matches_pattern(path: &str, pattern: &str) -> bool {
 pub fn matches_any_pattern(path: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|p| matches_pattern(path, p))
 }
+
+// Re-export commonly used items for convenience
+pub use infiniloom_engine::scanner::{is_binary_extension, FileInfo, ScannerConfig as EngineScannerConfig};
 
 #[cfg(test)]
 mod tests {
@@ -361,52 +156,38 @@ mod tests {
     }
 
     #[test]
-    fn test_is_binary_content_unicode_boundary() {
-        // Test that is_binary_content doesn't panic when a multi-byte UTF-8 character
-        // spans the 8192 byte boundary. The bullet character • is 3 bytes (E2 80 A2).
-        // We place it so that it spans bytes 8190-8192.
-        let mut content = String::with_capacity(8200);
-        // Fill with ASCII 'a' until byte 8190
-        for _ in 0..8190 {
-            content.push('a');
-        }
-        // Add bullet '•' (3 bytes: E2 80 A2) spanning bytes 8190-8192
-        content.push('•');
-        // Add more content
-        content.push_str("more content after boundary");
+    fn test_scan_config_to_scanner_config() {
+        let config = ScanConfig {
+            include_hidden: true,
+            respect_gitignore: false,
+            read_contents: true,
+            max_file_size: 1000,
+            skip_symbols: true,
+        };
 
-        // This should not panic - previously would panic with:
-        // "byte index 8192 is not a char boundary; it is inside '•'"
-        let result = is_binary_content(&content);
-        assert!(!result, "Text content should not be detected as binary");
+        let scanner_config: ScannerConfig = config.into();
+        assert!(scanner_config.include_hidden);
+        assert!(!scanner_config.respect_gitignore);
+        assert!(scanner_config.read_contents);
+        assert_eq!(scanner_config.max_file_size, 1000);
+        assert!(scanner_config.skip_symbols);
+        // Bindings defaults
+        assert!(scanner_config.accurate_tokens);
+        assert!(scanner_config.use_mmap);
     }
 
     #[test]
-    fn test_is_binary_content_various_unicode() {
-        // Test with various multi-byte Unicode characters near the boundary
-        let test_cases = [
-            ("Chinese", "中"),  // 3 bytes each
-            ("Japanese", "あ"), // 3 bytes
-            ("Korean", "한"),   // 3 bytes
-            ("Emoji", "😀"),    // 4 bytes
-            ("Arabic", "م"),    // 2 bytes
-        ];
+    fn test_scan_skip_symbols() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
 
-        for (name, char) in test_cases {
-            let char_bytes = char.len();
-            // Create content where the character would span the 8192 boundary
-            let fill_count = 8192 - (char_bytes - 1);
-            let mut content = String::with_capacity(8300);
-            for _ in 0..fill_count {
-                content.push('x');
-            }
-            content.push_str(char);
-            content.push_str("tail");
+        let config = ScanConfig {
+            skip_symbols: true,
+            ..Default::default()
+        };
+        let repo = scan_repository(dir.path(), config).unwrap();
 
-            // Should not panic
-            let _ = is_binary_content(&content);
-            // Just verify it doesn't panic - the actual result doesn't matter for this test
-            assert!(content.len() > 8192, "{} test: content should exceed 8192 bytes", name);
-        }
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].symbols.is_empty());
     }
 }

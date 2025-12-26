@@ -36,6 +36,7 @@ petgraph = "0.6"
 
 # Parallel processing
 rayon = "1.8"
+crossbeam-channel = "0.5"
 
 # Structured logging
 tracing = "0.1"
