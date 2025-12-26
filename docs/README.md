@@ -2,12 +2,18 @@
 
 Welcome to the Infiniloom documentation. This guide will help you get started and make the most of Infiniloom's features.
 
+## Quick Links
+
+- **[Cheat Sheet](CHEATSHEET.md)** - All commands and options at a glance
+- **[FAQ](FAQ.md)** - Frequently asked questions
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
+
 ## Getting Started
 
 | Guide | Description |
 |-------|-------------|
-| [Installation](getting-started/installation.md) | All installation methods |
-| [Quick Start](getting-started/quick-start.md) | Your first 5 minutes |
+| [Installation](getting-started/installation.md) | All installation methods (npm, Homebrew, Cargo, pip) |
+| [Quick Start](getting-started/quick-start.md) | Your first 5 minutes with Infiniloom |
 | [Configuration](CONFIGURATION.md) | Config files and environment variables |
 
 ## Commands
@@ -36,11 +42,22 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 
 | Document | Description |
 |----------|-------------|
+| [Cheat Sheet](CHEATSHEET.md) | Quick reference for all commands |
 | [Output Formats](INFINILOOM_OUTPUT_FORMATS.md) | XML, Markdown, JSON, YAML, TOON specs |
 | [Architecture](INFINILOOM_DESIGN.md) | System design and internals |
+| [Engine Architecture](../engine/ARCHITECTURE.md) | Module dependency graph |
+| [Parser Documentation](../engine/PARSER_README.md) | Tree-sitter parser details |
 | [Git Context](GIT_CONTEXT_DESIGN.md) | Diff and index design |
 | [Test Specification](TEST_SPECIFICATION.md) | Testing approach |
 | [Implementation Status](IMPLEMENTATION_STATUS.md) | Feature checklist |
+| [Roadmap](planning/ROADMAP.md) | Future development plans |
+
+## Support
+
+| Document | Description |
+|----------|-------------|
+| [FAQ](FAQ.md) | Frequently asked questions |
+| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 
 ## Language Bindings
 

@@ -78,7 +78,24 @@ infiniloom pack . --format markdown  # GPT-4/GPT-4o
 infiniloom pack . --format yaml      # Gemini
 infiniloom pack . --format json      # Programmatic use
 infiniloom pack . --format toon      # Token-efficient (~40% smaller)
+infiniloom pack . --format plain     # Simple plain text
 ```
+
+## All Commands
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| [`pack`](docs/commands/pack.md) | Transform repo into LLM context | `--format` `--model` `--compression` `--max-tokens` |
+| [`scan`](docs/commands/scan.md) | Repository statistics | `--model` `--json` `--security-check` |
+| [`map`](docs/commands/map.md) | PageRank symbol map | `--budget` `--model` |
+| [`index`](docs/commands/index.md) | Build symbol index | `--force` `--status` `--incremental` |
+| [`diff`](docs/commands/diff.md) | Context for code changes | `--staged` `--depth` `--include-diff` |
+| [`impact`](docs/commands/impact.md) | Analyze change impact | `--symbol` `--call-graph` `--depth` |
+| [`chunk`](docs/commands/chunk.md) | Split for multi-turn | `--strategy` `--max-tokens` `--overlap` |
+| [`init`](docs/commands/init.md) | Create config file | `--format` `--template` |
+| [`info`](docs/commands/info.md) | Show version/config | |
+
+See [Command Reference](docs/commands/) for complete documentation.
 
 ## Performance
 
@@ -193,6 +210,8 @@ infiniloom impact . src/auth.rs       # What depends on this file?
 | `balanced` | 30-40% | Comments, redundant whitespace |
 | `aggressive` | 50-60% | Docstrings, inline comments |
 | `extreme` | 70-80% | Everything except signatures |
+| `focused` | ~75% | Key symbols with small surrounding context |
+| `semantic` | 60-70% | Heuristic-based smart compression |
 
 </details>
 
@@ -242,8 +261,14 @@ See [Configuration Guide](docs/CONFIGURATION.md) for all options.
 
 | Document | Description |
 |----------|-------------|
-| [Command Reference](docs/commands/) | All CLI commands |
+| [Cheat Sheet](docs/CHEATSHEET.md) | Quick reference for all commands |
+| [Command Reference](docs/commands/) | Detailed CLI documentation |
 | [Configuration](docs/CONFIGURATION.md) | Config files and environment variables |
+| [LLM Optimization](docs/guides/llm-optimization.md) | Model-specific tips |
+| [Large Repositories](docs/guides/large-repos.md) | Scaling strategies |
+| [CI/CD Integration](docs/guides/ci-integration.md) | Automation workflows |
+| [FAQ](docs/FAQ.md) | Frequently asked questions |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
 | [Output Formats](docs/INFINILOOM_OUTPUT_FORMATS.md) | Format specifications |
 | [Architecture](docs/INFINILOOM_DESIGN.md) | System design |
 

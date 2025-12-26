@@ -145,6 +145,11 @@ Now `infiniloom pack .` uses these defaults.
 
 ## Next Steps
 
+- [Cheat Sheet](../CHEATSHEET.md) — All commands and options at a glance
 - [Configuration Guide](../CONFIGURATION.md) — All config options
 - [Command Reference](../commands/) — Detailed command docs
 - [LLM Optimization](../guides/llm-optimization.md) — Model-specific tips
+- [Large Repositories](../guides/large-repos.md) — Handling big codebases
+- [CI/CD Integration](../guides/ci-integration.md) — Automation workflows
+- [FAQ](../FAQ.md) — Frequently asked questions
+- [Troubleshooting](../TROUBLESHOOTING.md) — Common issues and solutions
