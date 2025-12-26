@@ -2,50 +2,74 @@
 
 // Import from infiniloom-bindings-common
 use infiniloom_bindings_common::{
-    parse_format, parse_model, parse_compression,
+    // Repository operations
+    apply_compression,
+    apply_default_ignores,
+    apply_token_budget,
     file_priority_score,
     format_file_status as common_format_file_status,
-    // Scanner from common crate
-    scan_repository as do_scan, ScanConfig, matches_any_pattern,
-    // Security utilities
-    parse_security_threshold as common_parse_security_threshold,
-    severity_at_or_above,
     // Time utilities
     format_timestamp,
-    // Repository operations
-    apply_compression, apply_default_ignores, prepare_repository, apply_token_budget,
+    matches_any_pattern,
+    parse_compression,
+    parse_format,
+    parse_model,
+    // Security utilities
+    parse_security_threshold as common_parse_security_threshold,
+    prepare_repository,
+    // Scanner from common crate
+    scan_repository as do_scan,
+    severity_at_or_above,
+    ScanConfig,
 };
 
 use infiniloom_engine::{
     default_ignores::{matches_any, DEFAULT_IGNORES, TEST_IGNORES},
     git::{
-        GitRepo as EngineGitRepo, FileStatus as EngineFileStatus, ChangedFile,
-        DiffHunk as EngineGitDiffHunk,
+        ChangedFile, DiffHunk as EngineGitDiffHunk, FileStatus as EngineFileStatus,
+        GitRepo as EngineGitRepo,
     },
-    security::Severity,
-    CompressionLevel, OutputFormat, OutputFormatter, RepoMapGenerator, Repository, SecurityScanner,
-    SemanticCompressor, SemanticConfig, TokenizerModel, Tokenizer, tokenizer::TokenModel,
     // Index module for new APIs
     index::{
-        IndexBuilder, IndexStorage, BuildOptions, ContextExpander, ContextDepth,
-        DiffChange, ChangeType,
         // Call graph query API
         find_symbol as engine_find_symbol,
-        get_callers_by_name, get_callees_by_name, get_references_by_name,
         get_call_graph as engine_get_call_graph,
         get_call_graph_filtered,
-        SymbolInfo as EngineSymbolInfo,
-        ReferenceInfo as EngineReferenceInfo,
+        get_callees_by_name,
+        get_callers_by_name,
+        get_references_by_name,
+        BuildOptions,
         CallGraph as EngineCallGraph,
         CallGraphEdge as EngineCallGraphEdge,
         CallGraphStats as EngineCallGraphStats,
+        ChangeType,
+        ContextDepth,
+        ContextExpander,
+        DiffChange,
+        IndexBuilder,
+        IndexStorage,
+        ReferenceInfo as EngineReferenceInfo,
+        SymbolInfo as EngineSymbolInfo,
     },
+    security::Severity,
+    tokenizer::TokenModel,
+    ChunkStrategy,
     // Chunking module
-    Chunker, ChunkStrategy,
+    Chunker,
+    CompressionLevel,
+    OutputFormat,
+    OutputFormatter,
+    RepoMapGenerator,
+    Repository,
+    SecurityScanner,
+    SemanticCompressor,
+    SemanticConfig,
+    Tokenizer,
+    TokenizerModel,
 };
-use std::collections::HashSet;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 // ============================================================================
@@ -75,14 +99,10 @@ pub fn version() -> String {
 /// Validate path is not empty (accepts Option to handle null/undefined gracefully)
 fn validate_path_option(path: Option<&str>) -> Result<String> {
     match path {
-        None => Err(Error::new(
-            Status::InvalidArg,
-            "Path cannot be null or undefined".to_string(),
-        )),
-        Some(p) if p.trim().is_empty() => Err(Error::new(
-            Status::InvalidArg,
-            "Path cannot be empty".to_string(),
-        )),
+        None => Err(Error::new(Status::InvalidArg, "Path cannot be null or undefined".to_string())),
+        Some(p) if p.trim().is_empty() => {
+            Err(Error::new(Status::InvalidArg, "Path cannot be empty".to_string()))
+        },
         Some(p) => Ok(p.to_string()),
     }
 }
@@ -90,10 +110,7 @@ fn validate_path_option(path: Option<&str>) -> Result<String> {
 /// Validate path is not empty
 fn validate_path(path: &str) -> Result<()> {
     if path.trim().is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Path cannot be empty".to_string(),
-        ));
+        return Err(Error::new(Status::InvalidArg, "Path cannot be empty".to_string()));
     }
     Ok(())
 }
@@ -105,10 +122,9 @@ fn validate_symbol_name_option(name: Option<&str>) -> Result<String> {
             Status::InvalidArg,
             "Symbol name cannot be null or undefined".to_string(),
         )),
-        Some(n) if n.trim().is_empty() => Err(Error::new(
-            Status::InvalidArg,
-            "Symbol name cannot be empty".to_string(),
-        )),
+        Some(n) if n.trim().is_empty() => {
+            Err(Error::new(Status::InvalidArg, "Symbol name cannot be empty".to_string()))
+        },
         Some(n) => Ok(n.to_string()),
     }
 }
@@ -116,10 +132,7 @@ fn validate_symbol_name_option(name: Option<&str>) -> Result<String> {
 /// Validate file path is not empty
 fn validate_file_path(file_path: &str) -> Result<()> {
     if file_path.trim().is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "File path cannot be empty".to_string(),
-        ));
+        return Err(Error::new(Status::InvalidArg, "File path cannot be empty".to_string()));
     }
     Ok(())
 }
@@ -128,14 +141,12 @@ fn validate_file_path(file_path: &str) -> Result<()> {
 fn validate_token_budget(budget: Option<i64>) -> Result<u32> {
     match budget {
         None => Ok(0), // No limit
-        Some(b) if b < 0 => Err(Error::new(
-            Status::InvalidArg,
-            format!("Token budget cannot be negative: {}", b),
-        )),
+        Some(b) if b < 0 => {
+            Err(Error::new(Status::InvalidArg, format!("Token budget cannot be negative: {}", b)))
+        },
         Some(b) => Ok(b as u32),
     }
 }
-
 
 /// Options for packing a repository
 #[napi(object)]
@@ -295,59 +306,68 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
     let mut repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
 
     // Apply default ignores to filter out build outputs, dependencies, etc.
-    repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+    repo.files
+        .retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
 
     // Apply test ignores unless include_tests is true
     if !include_tests {
-        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+        repo.files
+            .retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
     }
 
     // Apply custom include patterns (if specified, only keep matching files)
     if let Some(ref include_patterns) = opts.include {
         let patterns: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
-        repo.files.retain(|f| matches_any_pattern(&f.relative_path, &patterns));
+        repo.files
+            .retain(|f| matches_any_pattern(&f.relative_path, &patterns));
     }
 
     // Apply custom exclude patterns
     if let Some(ref exclude_patterns) = opts.exclude {
         let patterns: Vec<&str> = exclude_patterns.iter().map(|s| s.as_str()).collect();
-        repo.files.retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
+        repo.files
+            .retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
     }
 
     // Filter to changed files only (if enabled)
     if changed_only {
         let path_buf = PathBuf::from(&path);
         if EngineGitRepo::is_git_repo(&path_buf) {
-            let git_repo = EngineGitRepo::open(&path_buf)
-                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+            let git_repo = EngineGitRepo::open(&path_buf).map_err(|e| {
+                Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e))
+            })?;
 
             // Get changed file paths
             let changed_paths: HashSet<String> = if opts.staged_only.unwrap_or(false) {
                 // Only staged changes - status() returns all changes
                 // For staged-only, we'd need to parse status output more carefully
                 // For now, we include all changed files
-                git_repo.status()
+                git_repo
+                    .status()
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
                     .into_iter()
                     .map(|f| f.path)
                     .collect()
             } else if let (Some(ref base), Some(ref head)) = (&opts.base_sha, &opts.head_sha) {
                 // Diff between two refs
-                git_repo.diff_files(base, head)
+                git_repo
+                    .diff_files(base, head)
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
                     .into_iter()
                     .map(|f| f.path)
                     .collect()
             } else if let Some(ref base) = opts.base_sha {
                 // Diff from base to HEAD
-                git_repo.diff_files(base, "HEAD")
+                git_repo
+                    .diff_files(base, "HEAD")
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
                     .into_iter()
                     .map(|f| f.path)
                     .collect()
             } else {
                 // Uncommitted changes (default)
-                git_repo.status()
+                git_repo
+                    .status()
                     .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
                     .into_iter()
                     .map(|f| f.path)
@@ -355,7 +375,8 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
             };
 
             // Filter repo files to only include changed files
-            repo.files.retain(|f| changed_paths.contains(&f.relative_path));
+            repo.files
+                .retain(|f| changed_paths.contains(&f.relative_path));
         }
     }
 
@@ -375,16 +396,20 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
             let expander = ContextExpander::new(&index, &graph);
 
             // Get current file paths
-            let changed_paths: Vec<String> = repo.files.iter().map(|f| f.relative_path.clone()).collect();
+            let changed_paths: Vec<String> =
+                repo.files.iter().map(|f| f.relative_path.clone()).collect();
 
             // Convert to DiffChange for expander
-            let changes: Vec<DiffChange> = changed_paths.iter().map(|p| DiffChange {
-                file_path: p.clone(),
-                old_path: None,
-                line_ranges: vec![],
-                change_type: ChangeType::Modified,
-                diff_content: None,
-            }).collect();
+            let changes: Vec<DiffChange> = changed_paths
+                .iter()
+                .map(|p| DiffChange {
+                    file_path: p.clone(),
+                    old_path: None,
+                    line_ranges: vec![],
+                    change_type: ChangeType::Modified,
+                    diff_content: None,
+                })
+                .collect();
 
             // Expand context
             let context = expander.expand(&changes, depth, token_budget);
@@ -404,7 +429,11 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
                 for file in full_repo.files {
                     if related_paths.contains(&file.relative_path) {
                         // Check if we already have this file
-                        if !repo.files.iter().any(|f| f.relative_path == file.relative_path) {
+                        if !repo
+                            .files
+                            .iter()
+                            .any(|f| f.relative_path == file.relative_path)
+                        {
                             repo.files.push(file);
                         }
                     }
@@ -423,7 +452,10 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
             // Check for findings at or above threshold
             if !skip_security {
                 let findings = scanner.scan(content, &file.relative_path);
-                if findings.iter().any(|f| severity_at_or_above(&f.severity, &security_threshold)) {
+                if findings
+                    .iter()
+                    .any(|f| severity_at_or_above(&f.severity, &security_threshold))
+                {
                     return Err(Error::new(
                         Status::GenericFailure,
                         format!(
@@ -490,13 +522,16 @@ pub fn scan(path: Option<String>, model: Option<String>) -> Result<ScanStats> {
     let path = validate_path_option(path.as_deref())?;
 
     // Call scan_with_options with default options for backwards compatibility
-    scan_with_options(path, Some(ScanOptions {
-        model,
-        include: None,
-        exclude: None,
-        include_tests: None,
-        apply_default_ignores: Some(true),
-    }))
+    scan_with_options(
+        path,
+        Some(ScanOptions {
+            model,
+            include: None,
+            exclude: None,
+            include_tests: None,
+            apply_default_ignores: Some(true),
+        }),
+    )
 }
 
 /// Scan a repository with full options
@@ -539,40 +574,56 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
 
     // Apply default ignores (Bug #2 fix)
     if apply_default_ignores {
-        repo.files.retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
+        repo.files
+            .retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
     }
 
     // Apply test ignores unless include_tests is true
     if !include_tests {
-        repo.files.retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+        repo.files
+            .retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
     }
 
     // Apply custom include patterns
     if let Some(ref include_patterns) = opts.include {
         let patterns: Vec<&str> = include_patterns.iter().map(|s| s.as_str()).collect();
-        repo.files.retain(|f| matches_any_pattern(&f.relative_path, &patterns));
+        repo.files
+            .retain(|f| matches_any_pattern(&f.relative_path, &patterns));
     }
 
     // Apply custom exclude patterns
     if let Some(ref exclude_patterns) = opts.exclude {
         let patterns: Vec<&str> = exclude_patterns.iter().map(|s| s.as_str()).collect();
-        repo.files.retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
+        repo.files
+            .retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
     }
 
     // Recalculate metadata after filtering
     let total_files = repo.files.len() as u32;
-    let total_lines: u64 = repo.files.iter()
-        .map(|f| f.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0))
+    let total_lines: u64 = repo
+        .files
+        .iter()
+        .map(|f| {
+            f.content
+                .as_ref()
+                .map(|c| c.lines().count() as u64)
+                .unwrap_or(0)
+        })
         .sum();
 
     // Calculate language stats with actual line counts (Bug #9 fix)
-    let mut language_stats: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+    let mut language_stats: std::collections::HashMap<String, (u32, u64)> =
+        std::collections::HashMap::new();
     for file in &repo.files {
         if let Some(ref lang) = file.language {
-            let lines = file.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0);
+            let lines = file
+                .content
+                .as_ref()
+                .map(|c| c.lines().count() as u64)
+                .unwrap_or(0);
             let entry = language_stats.entry(lang.clone()).or_insert((0, 0));
-            entry.0 += 1;  // files
-            entry.1 += lines;  // lines
+            entry.0 += 1; // files
+            entry.1 += lines; // lines
         }
     }
 
@@ -585,15 +636,14 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
             } else {
                 0.0
             };
-            LanguageStat {
-                language: lang,
-                files,
-                lines: lines as u32,
-                percentage,
-            }
+            LanguageStat { language: lang, files, lines: lines as u32, percentage }
         })
         .collect();
-    languages.sort_by(|a, b| b.percentage.partial_cmp(&a.percentage).unwrap_or(std::cmp::Ordering::Equal));
+    languages.sort_by(|a, b| {
+        b.percentage
+            .partial_cmp(&a.percentage)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Security scan
     let scanner = SecurityScanner::new();
@@ -674,10 +724,7 @@ impl Infiniloom {
         // Prepare repository (count references, rank files, sort by importance)
         prepare_repository(&mut repo);
 
-        Ok(Self {
-            repo,
-            model: tokenizer_model,
-        })
+        Ok(Self { repo, model: tokenizer_model })
     }
 
     /// Get repository statistics (Bug #4 fix - consistent with scan() function)
@@ -685,18 +732,31 @@ impl Infiniloom {
     pub fn get_stats(&self) -> ScanStats {
         // Calculate actual file and line counts from filtered files
         let total_files = self.repo.files.len() as u32;
-        let total_lines: u64 = self.repo.files.iter()
-            .map(|f| f.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0))
+        let total_lines: u64 = self
+            .repo
+            .files
+            .iter()
+            .map(|f| {
+                f.content
+                    .as_ref()
+                    .map(|c| c.lines().count() as u64)
+                    .unwrap_or(0)
+            })
             .sum();
 
         // Calculate language stats with actual line counts (Bug #9 fix)
-        let mut language_stats: std::collections::HashMap<String, (u32, u64)> = std::collections::HashMap::new();
+        let mut language_stats: std::collections::HashMap<String, (u32, u64)> =
+            std::collections::HashMap::new();
         for file in &self.repo.files {
             if let Some(ref lang) = file.language {
-                let lines = file.content.as_ref().map(|c| c.lines().count() as u64).unwrap_or(0);
+                let lines = file
+                    .content
+                    .as_ref()
+                    .map(|c| c.lines().count() as u64)
+                    .unwrap_or(0);
                 let entry = language_stats.entry(lang.clone()).or_insert((0, 0));
-                entry.0 += 1;  // files
-                entry.1 += lines;  // lines
+                entry.0 += 1; // files
+                entry.1 += lines; // lines
             }
         }
 
@@ -709,15 +769,14 @@ impl Infiniloom {
                 } else {
                     0.0
                 };
-                LanguageStat {
-                    language: lang,
-                    files,
-                    lines: lines as u32,
-                    percentage,
-                }
+                LanguageStat { language: lang, files, lines: lines as u32, percentage }
             })
             .collect();
-        languages.sort_by(|a, b| b.percentage.partial_cmp(&a.percentage).unwrap_or(std::cmp::Ordering::Equal));
+        languages.sort_by(|a, b| {
+            b.percentage
+                .partial_cmp(&a.percentage)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Security scan
         let scanner = SecurityScanner::new();
@@ -752,10 +811,7 @@ impl Infiniloom {
     /// ```
     #[napi]
     pub fn generate_map(&self, options: Option<GenerateMapOptions>) -> Result<String> {
-        let opts = options.unwrap_or(GenerateMapOptions {
-            budget: None,
-            max_symbols: None,
-        });
+        let opts = options.unwrap_or(GenerateMapOptions { budget: None, max_symbols: None });
         let token_budget = opts.budget.unwrap_or(2000);
         let max_syms = opts.max_symbols.unwrap_or(50);
 
@@ -902,7 +958,8 @@ fn napi_parse_compression(compression: Option<&str>) -> Result<CompressionLevel>
 
 /// Parse security severity threshold (Bug #5 fix)
 fn parse_security_threshold(threshold: Option<&str>) -> Result<Severity> {
-    common_parse_security_threshold(threshold).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
+    common_parse_security_threshold(threshold)
+        .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))
 }
 
 /// Compress text using semantic compression
@@ -949,14 +1006,15 @@ pub fn semantic_compress(
 ) -> Result<String> {
     // Input validation - handle null/undefined gracefully
     let text = match text {
-        None => return Err(Error::new(
-            Status::InvalidArg,
-            "Text cannot be null or undefined".to_string(),
-        )),
-        Some(t) if t.is_empty() => return Err(Error::new(
-            Status::InvalidArg,
-            "Text cannot be empty".to_string(),
-        )),
+        None => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "Text cannot be null or undefined".to_string(),
+            ))
+        },
+        Some(t) if t.is_empty() => {
+            return Err(Error::new(Status::InvalidArg, "Text cannot be empty".to_string()))
+        },
         Some(t) => t,
     };
 
@@ -975,9 +1033,9 @@ pub fn semantic_compress(
     };
 
     let compressor = SemanticCompressor::with_config(config);
-    compressor.compress(&text).map_err(|e| {
-        Error::new(Status::GenericFailure, format!("Compression failed: {}", e))
-    })
+    compressor
+        .compress(&text)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Compression failed: {}", e)))
 }
 
 fn scan_repository(path: &str, model: TokenizerModel, read_contents: bool) -> Result<Repository> {
@@ -993,10 +1051,7 @@ fn scan_repository_with_options(
     let path_buf = PathBuf::from(path);
 
     if !path_buf.exists() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            format!("Path does not exist: {}", path),
-        ));
+        return Err(Error::new(Status::InvalidArg, format!("Path does not exist: {}", path)));
     }
 
     let config = ScanConfig {
@@ -1156,8 +1211,9 @@ impl GitRepo {
     pub fn new(path: Option<String>) -> Result<Self> {
         let path = validate_path_option(path.as_deref())?;
         let path_buf = PathBuf::from(path);
-        let inner = EngineGitRepo::open(&path_buf)
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+        let inner = EngineGitRepo::open(&path_buf).map_err(|e| {
+            Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e))
+        })?;
         Ok(GitRepo { inner })
     }
 
@@ -1167,7 +1223,8 @@ impl GitRepo {
     /// Current branch name (e.g., "main", "feature/xyz")
     #[napi]
     pub fn current_branch(&self) -> Result<String> {
-        self.inner.current_branch()
+        self.inner
+            .current_branch()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1177,7 +1234,8 @@ impl GitRepo {
     /// Full SHA-1 hash of HEAD commit
     #[napi]
     pub fn current_commit(&self) -> Result<String> {
-        self.inner.current_commit()
+        self.inner
+            .current_commit()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1189,14 +1247,19 @@ impl GitRepo {
     /// Array of file status objects
     #[napi]
     pub fn status(&self) -> Result<Vec<GitFileStatus>> {
-        let files = self.inner.status()
+        let files = self
+            .inner
+            .status()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        Ok(files.iter().map(|f| GitFileStatus {
-            path: f.path.clone(),
-            old_path: f.old_path.clone(),
-            status: format_file_status(f.status),
-        }).collect())
+        Ok(files
+            .iter()
+            .map(|f| GitFileStatus {
+                path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                status: format_file_status(f.status),
+            })
+            .collect())
     }
 
     /// Get files changed between two commits
@@ -1209,16 +1272,21 @@ impl GitRepo {
     /// Array of changed files with diff stats
     #[napi]
     pub fn diff_files(&self, from_ref: String, to_ref: String) -> Result<Vec<GitChangedFile>> {
-        let files = self.inner.diff_files(&from_ref, &to_ref)
+        let files = self
+            .inner
+            .diff_files(&from_ref, &to_ref)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        Ok(files.iter().map(|f| GitChangedFile {
-            path: f.path.clone(),
-            old_path: f.old_path.clone(),
-            status: format_file_status(f.status),
-            additions: f.additions,
-            deletions: f.deletions,
-        }).collect())
+        Ok(files
+            .iter()
+            .map(|f| GitChangedFile {
+                path: f.path.clone(),
+                old_path: f.old_path.clone(),
+                status: format_file_status(f.status),
+                additions: f.additions,
+                deletions: f.deletions,
+            })
+            .collect())
     }
 
     /// Get recent commits
@@ -1230,17 +1298,22 @@ impl GitRepo {
     /// Array of commit objects
     #[napi]
     pub fn log(&self, count: Option<u32>) -> Result<Vec<GitCommit>> {
-        let commits = self.inner.log(count.unwrap_or(10) as usize)
+        let commits = self
+            .inner
+            .log(count.unwrap_or(10) as usize)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        Ok(commits.iter().map(|c| GitCommit {
-            hash: c.hash.clone(),
-            short_hash: c.short_hash.clone(),
-            author: c.author.clone(),
-            email: c.email.clone(),
-            date: c.date.clone(),
-            message: c.message.clone(),
-        }).collect())
+        Ok(commits
+            .iter()
+            .map(|c| GitCommit {
+                hash: c.hash.clone(),
+                short_hash: c.short_hash.clone(),
+                author: c.author.clone(),
+                email: c.email.clone(),
+                date: c.date.clone(),
+                message: c.message.clone(),
+            })
+            .collect())
     }
 
     /// Get commits that modified a specific file
@@ -1253,17 +1326,22 @@ impl GitRepo {
     /// Array of commits that modified the file
     #[napi]
     pub fn file_log(&self, path: String, count: Option<u32>) -> Result<Vec<GitCommit>> {
-        let commits = self.inner.file_log(&path, count.unwrap_or(10) as usize)
+        let commits = self
+            .inner
+            .file_log(&path, count.unwrap_or(10) as usize)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        Ok(commits.iter().map(|c| GitCommit {
-            hash: c.hash.clone(),
-            short_hash: c.short_hash.clone(),
-            author: c.author.clone(),
-            email: c.email.clone(),
-            date: c.date.clone(),
-            message: c.message.clone(),
-        }).collect())
+        Ok(commits
+            .iter()
+            .map(|c| GitCommit {
+                hash: c.hash.clone(),
+                short_hash: c.short_hash.clone(),
+                author: c.author.clone(),
+                email: c.email.clone(),
+                date: c.date.clone(),
+                message: c.message.clone(),
+            })
+            .collect())
     }
 
     /// Get blame information for a file
@@ -1275,15 +1353,20 @@ impl GitRepo {
     /// Array of blame line objects
     #[napi]
     pub fn blame(&self, path: String) -> Result<Vec<GitBlameLine>> {
-        let lines = self.inner.blame(&path)
+        let lines = self
+            .inner
+            .blame(&path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
-        Ok(lines.iter().map(|l| GitBlameLine {
-            commit: l.commit.clone(),
-            author: l.author.clone(),
-            date: l.date.clone(),
-            line_number: l.line_number,
-        }).collect())
+        Ok(lines
+            .iter()
+            .map(|l| GitBlameLine {
+                commit: l.commit.clone(),
+                author: l.author.clone(),
+                date: l.date.clone(),
+                line_number: l.line_number,
+            })
+            .collect())
     }
 
     /// Get list of files tracked by git
@@ -1292,7 +1375,8 @@ impl GitRepo {
     /// Array of file paths tracked by git
     #[napi]
     pub fn ls_files(&self) -> Result<Vec<String>> {
-        self.inner.ls_files()
+        self.inner
+            .ls_files()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1307,7 +1391,8 @@ impl GitRepo {
     /// Unified diff content as string
     #[napi]
     pub fn diff_content(&self, from_ref: String, to_ref: String, path: String) -> Result<String> {
-        self.inner.diff_content(&from_ref, &to_ref, &path)
+        self.inner
+            .diff_content(&from_ref, &to_ref, &path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1322,7 +1407,8 @@ impl GitRepo {
     /// Unified diff content as string
     #[napi]
     pub fn uncommitted_diff(&self, path: String) -> Result<String> {
-        self.inner.uncommitted_diff(&path)
+        self.inner
+            .uncommitted_diff(&path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1334,7 +1420,8 @@ impl GitRepo {
     /// Unified diff content as string
     #[napi]
     pub fn all_uncommitted_diffs(&self) -> Result<String> {
-        self.inner.all_uncommitted_diffs()
+        self.inner
+            .all_uncommitted_diffs()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1347,7 +1434,8 @@ impl GitRepo {
     /// True if file has changes, false otherwise
     #[napi]
     pub fn has_changes(&self, path: String) -> Result<bool> {
-        self.inner.has_changes(&path)
+        self.inner
+            .has_changes(&path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1360,7 +1448,9 @@ impl GitRepo {
     /// Commit information object
     #[napi]
     pub fn last_modified_commit(&self, path: String) -> Result<GitCommit> {
-        let commit = self.inner.last_modified_commit(&path)
+        let commit = self
+            .inner
+            .last_modified_commit(&path)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
         Ok(GitCommit {
@@ -1385,7 +1475,8 @@ impl GitRepo {
     /// Number of commits that modified the file in the period
     #[napi]
     pub fn file_change_frequency(&self, path: String, days: Option<u32>) -> Result<u32> {
-        self.inner.file_change_frequency(&path, days.unwrap_or(30))
+        self.inner
+            .file_change_frequency(&path, days.unwrap_or(30))
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1410,7 +1501,8 @@ impl GitRepo {
     /// ```
     #[napi]
     pub fn file_at_ref(&self, path: String, git_ref: String) -> Result<String> {
-        self.inner.file_at_ref(&path, &git_ref)
+        self.inner
+            .file_at_ref(&path, &git_ref)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -1447,7 +1539,9 @@ impl GitRepo {
         to_ref: String,
         path: Option<String>,
     ) -> Result<Vec<GitDiffHunk>> {
-        let hunks = self.inner.diff_hunks(&from_ref, &to_ref, path.as_deref())
+        let hunks = self
+            .inner
+            .diff_hunks(&from_ref, &to_ref, path.as_deref())
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
         Ok(hunks.into_iter().map(convert_hunk).collect())
@@ -1471,7 +1565,9 @@ impl GitRepo {
     /// ```
     #[napi]
     pub fn uncommitted_hunks(&self, path: Option<String>) -> Result<Vec<GitDiffHunk>> {
-        let hunks = self.inner.uncommitted_hunks(path.as_deref())
+        let hunks = self
+            .inner
+            .uncommitted_hunks(path.as_deref())
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
         Ok(hunks.into_iter().map(convert_hunk).collect())
@@ -1495,7 +1591,9 @@ impl GitRepo {
     /// ```
     #[napi]
     pub fn staged_hunks(&self, path: Option<String>) -> Result<Vec<GitDiffHunk>> {
-        let hunks = self.inner.staged_hunks(path.as_deref())
+        let hunks = self
+            .inner
+            .staged_hunks(path.as_deref())
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
         Ok(hunks.into_iter().map(convert_hunk).collect())
@@ -1510,12 +1608,16 @@ fn convert_hunk(hunk: EngineGitDiffHunk) -> GitDiffHunk {
         new_start: hunk.new_start,
         new_count: hunk.new_count,
         header: hunk.header,
-        lines: hunk.lines.into_iter().map(|l| GitDiffLine {
-            change_type: l.change_type.as_str().to_owned(),
-            old_line: l.old_line,
-            new_line: l.new_line,
-            content: l.content,
-        }).collect(),
+        lines: hunk
+            .lines
+            .into_iter()
+            .map(|l| GitDiffLine {
+                change_type: l.change_type.as_str().to_owned(),
+                old_line: l.old_line,
+                new_line: l.new_line,
+                content: l.content,
+            })
+            .collect(),
     }
 }
 
@@ -1735,7 +1837,10 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
     }
 
     let build_opts = BuildOptions {
-        max_file_size: opts.max_file_size.map(|s| s as u64).unwrap_or(10 * 1024 * 1024),
+        max_file_size: opts
+            .max_file_size
+            .map(|s| s as u64)
+            .unwrap_or(10 * 1024 * 1024),
         exclude_dirs,
         ..Default::default()
     };
@@ -1743,7 +1848,9 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
     // Feature #4: Incremental update support
     let (index, graph, files_updated) = if incremental && !force {
         // Try to load existing index for incremental update
-        if let (Ok(existing_index), Ok(_existing_graph)) = (storage.load_index(), storage.load_graph()) {
+        if let (Ok(existing_index), Ok(_existing_graph)) =
+            (storage.load_index(), storage.load_graph())
+        {
             // Build a set of existing file hashes for comparison
             let existing_hashes: std::collections::HashMap<String, [u8; 32]> = existing_index
                 .files
@@ -1753,8 +1860,9 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
 
             // Build new index
             let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
-            let (new_index, new_graph) = builder.build()
-                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+            let (new_index, new_graph) = builder.build().map_err(|e| {
+                Error::new(Status::GenericFailure, format!("Failed to build index: {}", e))
+            })?;
 
             // Count how many files were updated (new or changed hash)
             let mut updated_count = 0u32;
@@ -1762,11 +1870,11 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
                 match existing_hashes.get(&file.path) {
                     Some(old_hash) if old_hash == &file.content_hash => {
                         // File unchanged
-                    }
+                    },
                     _ => {
                         // File is new or changed
                         updated_count += 1;
-                    }
+                    },
                 }
             }
 
@@ -1774,23 +1882,27 @@ pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexS
         } else {
             // No existing index, do full build
             let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
-            let (index, graph) = builder.build()
-                .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+            let (index, graph) = builder.build().map_err(|e| {
+                Error::new(Status::GenericFailure, format!("Failed to build index: {}", e))
+            })?;
             (index, graph, None)
         }
     } else {
         // Full rebuild
         let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
-        let (index, graph) = builder.build()
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to build index: {}", e)))?;
+        let (index, graph) = builder.build().map_err(|e| {
+            Error::new(Status::GenericFailure, format!("Failed to build index: {}", e))
+        })?;
         (index, graph, None)
     };
 
     // Save index
-    storage.save_all(&index, &graph)
+    storage
+        .save_all(&index, &graph)
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to save index: {}", e)))?;
 
-    let meta = storage.load_meta()
+    let meta = storage
+        .load_meta()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load meta: {}", e)))?;
 
     Ok(IndexStatus {
@@ -1911,12 +2023,7 @@ impl From<EngineReferenceInfo> for ReferenceInfo {
         let symbol: SymbolInfo = r.symbol.into();
         let file = symbol.file.clone();
         let line = symbol.line;
-        Self {
-            symbol,
-            kind: r.kind,
-            file,
-            line,
-        }
+        Self { symbol, kind: r.kind, file, line }
     }
 }
 
@@ -2072,7 +2179,8 @@ fn matches_query_filter(symbol: &SymbolInfo, filter: &Option<QueryFilter>) -> bo
 
         // Check if symbol kind is in the excluded list
         if let Some(ref excluded) = f.exclude_kinds {
-            let excluded_lower: HashSet<String> = excluded.iter().map(|s| s.to_lowercase()).collect();
+            let excluded_lower: HashSet<String> =
+                excluded.iter().map(|s| s.to_lowercase()).collect();
             if excluded_lower.contains(&kind_lower) {
                 return false;
             }
@@ -2110,7 +2218,8 @@ pub fn find_symbol(path: Option<String>, name: Option<String>) -> Result<Vec<Sym
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     let results = engine_find_symbol(&index, &name);
@@ -2149,9 +2258,11 @@ pub fn get_callers(path: Option<String>, symbol_name: Option<String>) -> Result<
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results = get_callers_by_name(&index, &graph, &symbol_name);
@@ -2190,9 +2301,11 @@ pub fn get_callees(path: Option<String>, symbol_name: Option<String>) -> Result<
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results = get_callees_by_name(&index, &graph, &symbol_name);
@@ -2223,7 +2336,10 @@ pub fn get_callees(path: Option<String>, symbol_name: Option<String>) -> Result<
 /// }
 /// ```
 #[napi]
-pub fn get_references(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<ReferenceInfo>> {
+pub fn get_references(
+    path: Option<String>,
+    symbol_name: Option<String>,
+) -> Result<Vec<ReferenceInfo>> {
     // Input validation - handle null/undefined gracefully
     let path = validate_path_option(path.as_deref())?;
     let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
@@ -2231,9 +2347,11 @@ pub fn get_references(path: Option<String>, symbol_name: Option<String>) -> Resu
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results = get_references_by_name(&index, &graph, &symbol_name);
@@ -2279,7 +2397,8 @@ pub fn find_symbol_filtered(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     let results: Vec<SymbolInfo> = engine_find_symbol(&index, &name)
@@ -2322,9 +2441,11 @@ pub fn get_callers_filtered(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results: Vec<SymbolInfo> = get_callers_by_name(&index, &graph, &symbol_name)
@@ -2367,9 +2488,11 @@ pub fn get_callees_filtered(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results: Vec<SymbolInfo> = get_callees_by_name(&index, &graph, &symbol_name)
@@ -2413,9 +2536,11 @@ pub fn get_references_filtered(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let results: Vec<ReferenceInfo> = get_references_by_name(&index, &graph, &symbol_name)
@@ -2504,16 +2629,21 @@ pub async fn get_references_filtered_async(
 /// console.log('Most called functions:', sorted.slice(0, 10));
 /// ```
 #[napi]
-pub fn get_call_graph(path: Option<String>, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+pub fn get_call_graph(
+    path: Option<String>,
+    options: Option<CallGraphOptions>,
+) -> Result<CallGraph> {
     // Input validation - handle null/undefined gracefully
     let path = validate_path_option(path.as_deref())?;
 
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let result = if let Some(opts) = options {
@@ -2532,7 +2662,10 @@ pub fn get_call_graph(path: Option<String>, options: Option<CallGraphOptions>) -
 
 /// Async version of findSymbol
 #[napi]
-pub async fn find_symbol_async(path: Option<String>, name: Option<String>) -> Result<Vec<SymbolInfo>> {
+pub async fn find_symbol_async(
+    path: Option<String>,
+    name: Option<String>,
+) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || find_symbol(path, name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2540,7 +2673,10 @@ pub async fn find_symbol_async(path: Option<String>, name: Option<String>) -> Re
 
 /// Async version of getCallers
 #[napi]
-pub async fn get_callers_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
+pub async fn get_callers_async(
+    path: Option<String>,
+    symbol_name: Option<String>,
+) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || get_callers(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2548,7 +2684,10 @@ pub async fn get_callers_async(path: Option<String>, symbol_name: Option<String>
 
 /// Async version of getCallees
 #[napi]
-pub async fn get_callees_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<SymbolInfo>> {
+pub async fn get_callees_async(
+    path: Option<String>,
+    symbol_name: Option<String>,
+) -> Result<Vec<SymbolInfo>> {
     tokio::task::spawn_blocking(move || get_callees(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2556,7 +2695,10 @@ pub async fn get_callees_async(path: Option<String>, symbol_name: Option<String>
 
 /// Async version of getReferences
 #[napi]
-pub async fn get_references_async(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<ReferenceInfo>> {
+pub async fn get_references_async(
+    path: Option<String>,
+    symbol_name: Option<String>,
+) -> Result<Vec<ReferenceInfo>> {
     tokio::task::spawn_blocking(move || get_references(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2564,7 +2706,10 @@ pub async fn get_references_async(path: Option<String>, symbol_name: Option<Stri
 
 /// Async version of getCallGraph
 #[napi]
-pub async fn get_call_graph_async(path: Option<String>, options: Option<CallGraphOptions>) -> Result<CallGraph> {
+pub async fn get_call_graph_async(
+    path: Option<String>,
+    options: Option<CallGraphOptions>,
+) -> Result<CallGraph> {
     tokio::task::spawn_blocking(move || get_call_graph(path, options))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -2681,9 +2826,7 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
                 !patterns.iter().any(|pattern| {
                     f.relative_path.contains(pattern)
                         || f.relative_path.starts_with(pattern)
-                        || f.relative_path
-                            .split('/')
-                            .any(|part| part == pattern)
+                        || f.relative_path.split('/').any(|part| part == pattern)
                 })
             });
         }
@@ -2740,7 +2883,8 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
         .iter()
         .map(|c| {
             // Format chunk content manually since ChunkFile doesn't match RepoFile
-            let content = c.files
+            let content = c
+                .files
                 .iter()
                 .map(|f| format!("// {}\n{}", f.path, f.content))
                 .collect::<Vec<_>>()
@@ -2836,14 +2980,15 @@ pub struct ImpactResult {
 /// console.log(`Affected files: ${impact.dependentFiles.length}`);
 /// ```
 #[napi]
-pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOptions>) -> Result<ImpactResult> {
+pub fn analyze_impact(
+    path: String,
+    files: Vec<String>,
+    options: Option<ImpactOptions>,
+) -> Result<ImpactResult> {
     // Input validation
     validate_path(&path)?;
     if files.is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Files array cannot be empty".to_string(),
-        ));
+        return Err(Error::new(Status::InvalidArg, "Files array cannot be empty".to_string()));
     }
     // Validate each file path
     for f in &files {
@@ -2862,10 +3007,15 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
     let storage = IndexStorage::new(&path_buf);
 
     // Load index
-    let index = storage.load_index()
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index (run buildIndex first): {}", e)))?;
-    let graph = storage.load_graph()
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load dependency graph: {}", e)))?;
+    let index = storage.load_index().map_err(|e| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to load index (run buildIndex first): {}", e),
+        )
+    })?;
+    let graph = storage.load_graph().map_err(|e| {
+        Error::new(Status::GenericFailure, format!("Failed to load dependency graph: {}", e))
+    })?;
 
     // Create context expander
     let depth = match opts.depth.unwrap_or(2) {
@@ -2878,32 +3028,36 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
 
     // Convert files to diff changes, getting line ranges for all symbols in each file
     // Bug #4 fix: Ensure line_ranges are never empty so symbols are always found
-    let changes: Vec<DiffChange> = files.iter().map(|f| {
-        // Get all symbol line ranges from this file
-        let line_ranges = if let Some(file_entry) = index.get_file(f) {
-            // Include all lines where symbols are defined
-            let symbols = index.get_file_symbols(file_entry.id);
-            if symbols.is_empty() {
-                // If no symbols, assume entire file is changed
-                vec![(1, file_entry.lines.max(1))]
+    let changes: Vec<DiffChange> = files
+        .iter()
+        .map(|f| {
+            // Get all symbol line ranges from this file
+            let line_ranges = if let Some(file_entry) = index.get_file(f) {
+                // Include all lines where symbols are defined
+                let symbols = index.get_file_symbols(file_entry.id);
+                if symbols.is_empty() {
+                    // If no symbols, assume entire file is changed
+                    vec![(1, file_entry.lines.max(1))]
+                } else {
+                    symbols
+                        .iter()
+                        .map(|s| (s.span.start_line, s.span.end_line))
+                        .collect()
+                }
             } else {
-                symbols.iter()
-                    .map(|s| (s.span.start_line, s.span.end_line))
-                    .collect()
-            }
-        } else {
-            // File not in index - use a large range to capture potential symbols
-            vec![(1, 10000)]
-        };
+                // File not in index - use a large range to capture potential symbols
+                vec![(1, 10000)]
+            };
 
-        DiffChange {
-            file_path: f.clone(),
-            old_path: None,
-            line_ranges,
-            change_type: ChangeType::Modified,
-            diff_content: None,
-        }
-    }).collect();
+            DiffChange {
+                file_path: f.clone(),
+                old_path: None,
+                line_ranges,
+                change_type: ChangeType::Modified,
+                diff_content: None,
+            }
+        })
+        .collect();
 
     // Expand context (returns directly, not Result)
     let token_budget = 50000; // Default budget
@@ -2912,12 +3066,14 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
     // Collect results
     let changed_files: Vec<String> = changes.iter().map(|c| c.file_path.clone()).collect();
 
-    let dependent_files: Vec<String> = context.dependent_files
+    let dependent_files: Vec<String> = context
+        .dependent_files
         .iter()
         .map(|f| f.path.clone())
         .collect();
 
-    let mut test_files: Vec<String> = context.related_tests
+    let mut test_files: Vec<String> = context
+        .related_tests
         .iter()
         .map(|f| f.path.clone())
         .collect();
@@ -2947,7 +3103,9 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
                 let importers = graph.get_importers(file_entry.id.as_u32());
                 for importer_id in importers {
                     if let Some(importer_file) = index.get_file_by_id(importer_id) {
-                        if is_test_file(&importer_file.path) && seen_tests.insert(importer_file.path.clone()) {
+                        if is_test_file(&importer_file.path)
+                            && seen_tests.insert(importer_file.path.clone())
+                        {
                             test_files.push(importer_file.path.clone());
                         }
                     }
@@ -2976,7 +3134,9 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
                     if is_test_file(&indexed_file.path) {
                         let file_lower = indexed_file.path.to_lowercase();
                         for pattern in &test_patterns {
-                            if file_lower.contains(pattern) && seen_tests.insert(indexed_file.path.clone()) {
+                            if file_lower.contains(pattern)
+                                && seen_tests.insert(indexed_file.path.clone())
+                            {
                                 test_files.push(indexed_file.path.clone());
                                 break;
                             }
@@ -2988,7 +3148,8 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
     }
 
     // Combine changed and dependent symbols
-    let affected_symbols: Vec<AffectedSymbol> = context.changed_symbols
+    let affected_symbols: Vec<AffectedSymbol> = context
+        .changed_symbols
         .iter()
         .map(|s| AffectedSymbol {
             name: s.name.clone(),
@@ -3015,7 +3176,8 @@ pub fn analyze_impact(path: String, files: Vec<String>, options: Option<ImpactOp
         "medium"
     } else {
         "low"
-    }.to_string();
+    }
+    .to_string();
 
     let summary = format!(
         "{} files changed, {} dependents affected, {} symbols impacted, {} tests related",
@@ -3160,13 +3322,15 @@ pub fn get_diff_context(
     let path_buf = PathBuf::from(&path);
 
     // Open git repo
-    let git_repo = EngineGitRepo::open(&path_buf)
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+    let git_repo = EngineGitRepo::open(&path_buf).map_err(|e| {
+        Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e))
+    })?;
 
     // Get changed files
     let changed: Vec<ChangedFile> = if from_ref.is_empty() && to_ref.is_empty() {
         // Uncommitted changes
-        git_repo.status()
+        git_repo
+            .status()
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
             .iter()
             .map(|f| ChangedFile {
@@ -3178,9 +3342,14 @@ pub fn get_diff_context(
             })
             .collect()
     } else {
-        let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+        let from = if from_ref.is_empty() {
+            "HEAD"
+        } else {
+            &from_ref
+        };
         let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
-        git_repo.diff_files(from, to)
+        git_repo
+            .diff_files(from, to)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
     };
 
@@ -3190,7 +3359,11 @@ pub fn get_diff_context(
 
     // OPTIMIZATION: Get all hunks in one git call instead of per-file
     // This dramatically improves performance for diffs with many files
-    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let from = if from_ref.is_empty() {
+        "HEAD"
+    } else {
+        &from_ref
+    };
     let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
 
     let all_hunks: Vec<EngineGitDiffHunk> = if from_ref.is_empty() && to_ref.is_empty() {
@@ -3200,11 +3373,14 @@ pub fn get_diff_context(
     };
 
     // Group hunks by file path and extract line ranges
-    let mut file_line_ranges: std::collections::HashMap<String, Vec<(u32, u32)>> = std::collections::HashMap::new();
-    let mut file_diff_contents: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut file_line_ranges: std::collections::HashMap<String, Vec<(u32, u32)>> =
+        std::collections::HashMap::new();
+    let mut file_diff_contents: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
 
     // Build hunks-by-file map for efficient lookup
-    let mut hunks_by_file: std::collections::HashMap<&str, Vec<&EngineGitDiffHunk>> = std::collections::HashMap::new();
+    let mut hunks_by_file: std::collections::HashMap<&str, Vec<&EngineGitDiffHunk>> =
+        std::collections::HashMap::new();
     for hunk in &all_hunks {
         hunks_by_file.entry(&hunk.file).or_default().push(hunk);
     }
@@ -3253,7 +3429,8 @@ pub fn get_diff_context(
     // Try to expand context if index exists
     let mut context_symbols: Vec<ContextSymbolInfo> = Vec::new();
     let mut related_tests: Vec<String> = Vec::new();
-    let mut file_snippets: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut file_snippets: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     // Bug #1, #2, #3 fixes: Improved context expansion
     if let (Ok(index), Ok(graph)) = (storage.load_index(), storage.load_graph()) {
@@ -3264,53 +3441,58 @@ pub fn get_diff_context(
         };
 
         let expander = ContextExpander::new(&index, &graph);
-        let changes: Vec<DiffChange> = changed.iter().map(|f| {
-            // Get line ranges from diff hunks
-            let mut line_ranges = file_line_ranges.get(&f.path).cloned().unwrap_or_default();
+        let changes: Vec<DiffChange> = changed
+            .iter()
+            .map(|f| {
+                // Get line ranges from diff hunks
+                let mut line_ranges = file_line_ranges.get(&f.path).cloned().unwrap_or_default();
 
-            // Bug #1 fix: If no line ranges found but file exists in index, include all lines
-            // This ensures we capture symbols even when hunk parsing fails or for new files
-            if line_ranges.is_empty() {
-                if let Some(file_entry) = index.get_file(&f.path) {
-                    // For added files, include all lines
-                    if f.status == EngineFileStatus::Added {
-                        line_ranges = vec![(1, file_entry.lines.max(1))];
-                    } else if f.status != EngineFileStatus::Deleted {
-                        // For modified files with no hunks, include all symbol ranges
-                        let symbols = index.get_file_symbols(file_entry.id);
-                        if symbols.is_empty() {
-                            // No symbols found - include entire file
+                // Bug #1 fix: If no line ranges found but file exists in index, include all lines
+                // This ensures we capture symbols even when hunk parsing fails or for new files
+                if line_ranges.is_empty() {
+                    if let Some(file_entry) = index.get_file(&f.path) {
+                        // For added files, include all lines
+                        if f.status == EngineFileStatus::Added {
                             line_ranges = vec![(1, file_entry.lines.max(1))];
-                        } else {
-                            line_ranges = symbols.iter()
-                                .map(|s| (s.span.start_line, s.span.end_line))
-                                .collect();
+                        } else if f.status != EngineFileStatus::Deleted {
+                            // For modified files with no hunks, include all symbol ranges
+                            let symbols = index.get_file_symbols(file_entry.id);
+                            if symbols.is_empty() {
+                                // No symbols found - include entire file
+                                line_ranges = vec![(1, file_entry.lines.max(1))];
+                            } else {
+                                line_ranges = symbols
+                                    .iter()
+                                    .map(|s| (s.span.start_line, s.span.end_line))
+                                    .collect();
+                            }
                         }
+                    } else {
+                        // File not in index yet - include as entire file change
+                        line_ranges = vec![(1, 10000)]; // Large range to capture all symbols
                     }
-                } else {
-                    // File not in index yet - include as entire file change
-                    line_ranges = vec![(1, 10000)]; // Large range to capture all symbols
                 }
-            }
 
-            DiffChange {
-                file_path: f.path.clone(),
-                old_path: f.old_path.clone(),
-                line_ranges,
-                change_type: match f.status {
-                    EngineFileStatus::Added => ChangeType::Added,
-                    EngineFileStatus::Deleted => ChangeType::Deleted,
-                    _ => ChangeType::Modified,
-                },
-                diff_content: file_diff_contents.get(&f.path).cloned(),
-            }
-        }).collect();
+                DiffChange {
+                    file_path: f.path.clone(),
+                    old_path: f.old_path.clone(),
+                    line_ranges,
+                    change_type: match f.status {
+                        EngineFileStatus::Added => ChangeType::Added,
+                        EngineFileStatus::Deleted => ChangeType::Deleted,
+                        _ => ChangeType::Modified,
+                    },
+                    diff_content: file_diff_contents.get(&f.path).cloned(),
+                }
+            })
+            .collect();
 
         let token_budget = opts.budget.unwrap_or(50000);
         let context = expander.expand(&changes, depth, token_budget);
 
         // Combine changed and dependent symbols
-        context_symbols = context.changed_symbols
+        context_symbols = context
+            .changed_symbols
             .iter()
             .chain(context.dependent_symbols.iter())
             .map(|s| ContextSymbolInfo {
@@ -3323,7 +3505,8 @@ pub fn get_diff_context(
             })
             .collect();
 
-        related_tests = context.related_tests
+        related_tests = context
+            .related_tests
             .iter()
             .map(|f| f.path.clone())
             .collect();
@@ -3353,7 +3536,9 @@ pub fn get_diff_context(
                     let importers = graph.get_importers(file_entry.id.as_u32());
                     for importer_id in importers {
                         if let Some(importer_file) = index.get_file_by_id(importer_id) {
-                            if is_test_file(&importer_file.path) && seen_tests.insert(importer_file.path.clone()) {
+                            if is_test_file(&importer_file.path)
+                                && seen_tests.insert(importer_file.path.clone())
+                            {
                                 related_tests.push(importer_file.path.clone());
                             }
                         }
@@ -3382,7 +3567,9 @@ pub fn get_diff_context(
                         if is_test_file(&indexed_file.path) {
                             let file_lower = indexed_file.path.to_lowercase();
                             for pattern in &test_patterns {
-                                if file_lower.contains(pattern) && seen_tests.insert(indexed_file.path.clone()) {
+                                if file_lower.contains(pattern)
+                                    && seen_tests.insert(indexed_file.path.clone())
+                                {
                                     related_tests.push(indexed_file.path.clone());
                                     break;
                                 }
@@ -3414,7 +3601,8 @@ pub fn get_diff_context(
                             if !snippet_content.is_empty() {
                                 snippets.push(format!(
                                     "// Lines {}-{}\n{}",
-                                    snippet_start + 1, snippet_end,
+                                    snippet_start + 1,
+                                    snippet_end,
                                     snippet_content
                                 ));
                             }
@@ -3450,12 +3638,7 @@ pub fn get_diff_context(
     let formatted_output = if let Some(ref format_str) = opts.format {
         let format = parse_format(Some(format_str))
             .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?;
-        Some(format_diff_context(
-            &changed_files,
-            &context_symbols,
-            &related_tests,
-            format,
-        ))
+        Some(format_diff_context(&changed_files, &context_symbols, &related_tests, format))
     } else {
         None
     };
@@ -3480,9 +3663,13 @@ fn format_diff_context(
         OutputFormat::Xml => format_diff_context_xml(changed_files, context_symbols, related_tests),
         OutputFormat::Markdown => {
             format_diff_context_markdown(changed_files, context_symbols, related_tests)
-        }
-        OutputFormat::Json => format_diff_context_json(changed_files, context_symbols, related_tests),
-        OutputFormat::Yaml => format_diff_context_yaml(changed_files, context_symbols, related_tests),
+        },
+        OutputFormat::Json => {
+            format_diff_context_json(changed_files, context_symbols, related_tests)
+        },
+        OutputFormat::Yaml => {
+            format_diff_context_yaml(changed_files, context_symbols, related_tests)
+        },
         _ => format_diff_context_plain(changed_files, context_symbols, related_tests),
     }
 }
@@ -3649,11 +3836,17 @@ fn format_diff_context_yaml(
         if !file.context_snippets.is_empty() {
             output.push_str("      context_snippets:\n");
             for snippet in &file.context_snippets {
-                output.push_str(&format!("        - |\n          {}\n", snippet.replace('\n', "\n          ")));
+                output.push_str(&format!(
+                    "        - |\n          {}\n",
+                    snippet.replace('\n', "\n          ")
+                ));
             }
         }
         if let Some(ref diff) = file.diff {
-            output.push_str(&format!("      diff: |\n        {}\n", diff.replace('\n', "\n        ")));
+            output.push_str(&format!(
+                "      diff: |\n        {}\n",
+                diff.replace('\n', "\n        ")
+            ));
         }
     }
 
@@ -3908,12 +4101,14 @@ pub fn get_symbols_in_file(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     // Get file entry
-    let file = index.get_file(&file_path)
-        .ok_or_else(|| Error::new(Status::GenericFailure, format!("File not found in index: {}", file_path)))?;
+    let file = index.get_file(&file_path).ok_or_else(|| {
+        Error::new(Status::GenericFailure, format!("File not found in index: {}", file_path))
+    })?;
 
     // Get all symbols in this file
     let symbols = index.get_file_symbols(file.id);
@@ -3990,29 +4185,40 @@ pub fn get_symbol_source(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     // Find the symbol
     let symbols = index.find_symbols(&symbol_name);
     if symbols.is_empty() {
-        return Err(Error::new(Status::GenericFailure, format!("Symbol not found: {}", symbol_name)));
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!("Symbol not found: {}", symbol_name),
+        ));
     }
 
     // Filter by file path if specified
     let symbol = if let Some(ref fp) = file_path {
-        symbols.iter().find(|s| {
-            index.get_file_by_id(s.file_id.as_u32())
-                .is_some_and(|f| f.path == *fp)
-        }).or_else(|| symbols.first())
+        symbols
+            .iter()
+            .find(|s| {
+                index
+                    .get_file_by_id(s.file_id.as_u32())
+                    .is_some_and(|f| f.path == *fp)
+            })
+            .or_else(|| symbols.first())
     } else {
         symbols.first()
     };
 
-    let symbol = symbol.ok_or_else(|| Error::new(Status::GenericFailure, format!("Symbol not found: {}", symbol_name)))?;
+    let symbol = symbol.ok_or_else(|| {
+        Error::new(Status::GenericFailure, format!("Symbol not found: {}", symbol_name))
+    })?;
 
     // Get file path
-    let file = index.get_file_by_id(symbol.file_id.as_u32())
+    let file = index
+        .get_file_by_id(symbol.file_id.as_u32())
         .ok_or_else(|| Error::new(Status::GenericFailure, "File not found in index"))?;
 
     // Read file content
@@ -4097,16 +4303,22 @@ pub fn get_changed_symbols(
     let path_buf = PathBuf::from(&path);
 
     // Open git repo
-    let git_repo = EngineGitRepo::open(&path_buf)
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+    let git_repo = EngineGitRepo::open(&path_buf).map_err(|e| {
+        Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e))
+    })?;
 
     // Load index
     let storage = IndexStorage::new(&path_buf);
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     // Get refs
-    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let from = if from_ref.is_empty() {
+        "HEAD"
+    } else {
+        &from_ref
+    };
     let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
 
     // OPTIMIZATION: Get all hunks in one git call instead of per-file
@@ -4114,7 +4326,8 @@ pub fn get_changed_symbols(
     let all_hunks = git_repo.diff_hunks(from, to, None).unwrap_or_default();
 
     // Group hunks by file path
-    let mut hunks_by_file: std::collections::HashMap<&str, Vec<_>> = std::collections::HashMap::new();
+    let mut hunks_by_file: std::collections::HashMap<&str, Vec<_>> =
+        std::collections::HashMap::new();
     for hunk in &all_hunks {
         hunks_by_file.entry(&hunk.file).or_default().push(hunk);
     }
@@ -4142,7 +4355,8 @@ pub fn get_changed_symbols(
             // Find symbols that overlap with this hunk
             for sym in index.get_file_symbols(file_entry.id) {
                 // Check if symbol overlaps with changed lines
-                let sym_overlaps = sym.span.start_line <= end_line && sym.span.end_line >= start_line;
+                let sym_overlaps =
+                    sym.span.start_line <= end_line && sym.span.end_line >= start_line;
 
                 if sym_overlaps && !seen_ids.contains(&sym.id.as_u32()) {
                     seen_ids.insert(sym.id.as_u32());
@@ -4185,16 +4399,15 @@ pub fn get_changed_symbols(
 /// }
 /// ```
 #[napi]
-pub fn get_tests_for_file(
-    path: String,
-    file_path: String,
-) -> Result<Vec<String>> {
+pub fn get_tests_for_file(path: String, file_path: String) -> Result<Vec<String>> {
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     // Get file entry
@@ -4298,9 +4511,11 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let mut call_sites: Vec<CallSite> = Vec::new();
@@ -4308,7 +4523,8 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
     let mut seen_sites: HashSet<(String, u32, u32, u32)> = HashSet::new(); // (file, line, caller_id, callee_id)
 
     // Cache file contents to avoid re-reading
-    let mut file_cache: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut file_cache: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     // Find all symbols with this name
     for sym in index.find_symbols(&symbol_name) {
@@ -4373,7 +4589,7 @@ fn find_call_site_in_body(
                 let lines: Vec<String> = content.lines().map(String::from).collect();
                 file_cache.insert(file_path.to_string(), lines.clone());
                 lines
-            }
+            },
             Err(_) => return (start_line, None), // Fall back to definition line
         }
     };
@@ -4383,7 +4599,12 @@ fn find_call_site_in_body(
     let search_start = (start_line as usize).saturating_sub(1);
     let search_end = (end_line as usize).min(lines.len());
 
-    for (i, line) in lines.iter().enumerate().skip(search_start).take(search_end - search_start) {
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .skip(search_start)
+        .take(search_end - search_start)
+    {
         // Look for the callee name followed by ( to indicate a call
         // This is a heuristic - not perfect but covers most cases
         if let Some(col) = find_call_in_line(line, callee_name) {
@@ -4426,10 +4647,16 @@ fn find_call_in_line(line: &str, callee_name: &str) -> Option<usize> {
                 if !is_definition {
                     // Also verify it's a standalone identifier (not part of a larger word)
                     let is_word_boundary_before = abs_pos == 0
-                        || !line.chars().nth(abs_pos - 1).is_some_and(|c| c.is_alphanumeric() || c == '_');
-                    let is_word_boundary_after = !callee_name.chars().next_back().is_some_and(|_| {
-                        line.chars().nth(after_name).is_some_and(|c| c.is_alphanumeric() || c == '_')
-                    });
+                        || !line
+                            .chars()
+                            .nth(abs_pos - 1)
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+                    let is_word_boundary_after =
+                        !callee_name.chars().next_back().is_some_and(|_| {
+                            line.chars()
+                                .nth(after_name)
+                                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                        });
 
                     if is_word_boundary_before && is_word_boundary_after {
                         return Some(abs_pos);
@@ -4482,10 +4709,7 @@ pub async fn get_changed_symbols_async(
 
 /// Async version of getTestsForFile
 #[napi]
-pub async fn get_tests_for_file_async(
-    path: String,
-    file_path: String,
-) -> Result<Vec<String>> {
+pub async fn get_tests_for_file_async(path: String, file_path: String) -> Result<Vec<String>> {
     tokio::task::spawn_blocking(move || get_tests_for_file(path, file_path))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -4493,10 +4717,7 @@ pub async fn get_tests_for_file_async(
 
 /// Async version of getCallSites
 #[napi]
-pub async fn get_call_sites_async(
-    path: String,
-    symbol_name: String,
-) -> Result<Vec<CallSite>> {
+pub async fn get_call_sites_async(path: String, symbol_name: String) -> Result<Vec<CallSite>> {
     tokio::task::spawn_blocking(move || get_call_sites(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -4576,20 +4797,27 @@ pub fn get_changed_symbols_filtered(
     let path_buf = PathBuf::from(&path);
 
     // Open git repo
-    let git_repo = EngineGitRepo::open(&path_buf)
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e)))?;
+    let git_repo = EngineGitRepo::open(&path_buf).map_err(|e| {
+        Error::new(Status::GenericFailure, format!("Failed to open git repo: {}", e))
+    })?;
 
     // Load index
     let storage = IndexStorage::new(&path_buf);
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
 
     // Get refs
-    let from = if from_ref.is_empty() { "HEAD" } else { &from_ref };
+    let from = if from_ref.is_empty() {
+        "HEAD"
+    } else {
+        &from_ref
+    };
     let to = if to_ref.is_empty() { "HEAD" } else { &to_ref };
 
     // Get file status information (needed for added/deleted files)
-    let changed_files = git_repo.diff_files(from, to)
+    let changed_files = git_repo
+        .diff_files(from, to)
         .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
 
     // Build file status map
@@ -4602,7 +4830,8 @@ pub fn get_changed_symbols_filtered(
     let all_hunks = git_repo.diff_hunks(from, to, None).unwrap_or_default();
 
     // Group hunks by file path
-    let mut hunks_by_file: std::collections::HashMap<&str, Vec<_>> = std::collections::HashMap::new();
+    let mut hunks_by_file: std::collections::HashMap<&str, Vec<_>> =
+        std::collections::HashMap::new();
     for hunk in &all_hunks {
         hunks_by_file.entry(&hunk.file).or_default().push(hunk);
     }
@@ -4611,10 +4840,12 @@ pub fn get_changed_symbols_filtered(
     let mut seen_ids: HashSet<u32> = HashSet::new();
 
     // Get filter options
-    let kinds: Option<HashSet<String>> = filter.as_ref()
+    let kinds: Option<HashSet<String>> = filter
+        .as_ref()
         .and_then(|f| f.kinds.as_ref())
         .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
-    let exclude_kinds: Option<HashSet<String>> = filter.as_ref()
+    let exclude_kinds: Option<HashSet<String>> = filter
+        .as_ref()
         .and_then(|f| f.exclude_kinds.as_ref())
         .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
 
@@ -4644,7 +4875,10 @@ pub fn get_changed_symbols_filtered(
 
     for file_path in all_files {
         // Determine file-level change type
-        let status = file_status_map.get(file_path).copied().unwrap_or(EngineFileStatus::Modified);
+        let status = file_status_map
+            .get(file_path)
+            .copied()
+            .unwrap_or(EngineFileStatus::Modified);
         let file_change_type = match status {
             EngineFileStatus::Added => "added",
             EngineFileStatus::Deleted => "deleted",
@@ -4697,7 +4931,8 @@ pub fn get_changed_symbols_filtered(
                 // Find symbols that overlap with this hunk
                 for sym in index.get_file_symbols(file_entry.id) {
                     // Check if symbol overlaps with changed lines
-                    let sym_overlaps = sym.span.start_line <= end_line && sym.span.end_line >= start_line;
+                    let sym_overlaps =
+                        sym.span.start_line <= end_line && sym.span.end_line >= start_line;
 
                     if sym_overlaps && !seen_ids.contains(&sym.id.as_u32()) {
                         let kind_name = sym.kind.name().to_lowercase();
@@ -4787,9 +5022,11 @@ pub fn get_transitive_callers(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let max_depth = options.as_ref().and_then(|o| o.max_depth).unwrap_or(3);
@@ -4806,7 +5043,8 @@ pub fn get_transitive_callers(
 
     // BFS to find all callers up to max_depth
     // Queue contains: (symbol_id, current_depth, call_path)
-    let mut queue: std::collections::VecDeque<(u32, u32, Vec<String>)> = std::collections::VecDeque::new();
+    let mut queue: std::collections::VecDeque<(u32, u32, Vec<String>)> =
+        std::collections::VecDeque::new();
 
     // Initialize with target symbols
     for target in &target_symbols {
@@ -4924,9 +5162,11 @@ pub fn get_call_sites_with_context(
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
-    let index = storage.load_index()
+    let index = storage
+        .load_index()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
-    let graph = storage.load_graph()
+    let graph = storage
+        .load_graph()
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let lines_before = options.as_ref().and_then(|o| o.lines_before).unwrap_or(3) as usize;
@@ -4934,7 +5174,8 @@ pub fn get_call_sites_with_context(
 
     let mut call_sites: Vec<CallSiteWithContext> = Vec::new();
     let mut seen_sites: HashSet<(String, u32, u32, u32)> = HashSet::new();
-    let mut file_cache: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut file_cache: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     // Find all symbols with this name
     for sym in index.find_symbols(&symbol_name) {
@@ -5014,7 +5255,7 @@ fn get_line_context(
                 let lines: Vec<String> = content.lines().map(String::from).collect();
                 file_cache.insert(file_path.to_string(), lines.clone());
                 lines
-            }
+            },
             Err(_) => return (None, None, None),
         }
     };
@@ -5041,11 +5282,7 @@ fn get_line_context(
         })
         .collect();
 
-    (
-        Some(context_lines.join("\n")),
-        Some((start_idx + 1) as u32),
-        Some(end_idx as u32),
-    )
+    (Some(context_lines.join("\n")), Some((start_idx + 1) as u32), Some(end_idx as u32))
 }
 
 /// Async version of getChangedSymbolsFiltered
@@ -5056,9 +5293,11 @@ pub async fn get_changed_symbols_filtered_async(
     to_ref: String,
     filter: Option<ChangedSymbolsFilter>,
 ) -> Result<Vec<ChangedSymbolInfo>> {
-    tokio::task::spawn_blocking(move || get_changed_symbols_filtered(path, from_ref, to_ref, filter))
-        .await
-        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+    tokio::task::spawn_blocking(move || {
+        get_changed_symbols_filtered(path, from_ref, to_ref, filter)
+    })
+    .await
+    .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }
 
 /// Async version of getTransitiveCallers

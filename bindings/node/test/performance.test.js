@@ -12,6 +12,8 @@ const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
 
+const { execSync } = require('child_process');
+
 const {
   pack,
   scan,
@@ -39,6 +41,24 @@ const {
 // Use the infiniloom repo itself for realistic benchmarks
 const REPO_PATH = path.resolve(__dirname, '../../..');
 const ENGINE_PATH = path.join(REPO_PATH, 'engine/src');
+
+/**
+ * Get number of commits available in the repo (handles shallow clones in CI)
+ */
+function getCommitCount() {
+  try {
+    const output = execSync('git rev-list --count HEAD', {
+      cwd: REPO_PATH,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return parseInt(output.trim(), 10);
+  } catch {
+    return 1; // Assume shallow clone with 1 commit
+  }
+}
+
+const COMMIT_COUNT = getCommitCount();
 
 // Performance thresholds (in milliseconds)
 const THRESHOLDS = {
@@ -87,6 +107,7 @@ function formatMs(ms) {
 test.before(() => {
   console.log('\n=== Infiniloom Node.js Performance Benchmarks ===\n');
   console.log(`Repository: ${REPO_PATH}`);
+  console.log(`Git history: ${COMMIT_COUNT} commits available${COMMIT_COUNT < 21 ? ' (shallow clone - some tests will be skipped)' : ''}`);
 
   // Build index if needed (cached if exists)
   const status = indexStatus(REPO_PATH);
@@ -259,7 +280,7 @@ test('PERF: getSymbolsInFile() completes within threshold', () => {
 // Git/Diff Benchmarks (Previously Slow - Now Optimized)
 // ============================================================================
 
-test('PERF: getChangedSymbols() completes within threshold (was 7-8s before optimization)', () => {
+test('PERF: getChangedSymbols() completes within threshold (was 7-8s before optimization)', { skip: COMMIT_COUNT < 11 ? 'Shallow clone - need 11+ commits' : false }, () => {
   const { result, elapsed } = measure(() =>
     getChangedSymbols(REPO_PATH, 'HEAD~10', 'HEAD')
   );
@@ -271,7 +292,7 @@ test('PERF: getChangedSymbols() completes within threshold (was 7-8s before opti
     `getChangedSymbols() took ${formatMs(elapsed)}, expected < ${formatMs(THRESHOLDS.getChangedSymbols)}`);
 });
 
-test('PERF: getChangedSymbolsFiltered() completes within threshold', () => {
+test('PERF: getChangedSymbolsFiltered() completes within threshold', { skip: COMMIT_COUNT < 11 ? 'Shallow clone - need 11+ commits' : false }, () => {
   const { result, elapsed } = measure(() =>
     getChangedSymbolsFiltered(REPO_PATH, 'HEAD~10', 'HEAD', {
       kinds: ['function', 'method']
@@ -285,7 +306,7 @@ test('PERF: getChangedSymbolsFiltered() completes within threshold', () => {
     `getChangedSymbolsFiltered() took ${formatMs(elapsed)}, expected < ${formatMs(THRESHOLDS.getChangedSymbols)}`);
 });
 
-test('PERF: getDiffContext() completes within threshold (was slow before optimization)', () => {
+test('PERF: getDiffContext() completes within threshold (was slow before optimization)', { skip: COMMIT_COUNT < 11 ? 'Shallow clone - need 11+ commits' : false }, () => {
   const { result, elapsed } = measure(() =>
     getDiffContext(REPO_PATH, 'HEAD~10', 'HEAD', { includeDiff: true })
   );
@@ -369,7 +390,7 @@ test('PERF: GitRepo.log() completes within threshold', () => {
     `GitRepo.log() took ${formatMs(elapsed)}, expected < ${formatMs(THRESHOLDS.gitLog)}`);
 });
 
-test('PERF: GitRepo.diffFiles() completes within threshold', () => {
+test('PERF: GitRepo.diffFiles() completes within threshold', { skip: COMMIT_COUNT < 11 ? 'Shallow clone - need 11+ commits' : false }, () => {
   const repo = new GitRepo(REPO_PATH);
   const { result, elapsed } = measure(() => repo.diffFiles('HEAD~10', 'HEAD'));
 
@@ -384,7 +405,7 @@ test('PERF: GitRepo.diffFiles() completes within threshold', () => {
 // Scalability Tests
 // ============================================================================
 
-test('PERF: getChangedSymbols scales linearly with commit range', () => {
+test('PERF: getChangedSymbols scales linearly with commit range', { skip: COMMIT_COUNT < 21 ? 'Shallow clone - need 21+ commits' : false }, () => {
   const ranges = [5, 10, 20];
   const results = [];
 
@@ -407,7 +428,7 @@ test('PERF: getChangedSymbols scales linearly with commit range', () => {
     `Scaling ratio too high: ${ratio.toFixed(1)}x for 4x commit range`);
 });
 
-test('PERF: getDiffContext scales linearly with file count', () => {
+test('PERF: getDiffContext scales linearly with file count', { skip: COMMIT_COUNT < 21 ? 'Shallow clone - need 21+ commits' : false }, () => {
   const ranges = [5, 10, 20];
   const results = [];
 
