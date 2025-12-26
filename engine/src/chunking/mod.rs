@@ -13,6 +13,33 @@ use crate::tokenizer::Tokenizer;
 use crate::types::{RepoFile, Repository, SymbolKind, TokenizerModel};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+/// Determine focus description from an iterator of RepoFile references
+fn determine_focus_impl<'a>(mut files: impl Iterator<Item = &'a RepoFile>) -> String {
+    let first = match files.next() {
+        Some(f) => f,
+        None => return "Empty".to_owned(),
+    };
+
+    // Collect remaining for iteration (we've consumed first)
+    let rest: Vec<&RepoFile> = files.collect();
+
+    // Try to find common directory
+    if let Some(module) = first.relative_path.split('/').next() {
+        if rest.iter().all(|f| f.relative_path.starts_with(module)) {
+            return format!("{} module", module);
+        }
+    }
+
+    // Try to find common language
+    if let Some(lang) = &first.language {
+        if rest.iter().all(|f| f.language.as_ref() == Some(lang)) {
+            return format!("{} files", lang);
+        }
+    }
+
+    "Mixed content".to_owned()
+}
+
 impl Chunker {
     /// Create a new chunker
     pub fn new(strategy: ChunkStrategy, max_tokens: u32) -> Self {
@@ -168,50 +195,12 @@ impl Chunker {
     // =========================================================================
 
     fn determine_focus(&self, files: &[RepoFile]) -> String {
-        if files.is_empty() {
-            return "Empty".to_owned();
-        }
-
-        // Try to find common directory
-        let first_path = &files[0].relative_path;
-        if let Some(module) = first_path.split('/').next() {
-            if files.iter().all(|f| f.relative_path.starts_with(module)) {
-                return format!("{} module", module);
-            }
-        }
-
-        // Try to find common language
-        if let Some(lang) = &files[0].language {
-            if files.iter().all(|f| f.language.as_ref() == Some(lang)) {
-                return format!("{} files", lang);
-            }
-        }
-
-        "Mixed content".to_owned()
+        determine_focus_impl(files.iter())
     }
 
     /// Determine focus for file references (avoids requiring owned slice)
     fn determine_focus_refs(&self, files: &[&RepoFile]) -> String {
-        if files.is_empty() {
-            return "Empty".to_owned();
-        }
-
-        // Try to find common directory
-        let first_path = &files[0].relative_path;
-        if let Some(module) = first_path.split('/').next() {
-            if files.iter().all(|f| f.relative_path.starts_with(module)) {
-                return format!("{} module", module);
-            }
-        }
-
-        // Try to find common language
-        if let Some(lang) = &files[0].language {
-            if files.iter().all(|f| f.language.as_ref() == Some(lang)) {
-                return format!("{} files", lang);
-            }
-        }
-
-        "Mixed content".to_owned()
+        determine_focus_impl(files.iter().copied())
     }
 
     fn determine_symbol_focus(&self, snippets: &[SymbolSnippet]) -> String {

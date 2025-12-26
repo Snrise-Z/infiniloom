@@ -20,6 +20,13 @@ pub use repo_ops::{
     redact_secrets,
 };
 
+// Re-export diff utilities module
+pub mod diff_utils;
+pub use diff_utils::{
+    find_call_in_line, find_call_site_in_body, get_line_context, load_file_lines,
+    reconstruct_diff_from_hunks, FileCache,
+};
+
 /// Errors that can occur when parsing binding options
 #[derive(Debug, Error)]
 pub enum ParseError {

@@ -151,7 +151,7 @@ pub use constants::{
 };
 pub use newtypes::{ByteOffset, FileSize, ImportanceScore, LineNumber, SymbolId, TokenCount};
 pub use output::{OutputFormat, OutputFormatter};
-pub use parser::{Language, Parser, ParserError};
+pub use parser::{detect_file_language, Language, Parser, ParserError};
 pub use ranking::{count_symbol_references, rank_files, sort_files_by_importance, SymbolRanker};
 pub use repomap::{RepoMap, RepoMapGenerator};
 pub use security::SecurityScanner;

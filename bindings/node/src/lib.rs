@@ -21,6 +21,10 @@ use infiniloom_bindings_common::{
     scan_repository as do_scan,
     severity_at_or_above,
     ScanConfig,
+    // Diff utilities
+    find_call_site_in_body as common_find_call_site_in_body,
+    get_line_context as common_get_line_context,
+    reconstruct_diff_from_hunks as common_reconstruct_diff_from_hunks,
 };
 
 use infiniloom_engine::{
@@ -303,7 +307,7 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
     let related_depth = opts.related_depth.unwrap_or(1).clamp(1, 3);
 
     // Scan repository (with contents for packing)
-    let mut repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
+    let mut repo = scan_repository_with_options(&path, true, skip_symbols)?;
 
     // Apply default ignores to filter out build outputs, dependencies, etc.
     repo.files
@@ -425,7 +429,7 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
 
             // Re-scan to include related files that weren't in the original set
             if !related_paths.is_empty() {
-                let full_repo = scan_repository_with_options(&path, model, true, skip_symbols)?;
+                let full_repo = scan_repository_with_options(&path, true, skip_symbols)?;
                 for file in full_repo.files {
                     if related_paths.contains(&file.relative_path) {
                         // Check if we already have this file
@@ -570,7 +574,7 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
     let apply_default_ignores = opts.apply_default_ignores.unwrap_or(true);
     let include_tests = opts.include_tests.unwrap_or(false);
 
-    let mut repo = scan_repository(&path, tokenizer_model, true)?;
+    let mut repo = scan_repository(&path, true)?;
 
     // Apply default ignores (Bug #2 fix)
     if apply_default_ignores {
@@ -713,7 +717,7 @@ impl Infiniloom {
     #[napi(constructor)]
     pub fn new(path: String, model: Option<String>) -> Result<Self> {
         let tokenizer_model = napi_parse_model(model.as_deref())?;
-        let mut repo = scan_repository(&path, tokenizer_model, true)?;
+        let mut repo = scan_repository(&path, true)?;
 
         // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
         repo.files.retain(|f| {
@@ -1038,13 +1042,12 @@ pub fn semantic_compress(
         .map_err(|e| Error::new(Status::GenericFailure, format!("Compression failed: {}", e)))
 }
 
-fn scan_repository(path: &str, model: TokenizerModel, read_contents: bool) -> Result<Repository> {
-    scan_repository_with_options(path, model, read_contents, false)
+fn scan_repository(path: &str, read_contents: bool) -> Result<Repository> {
+    scan_repository_with_options(path, read_contents, false)
 }
 
 fn scan_repository_with_options(
     path: &str,
-    _model: TokenizerModel,
     read_contents: bool,
     skip_symbols: bool,
 ) -> Result<Repository> {
@@ -1656,7 +1659,7 @@ pub struct SecurityFinding {
 #[napi]
 pub fn scan_security(path: Option<String>) -> Result<Vec<SecurityFinding>> {
     let path = validate_path_option(path.as_deref())?;
-    let repo = scan_repository_with_options(&path, TokenizerModel::Claude, true, true)?;
+    let repo = scan_repository_with_options(&path, true, true)?;
 
     let scanner = SecurityScanner::new();
     let mut findings = Vec::new();
@@ -1682,37 +1685,6 @@ pub fn scan_security(path: Option<String>) -> Result<Vec<SecurityFinding>> {
 /// Format FileStatus as string
 fn format_file_status(status: EngineFileStatus) -> String {
     common_format_file_status(status).to_string()
-}
-
-/// Reconstruct unified diff content from hunks for a specific file
-/// This avoids making additional git subprocess calls
-fn reconstruct_diff_from_hunks(hunks: &[EngineGitDiffHunk], file_path: &str) -> String {
-    let file_hunks: Vec<_> = hunks.iter().filter(|h| h.file == file_path).collect();
-    if file_hunks.is_empty() {
-        return String::new();
-    }
-
-    let mut output = String::new();
-    output.push_str(&format!("diff --git a/{} b/{}\n", file_path, file_path));
-    output.push_str(&format!("--- a/{}\n", file_path));
-    output.push_str(&format!("+++ b/{}\n", file_path));
-
-    for hunk in file_hunks {
-        output.push_str(&hunk.header);
-        output.push('\n');
-        for line in &hunk.lines {
-            let prefix = match line.change_type.as_str() {
-                "add" => "+",
-                "remove" => "-",
-                _ => " ",
-            };
-            output.push_str(prefix);
-            output.push_str(&line.content);
-            output.push('\n');
-        }
-    }
-
-    output
 }
 
 // ============================================================================
@@ -2814,7 +2786,7 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
 
     // Scan repository
     let needs_symbols = matches!(strategy, ChunkStrategy::Dependency | ChunkStrategy::Symbol);
-    let mut repo = scan_repository_with_options(&path, model, true, !needs_symbols)?;
+    let mut repo = scan_repository_with_options(&path, true, !needs_symbols)?;
 
     // Apply default ignores
     apply_default_ignores(&mut repo);
@@ -3400,7 +3372,7 @@ pub fn get_diff_context(
             }
 
             // Reconstruct diff content from hunks (avoids additional git call)
-            let diff_content = reconstruct_diff_from_hunks(&all_hunks, &file.path);
+            let diff_content = common_reconstruct_diff_from_hunks(&all_hunks, &file.path);
             if !diff_content.is_empty() {
                 file_diff_contents.insert(file.path.clone(), diff_content);
             }
@@ -4539,7 +4511,7 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
                     .unwrap_or_else(|| "<unknown>".to_owned());
 
                 // Try to find exact call site by scanning the caller's body
-                let (call_line, call_col) = find_call_site_in_body(
+                let (call_line, call_col) = common_find_call_site_in_body(
                     &path_buf,
                     &file_path,
                     caller_sym.span.start_line,
@@ -4568,107 +4540,6 @@ pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>
     // Sort by file and line
     call_sites.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
     Ok(call_sites)
-}
-
-/// Helper function to find the actual call site within a caller's body
-fn find_call_site_in_body(
-    repo_root: &std::path::Path,
-    file_path: &str,
-    start_line: u32,
-    end_line: u32,
-    callee_name: &str,
-    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
-) -> (u32, Option<u32>) {
-    // Try to load file content
-    let lines = if let Some(cached) = file_cache.get(file_path) {
-        cached.clone()
-    } else {
-        let full_path = repo_root.join(file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => {
-                let lines: Vec<String> = content.lines().map(String::from).collect();
-                file_cache.insert(file_path.to_string(), lines.clone());
-                lines
-            },
-            Err(_) => return (start_line, None), // Fall back to definition line
-        }
-    };
-
-    // Search for the callee name within the caller's body
-    // Skip the first line (function signature) and look for actual calls
-    let search_start = (start_line as usize).saturating_sub(1);
-    let search_end = (end_line as usize).min(lines.len());
-
-    for (i, line) in lines
-        .iter()
-        .enumerate()
-        .skip(search_start)
-        .take(search_end - search_start)
-    {
-        // Look for the callee name followed by ( to indicate a call
-        // This is a heuristic - not perfect but covers most cases
-        if let Some(col) = find_call_in_line(line, callee_name) {
-            return ((i + 1) as u32, Some(col as u32));
-        }
-    }
-
-    // Fall back to the caller's start line if we can't find the exact call
-    (start_line, None)
-}
-
-/// Find a function call in a line of code
-/// Returns the column position if found
-fn find_call_in_line(line: &str, callee_name: &str) -> Option<usize> {
-    // Pattern: identifier followed by ( but not preceded by "def ", "fn ", "function ", etc.
-    let mut search_pos = 0;
-
-    while let Some(pos) = line[search_pos..].find(callee_name) {
-        let abs_pos = search_pos + pos;
-
-        // Check if this is actually a call (followed by parenthesis)
-        let after_name = abs_pos + callee_name.len();
-        if after_name < line.len() {
-            let rest = &line[after_name..];
-            let next_non_ws = rest.trim_start();
-            if next_non_ws.starts_with('(') {
-                // Check it's not a definition (preceded by def/fn/function/etc.)
-                let before = &line[..abs_pos];
-                let before_trimmed = before.trim_end();
-
-                // Skip if this is a function definition
-                let is_definition = before_trimmed.ends_with("def ")
-                    || before_trimmed.ends_with("fn ")
-                    || before_trimmed.ends_with("function ")
-                    || before_trimmed.ends_with("func ")
-                    || before_trimmed.ends_with("async def ")
-                    || before_trimmed.ends_with("pub fn ")
-                    || before_trimmed.ends_with("async fn ");
-
-                if !is_definition {
-                    // Also verify it's a standalone identifier (not part of a larger word)
-                    let is_word_boundary_before = abs_pos == 0
-                        || !line
-                            .chars()
-                            .nth(abs_pos - 1)
-                            .is_some_and(|c| c.is_alphanumeric() || c == '_');
-                    let is_word_boundary_after =
-                        !callee_name.chars().next_back().is_some_and(|_| {
-                            line.chars()
-                                .nth(after_name)
-                                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                        });
-
-                    if is_word_boundary_before && is_word_boundary_after {
-                        return Some(abs_pos);
-                    }
-                }
-            }
-        }
-
-        search_pos = abs_pos + 1;
-    }
-
-    None
 }
 
 /// Async version of getSymbolsInFile
@@ -5190,7 +5061,7 @@ pub fn get_call_sites_with_context(
                     .unwrap_or_else(|| "<unknown>".to_owned());
 
                 // Try to find exact call site by scanning the caller's body
-                let (call_line, call_col) = find_call_site_in_body(
+                let (call_line, call_col) = common_find_call_site_in_body(
                     &path_buf,
                     &file_path,
                     caller_sym.span.start_line,
@@ -5206,7 +5077,7 @@ pub fn get_call_sites_with_context(
                 }
 
                 // Get context
-                let (context, context_start, context_end) = get_line_context(
+                let (context, context_start, context_end) = common_get_line_context(
                     &path_buf,
                     &file_path,
                     call_line,
@@ -5234,55 +5105,6 @@ pub fn get_call_sites_with_context(
     // Sort by file and line
     call_sites.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
     Ok(call_sites)
-}
-
-/// Helper function to get code context around a line
-fn get_line_context(
-    repo_root: &std::path::Path,
-    file_path: &str,
-    line: u32,
-    lines_before: usize,
-    lines_after: usize,
-    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
-) -> (Option<String>, Option<u32>, Option<u32>) {
-    // Load file content
-    let lines = if let Some(cached) = file_cache.get(file_path) {
-        cached.clone()
-    } else {
-        let full_path = repo_root.join(file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => {
-                let lines: Vec<String> = content.lines().map(String::from).collect();
-                file_cache.insert(file_path.to_string(), lines.clone());
-                lines
-            },
-            Err(_) => return (None, None, None),
-        }
-    };
-
-    if lines.is_empty() {
-        return (None, None, None);
-    }
-
-    let line_idx = (line as usize).saturating_sub(1);
-    let start_idx = line_idx.saturating_sub(lines_before);
-    let end_idx = (line_idx + lines_after + 1).min(lines.len());
-
-    if start_idx >= lines.len() {
-        return (None, None, None);
-    }
-
-    let context_lines: Vec<String> = lines[start_idx..end_idx]
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let line_num = start_idx + i + 1;
-            let marker = if line_num == line as usize { ">" } else { " " };
-            format!("{}{:4} | {}", marker, line_num, l)
-        })
-        .collect();
-
-    (Some(context_lines.join("\n")), Some((start_idx + 1) as u32), Some(end_idx as u32))
 }
 
 /// Async version of getChangedSymbolsFiltered

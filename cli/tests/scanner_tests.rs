@@ -5,110 +5,12 @@
 
 use std::path::PathBuf;
 
-// Re-export from scanner.rs for testing
-// Note: These functions are tested via their public interface
+// Use the canonical language detection from the engine
+use infiniloom_engine::detect_file_language as detect_language;
 
 // ============================================================================
 // Language Detection Tests
 // ============================================================================
-
-/// Helper to test language detection (mimics scanner::detect_language)
-fn detect_language(path: &std::path::Path) -> Option<String> {
-    // First, check for well-known filenames without extensions
-    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-        match filename.to_lowercase().as_str() {
-            "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => {
-                return Some("dockerfile".to_owned())
-            },
-            "makefile" | "gnumakefile" | "bsdmakefile" => return Some("make".to_owned()),
-            "gemfile" | "rakefile" | "guardfile" | "vagrantfile" | "berksfile" | "podfile"
-            | "fastfile" | "appfile" | "matchfile" | "deliverfile" | "snapfile" => {
-                return Some("ruby".to_owned())
-            },
-            ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" | ".profile" | ".bash_aliases" => {
-                return Some("shell".to_owned())
-            },
-            ".gitignore" | ".gitattributes" | ".gitmodules" => return Some("gitignore".to_owned()),
-            ".editorconfig" => return Some("editorconfig".to_owned()),
-            "procfile" => return Some("procfile".to_owned()),
-            "justfile" => return Some("just".to_owned()),
-            "caddyfile" => return Some("caddyfile".to_owned()),
-            "brewfile" => return Some("ruby".to_owned()),
-            _ => {},
-        };
-        if filename.to_lowercase().starts_with("dockerfile") {
-            return Some("dockerfile".to_owned());
-        }
-        if filename.to_lowercase().starts_with("makefile") {
-            return Some("make".to_owned());
-        }
-    }
-
-    let ext = path.extension()?.to_str()?;
-
-    let lang = match ext.to_lowercase().as_str() {
-        "py" | "pyi" | "pyx" => "python",
-        "js" | "mjs" | "cjs" => "javascript",
-        "jsx" => "jsx",
-        "ts" | "mts" | "cts" => "typescript",
-        "tsx" => "tsx",
-        "rs" => "rust",
-        "go" => "go",
-        "java" => "java",
-        "kt" | "kts" => "kotlin",
-        "scala" => "scala",
-        "groovy" => "groovy",
-        "clj" | "cljs" | "cljc" => "clojure",
-        "c" | "h" => "c",
-        "cpp" | "hpp" | "cc" | "cxx" | "hxx" => "cpp",
-        "cs" => "csharp",
-        "rb" | "rake" | "gemspec" => "ruby",
-        "php" => "php",
-        "swift" => "swift",
-        "sh" | "bash" => "bash",
-        "zsh" => "zsh",
-        "fish" => "fish",
-        "ps1" | "psm1" => "powershell",
-        "html" | "htm" => "html",
-        "css" => "css",
-        "scss" => "scss",
-        "sass" => "sass",
-        "less" => "less",
-        "json" => "json",
-        "yaml" | "yml" => "yaml",
-        "toml" => "toml",
-        "xml" => "xml",
-        "ini" | "cfg" => "ini",
-        "md" | "markdown" => "markdown",
-        "mdx" => "mdx",
-        "rst" => "rst",
-        "txt" => "text",
-        "zig" => "zig",
-        "lua" => "lua",
-        "sql" => "sql",
-        "ex" | "exs" => "elixir",
-        "erl" | "hrl" => "erlang",
-        "hs" | "lhs" => "haskell",
-        "ml" | "mli" => "ocaml",
-        "fs" | "fsi" | "fsx" => "fsharp",
-        "vue" => "vue",
-        "svelte" => "svelte",
-        "dockerfile" => "dockerfile",
-        "tf" | "tfvars" => "terraform",
-        "makefile" | "mk" => "make",
-        "cmake" => "cmake",
-        "nix" => "nix",
-        "jl" => "julia",
-        "r" | "rmd" => "r",
-        "dart" => "dart",
-        "nim" => "nim",
-        "v" => "vlang",
-        "cr" => "crystal",
-        _ => return None,
-    };
-
-    Some(lang.to_owned())
-}
 
 #[test]
 fn test_detect_language_python() {

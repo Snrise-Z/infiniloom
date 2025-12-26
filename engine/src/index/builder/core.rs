@@ -165,7 +165,7 @@ impl IndexBuilder {
         // Build dependency graph
         let t3 = Instant::now();
         let mut graph = DepGraph::new();
-        let graph_builder = GraphBuilder::new(&self.repo_root, &self.options);
+        let graph_builder = GraphBuilder::new(&self.repo_root);
         graph_builder.build_graph(&index, &file_path_to_id, &symbol_calls, &mut graph);
         let graph_time = t3.elapsed();
 

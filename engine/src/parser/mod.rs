@@ -70,7 +70,7 @@ pub use core::{Parser, ParserError};
 
 // Re-export Language from language module (new location)
 // For backward compatibility, also keep it accessible from core
-pub use language::Language;
+pub use language::{detect_file_language, Language};
 
 #[cfg(test)]
 mod tests {

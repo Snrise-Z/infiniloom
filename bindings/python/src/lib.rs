@@ -25,6 +25,10 @@ use infiniloom_bindings_common::{
     ScanConfig,
     // Time utilities
     format_timestamp,
+    // Diff utilities
+    find_call_site_in_body as common_find_call_site_in_body,
+    get_line_context as common_get_line_context,
+    reconstruct_diff_from_hunks as common_reconstruct_diff_from_hunks,
 };
 
 // Import from infiniloom-engine
@@ -2119,7 +2123,7 @@ fn get_diff_context(
             }
 
             // Reconstruct diff content from hunks (avoids additional git call)
-            let diff_content = reconstruct_diff_from_hunks(&all_hunks, &file.path);
+            let diff_content = common_reconstruct_diff_from_hunks(&all_hunks, &file.path);
             if !diff_content.is_empty() {
                 file_diff_contents.insert(file.path.clone(), diff_content);
             }
@@ -2614,7 +2618,7 @@ fn get_call_sites_with_context(
                     .unwrap_or_else(|| "<unknown>".to_owned());
 
                 // Find call site in body
-                let (call_line, call_col) = find_call_site_in_body_py(
+                let (call_line, call_col) = common_find_call_site_in_body(
                     &path_buf,
                     &file_path,
                     caller_sym.span.start_line,
@@ -2629,7 +2633,7 @@ fn get_call_sites_with_context(
                 }
 
                 // Get context
-                let (context, context_start, context_end) = get_line_context_py(
+                let (context, context_start, context_end) = common_get_line_context(
                     &path_buf,
                     &file_path,
                     call_line,
@@ -2663,145 +2667,6 @@ fn get_call_sites_with_context(
     }
 
     Ok(PyList::new(py, result).into())
-}
-
-/// Helper function to find call site in body (Python version)
-fn find_call_site_in_body_py(
-    repo_root: &PathBuf,
-    file_path: &str,
-    start_line: u32,
-    end_line: u32,
-    callee_name: &str,
-    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
-) -> (u32, Option<u32>) {
-    let lines = if let Some(cached) = file_cache.get(file_path) {
-        cached.clone()
-    } else {
-        let full_path = repo_root.join(file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => {
-                let lines: Vec<String> = content.lines().map(String::from).collect();
-                file_cache.insert(file_path.to_string(), lines.clone());
-                lines
-            }
-            Err(_) => return (start_line, None),
-        }
-    };
-
-    let start_idx = (start_line as usize).saturating_sub(1);
-    let end_idx = (end_line as usize).min(lines.len());
-
-    // Simple pattern matching: look for "callee_name(" with word boundary
-    for (idx, line) in lines[start_idx..end_idx].iter().enumerate() {
-        // Find all occurrences of the callee name
-        let mut search_start = 0;
-        while let Some(pos) = line[search_start..].find(callee_name) {
-            let actual_pos = search_start + pos;
-            // Check word boundary before
-            let is_word_start = actual_pos == 0
-                || !line.as_bytes()[actual_pos - 1].is_ascii_alphanumeric()
-                    && line.as_bytes()[actual_pos - 1] != b'_';
-
-            // Check for opening paren after (possibly with whitespace)
-            let after_name = actual_pos + callee_name.len();
-            let has_paren = line[after_name..]
-                .trim_start()
-                .starts_with('(');
-
-            if is_word_start && has_paren {
-                return ((start_idx + idx + 1) as u32, Some(actual_pos as u32));
-            }
-            search_start = actual_pos + 1;
-            if search_start >= line.len() {
-                break;
-            }
-        }
-    }
-
-    (start_line, None)
-}
-
-/// Helper function to get code context around a line (Python version)
-fn get_line_context_py(
-    repo_root: &PathBuf,
-    file_path: &str,
-    line: u32,
-    lines_before: usize,
-    lines_after: usize,
-    file_cache: &mut std::collections::HashMap<String, Vec<String>>,
-) -> (Option<String>, Option<u32>, Option<u32>) {
-    let lines = if let Some(cached) = file_cache.get(file_path) {
-        cached.clone()
-    } else {
-        let full_path = repo_root.join(file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => {
-                let lines: Vec<String> = content.lines().map(String::from).collect();
-                file_cache.insert(file_path.to_string(), lines.clone());
-                lines
-            }
-            Err(_) => return (None, None, None),
-        }
-    };
-
-    if lines.is_empty() {
-        return (None, None, None);
-    }
-
-    let line_idx = (line as usize).saturating_sub(1);
-    let start_idx = line_idx.saturating_sub(lines_before);
-    let end_idx = (line_idx + lines_after + 1).min(lines.len());
-
-    if start_idx >= lines.len() {
-        return (None, None, None);
-    }
-
-    let context_lines: Vec<String> = lines[start_idx..end_idx]
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let line_num = start_idx + i + 1;
-            let marker = if line_num == line as usize { ">" } else { " " };
-            format!("{}{:4} | {}", marker, line_num, l)
-        })
-        .collect();
-
-    (
-        Some(context_lines.join("\n")),
-        Some((start_idx + 1) as u32),
-        Some(end_idx as u32),
-    )
-}
-
-/// Reconstruct unified diff content from hunks for a specific file
-/// This avoids making additional git subprocess calls
-fn reconstruct_diff_from_hunks(hunks: &[EngineGitDiffHunk], file_path: &str) -> String {
-    let file_hunks: Vec<_> = hunks.iter().filter(|h| h.file == file_path).collect();
-    if file_hunks.is_empty() {
-        return String::new();
-    }
-
-    let mut output = String::new();
-    output.push_str(&format!("diff --git a/{} b/{}\n", file_path, file_path));
-    output.push_str(&format!("--- a/{}\n", file_path));
-    output.push_str(&format!("+++ b/{}\n", file_path));
-
-    for hunk in file_hunks {
-        output.push_str(&hunk.header);
-        output.push('\n');
-        for line in &hunk.lines {
-            let prefix = match line.change_type.as_str() {
-                "add" => "+",
-                "remove" => "-",
-                _ => " ",
-            };
-            output.push_str(prefix);
-            output.push_str(&line.content);
-            output.push('\n');
-        }
-    }
-
-    output
 }
 
 /// Python module definition

@@ -18,9 +18,23 @@ static GPT4_TOKENIZER: OnceLock<CoreBPE> = OnceLock::new();
 /// This provides significant speedup when the same content is tokenized multiple times.
 static TOKEN_CACHE: OnceLock<DashMap<(u64, TokenModel), u32>> = OnceLock::new();
 
+/// Maximum number of entries in the token cache before eviction.
+/// 100K entries ≈ 2.4MB memory (24 bytes per entry: 8 + 8 + 4 + padding).
+/// This prevents unbounded memory growth in long-running processes.
+const MAX_CACHE_ENTRIES: usize = 100_000;
+
 /// Get or initialize the global token cache
 fn get_token_cache() -> &'static DashMap<(u64, TokenModel), u32> {
     TOKEN_CACHE.get_or_init(DashMap::new)
+}
+
+/// Check if cache needs cleanup and clear if it exceeds the limit.
+/// Uses a simple strategy: when cache is full, clear it entirely.
+/// This is fast and avoids complex LRU tracking overhead.
+fn maybe_cleanup_cache(cache: &DashMap<(u64, TokenModel), u32>) {
+    if cache.len() >= MAX_CACHE_ENTRIES {
+        cache.clear();
+    }
 }
 
 /// Compute a fast hash of content for cache keys
@@ -105,8 +119,9 @@ impl Tokenizer {
                 return *count;
             }
 
-            // Compute and cache
+            // Compute and cache (with size limit enforcement)
             let count = self.count_uncached(text, model);
+            maybe_cleanup_cache(cache);
             cache.insert(key, count);
             count
         } else {

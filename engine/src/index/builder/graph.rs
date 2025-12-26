@@ -3,7 +3,7 @@
 //! Contains functions for building the symbol/file dependency graph
 //! and computing importance scores via PageRank.
 
-use super::types::{BuildOptions, COMMON_KEYWORDS, IDENT_RE};
+use super::types::{COMMON_KEYWORDS, IDENT_RE};
 use crate::index::types::{DepGraph, Language, SymbolIndex};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -12,13 +12,11 @@ use std::path::Path;
 /// Graph builder helper
 pub(super) struct GraphBuilder<'a> {
     repo_root: &'a Path,
-    #[allow(dead_code)]
-    options: &'a BuildOptions,
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub(super) fn new(repo_root: &'a Path, options: &'a BuildOptions) -> Self {
-        Self { repo_root, options }
+    pub(super) fn new(repo_root: &'a Path) -> Self {
+        Self { repo_root }
     }
 
     /// Build dependency graph from index

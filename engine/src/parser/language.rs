@@ -290,6 +290,145 @@ impl std::fmt::Display for Language {
     }
 }
 
+/// Detect programming language from file path (filename or extension).
+/// Returns a language name as a string, supporting many more formats than the `Language` enum.
+/// This is useful for display purposes and handling non-parseable file types.
+#[must_use]
+pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
+    // First, check for well-known filenames without extensions
+    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+        let lower = filename.to_lowercase();
+        let lang = match lower.as_str() {
+            // Docker
+            "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => Some("dockerfile"),
+            // Make
+            "makefile" | "gnumakefile" | "bsdmakefile" => Some("make"),
+            // Ruby
+            "gemfile" | "rakefile" | "guardfile" | "vagrantfile" | "berksfile" | "podfile"
+            | "fastfile" | "appfile" | "matchfile" | "deliverfile" | "snapfile" | "brewfile" => Some("ruby"),
+            // Shell
+            ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" | ".profile" | ".bash_aliases" => Some("shell"),
+            // Git
+            ".gitignore" | ".gitattributes" | ".gitmodules" => Some("gitignore"),
+            // Editor config
+            ".editorconfig" => Some("editorconfig"),
+            // Procfile (Heroku)
+            "procfile" => Some("procfile"),
+            // Justfile
+            "justfile" => Some("just"),
+            // Caddyfile
+            "caddyfile" => Some("caddyfile"),
+            _ => None,
+        };
+        if lang.is_some() {
+            return lang.map(|s| s.to_owned());
+        }
+        // Check for patterns like Dockerfile.something
+        if lower.starts_with("dockerfile") {
+            return Some("dockerfile".to_owned());
+        }
+        if lower.starts_with("makefile") {
+            return Some("make".to_owned());
+        }
+    }
+
+    // Then check extensions
+    let ext = path.extension()?.to_str()?;
+    let lang = match ext.to_lowercase().as_str() {
+        // Python
+        "py" | "pyi" | "pyx" => "python",
+        // JavaScript/TypeScript
+        "js" | "mjs" | "cjs" => "javascript",
+        "jsx" => "jsx",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "tsx",
+        // Rust
+        "rs" => "rust",
+        // Go
+        "go" => "go",
+        // Java/JVM
+        "java" => "java",
+        "kt" | "kts" => "kotlin",
+        "scala" => "scala",
+        "groovy" => "groovy",
+        "clj" | "cljs" | "cljc" => "clojure",
+        // C/C++
+        "c" | "h" => "c",
+        "cpp" | "hpp" | "cc" | "cxx" | "hxx" => "cpp",
+        // C#
+        "cs" => "csharp",
+        // Ruby
+        "rb" | "rake" | "gemspec" => "ruby",
+        // PHP
+        "php" => "php",
+        // Swift
+        "swift" => "swift",
+        // Shell
+        "sh" | "bash" => "bash",
+        "zsh" => "zsh",
+        "fish" => "fish",
+        "ps1" | "psm1" => "powershell",
+        // Web
+        "html" | "htm" => "html",
+        "css" => "css",
+        "scss" => "scss",
+        "sass" => "sass",
+        "less" => "less",
+        // Data/Config
+        "json" => "json",
+        "yaml" | "yml" => "yaml",
+        "toml" => "toml",
+        "xml" => "xml",
+        "ini" | "cfg" => "ini",
+        // Documentation
+        "md" | "markdown" => "markdown",
+        "mdx" => "mdx",
+        "rst" => "rst",
+        "txt" => "text",
+        // Zig
+        "zig" => "zig",
+        // Lua
+        "lua" => "lua",
+        // SQL
+        "sql" => "sql",
+        // Elixir/Erlang
+        "ex" | "exs" => "elixir",
+        "erl" | "hrl" => "erlang",
+        // Haskell
+        "hs" | "lhs" => "haskell",
+        // OCaml/F#
+        "ml" | "mli" => "ocaml",
+        "fs" | "fsi" | "fsx" => "fsharp",
+        // Vue/Svelte
+        "vue" => "vue",
+        "svelte" => "svelte",
+        // Docker
+        "dockerfile" => "dockerfile",
+        // Terraform
+        "tf" | "tfvars" => "terraform",
+        // Makefile-like
+        "makefile" | "mk" => "make",
+        "cmake" => "cmake",
+        // Nix
+        "nix" => "nix",
+        // Julia
+        "jl" => "julia",
+        // R
+        "r" | "rmd" => "r",
+        // Dart
+        "dart" => "dart",
+        // Nim
+        "nim" => "nim",
+        // V
+        "v" => "vlang",
+        // Crystal
+        "cr" => "crystal",
+        _ => return None,
+    };
+
+    Some(lang.to_owned())
+}
+
 impl std::str::FromStr for Language {
     type Err = ParserError;
 

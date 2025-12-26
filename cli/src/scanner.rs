@@ -17,7 +17,7 @@ use std::thread;
 
 use infiniloom_engine::dependencies::DependencyGraph;
 use infiniloom_engine::mmap_scanner::MappedFile;
-use infiniloom_engine::parser::{Language, Parser};
+use infiniloom_engine::parser::{detect_file_language, Language, Parser};
 use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository, TokenCounts};
 
 /// Threshold for using memory-mapped I/O (files >= 1MB use mmap)
@@ -484,7 +484,7 @@ fn collect_file_infos(base_path: &Path, config: &ScanConfig) -> Result<Vec<FileI
             .to_string_lossy()
             .to_string();
 
-        let language = detect_language(entry_path);
+        let language = detect_file_language(entry_path);
 
         file_infos.push(FileInfo {
             path: entry_path.to_path_buf(),
@@ -796,178 +796,6 @@ fn estimate_lines(size_bytes: u64) -> u64 {
     size_bytes / 40
 }
 
-/// Detect programming language from file extension or filename
-fn detect_language(path: &Path) -> Option<String> {
-    // First, check for well-known filenames without extensions
-    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-        match filename.to_lowercase().as_str() {
-            // Docker
-            "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => {
-                return Some("dockerfile".to_owned())
-            },
-            // Make
-            "makefile" | "gnumakefile" | "bsdmakefile" => return Some("make".to_owned()),
-            // Ruby
-            "gemfile" | "rakefile" | "guardfile" | "vagrantfile" | "berksfile" | "podfile"
-            | "fastfile" | "appfile" | "matchfile" | "deliverfile" | "snapfile" => {
-                return Some("ruby".to_owned())
-            },
-            // Shell
-            ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" | ".profile" | ".bash_aliases" => {
-                return Some("shell".to_owned())
-            },
-            // Git
-            ".gitignore" | ".gitattributes" | ".gitmodules" => return Some("gitignore".to_owned()),
-            // Editor config
-            ".editorconfig" => return Some("editorconfig".to_owned()),
-            // Procfile (Heroku)
-            "procfile" => return Some("procfile".to_owned()),
-            // Justfile
-            "justfile" => return Some("just".to_owned()),
-            // Caddyfile
-            "caddyfile" => return Some("caddyfile".to_owned()),
-            // Brewfile
-            "brewfile" => return Some("ruby".to_owned()),
-            _ => {},
-        };
-        // Check for patterns like Dockerfile.something
-        if filename.to_lowercase().starts_with("dockerfile") {
-            return Some("dockerfile".to_owned());
-        }
-        if filename.to_lowercase().starts_with("makefile") {
-            return Some("make".to_owned());
-        }
-    }
-
-    // Then check extensions
-    let ext = path.extension()?.to_str()?;
-
-    let lang = match ext.to_lowercase().as_str() {
-        // Python
-        "py" | "pyi" | "pyx" => "python",
-
-        // JavaScript/TypeScript
-        "js" | "mjs" | "cjs" => "javascript",
-        "jsx" => "jsx",
-        "ts" | "mts" | "cts" => "typescript",
-        "tsx" => "tsx",
-
-        // Rust
-        "rs" => "rust",
-
-        // Go
-        "go" => "go",
-
-        // Java/JVM
-        "java" => "java",
-        "kt" | "kts" => "kotlin",
-        "scala" => "scala",
-        "groovy" => "groovy",
-        "clj" | "cljs" | "cljc" => "clojure",
-
-        // C/C++
-        "c" | "h" => "c",
-        "cpp" | "hpp" | "cc" | "cxx" | "hxx" => "cpp",
-
-        // C#
-        "cs" => "csharp",
-
-        // Ruby
-        "rb" | "rake" | "gemspec" => "ruby",
-
-        // PHP
-        "php" => "php",
-
-        // Swift
-        "swift" => "swift",
-
-        // Shell
-        "sh" | "bash" => "bash",
-        "zsh" => "zsh",
-        "fish" => "fish",
-        "ps1" | "psm1" => "powershell",
-
-        // Web
-        "html" | "htm" => "html",
-        "css" => "css",
-        "scss" => "scss",
-        "sass" => "sass",
-        "less" => "less",
-
-        // Data/Config
-        "json" => "json",
-        "yaml" | "yml" => "yaml",
-        "toml" => "toml",
-        "xml" => "xml",
-        "ini" | "cfg" => "ini",
-
-        // Documentation
-        "md" | "markdown" => "markdown",
-        "mdx" => "mdx",
-        "rst" => "rst",
-        "txt" => "text",
-
-        // Zig
-        "zig" => "zig",
-
-        // Lua
-        "lua" => "lua",
-
-        // SQL
-        "sql" => "sql",
-
-        // Elixir/Erlang
-        "ex" | "exs" => "elixir",
-        "erl" | "hrl" => "erlang",
-
-        // Haskell
-        "hs" | "lhs" => "haskell",
-
-        // OCaml/F#
-        "ml" | "mli" => "ocaml",
-        "fs" | "fsi" | "fsx" => "fsharp",
-
-        // Vue/Svelte
-        "vue" => "vue",
-        "svelte" => "svelte",
-
-        // Docker
-        "dockerfile" => "dockerfile",
-
-        // Terraform
-        "tf" | "tfvars" => "terraform",
-
-        // Makefile-like
-        "makefile" | "mk" => "make",
-        "cmake" => "cmake",
-
-        // Nix
-        "nix" => "nix",
-
-        // Julia
-        "jl" => "julia",
-
-        // R
-        "r" | "rmd" => "r",
-
-        // Dart
-        "dart" => "dart",
-
-        // Nim
-        "nim" => "nim",
-
-        // V
-        "v" => "vlang",
-
-        // Crystal
-        "cr" => "crystal",
-
-        _ => return None,
-    };
-
-    Some(lang.to_owned())
-}
-
 /// Check if file has a binary extension
 fn is_binary_extension(path: &Path) -> bool {
     let ext = match path.extension().and_then(|e| e.to_str()) {
@@ -1120,11 +948,11 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_detect_language() {
-        assert_eq!(detect_language(&PathBuf::from("test.py")), Some("python".to_string()));
-        assert_eq!(detect_language(&PathBuf::from("test.rs")), Some("rust".to_string()));
-        assert_eq!(detect_language(&PathBuf::from("test.ts")), Some("typescript".to_string()));
-        assert_eq!(detect_language(&PathBuf::from("test")), None);
+    fn test_detect_file_language() {
+        assert_eq!(detect_file_language(&PathBuf::from("test.py")), Some("python".to_string()));
+        assert_eq!(detect_file_language(&PathBuf::from("test.rs")), Some("rust".to_string()));
+        assert_eq!(detect_file_language(&PathBuf::from("test.ts")), Some("typescript".to_string()));
+        assert_eq!(detect_file_language(&PathBuf::from("test")), None);
     }
 
     #[test]
