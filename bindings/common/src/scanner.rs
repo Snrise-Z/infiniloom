@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use infiniloom_engine::parser::{Language, Parser};
+use infiniloom_engine::scanner::is_binary_extension;
 use infiniloom_engine::tokenizer::TokenCounts;
 use infiniloom_engine::tokenizer::Tokenizer;
 use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository};
@@ -182,7 +183,7 @@ fn collect_file_paths(path: &Path, config: &ScanConfig) -> Result<Vec<FileInfo>>
         }
 
         // Skip binary files by checking extension
-        if is_likely_binary_extension(entry_path) {
+        if is_binary_extension(entry_path) {
             continue;
         }
 
@@ -249,22 +250,6 @@ fn process_file(file_info: FileInfo, config: &ScanConfig) -> Result<Option<RepoF
         importance: 0.5, // Default importance, will be recalculated by rank_files
         content,
     }))
-}
-
-/// Check if a file is likely binary based on extension
-fn is_likely_binary_extension(path: &Path) -> bool {
-    let binary_extensions = [
-        "exe", "dll", "so", "dylib", "bin", "obj", "o", "a", "lib", "pyc", "pyo", "class", "jar",
-        "war", "ear", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "iso", "dmg", "img", "png",
-        "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "mp3", "mp4", "avi", "mov", "wmv",
-        "flv", "webm", "ogg", "wav", "flac", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "woff", "woff2", "ttf", "otf", "eot", "sqlite", "db", "lock", "wasm",
-    ];
-
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| binary_extensions.contains(&ext.to_lowercase().as_str()))
-        .unwrap_or(false)
 }
 
 /// Check if content appears to be binary

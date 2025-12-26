@@ -10,8 +10,8 @@ This document tracks the progress of codebase improvements identified during the
 
 **Progress Summary:**
 - **Completed:** 6 issues (~610 lines saved)
-- **Needs Design:** 1 issue (scanner unification requires architectural decisions)
-- **Remaining Estimate:** ~300 lines (after design is complete)
+- **Partial:** 1 issue (scanner - shared types extracted, ~45 lines; full unification needs design)
+- **Remaining Estimate:** ~250 lines (after full scanner unification)
 
 ---
 
@@ -21,10 +21,10 @@ This document tracks the progress of codebase improvements identified during the
 
 | # | Issue | Status | Files Changed | Lines Saved |
 |---|-------|--------|---------------|-------------|
-| 1 | Unify Scanner (CLI + Bindings) | [~] Design Needed | - | ~300* |
+| 1 | Unify Scanner (CLI + Bindings) | [~] Partial | 5 | ~45* |
 | 2 | Consolidate Language Detection | [x] Done | 3 | ~170 |
 
-*Note: Full unification requires architectural decisions. See detailed analysis below.
+*Note: Phase 1 complete (shared types + binary detection). Full unification requires architectural decisions.
 
 ### Phase 2: Medium - API Consistency
 
@@ -60,37 +60,34 @@ This document tracks the progress of codebase improvements identified during the
 | Dependencies | Extracts external deps | None |
 | Dir structure | Tree generation | None |
 
-**Duplicated Code (~300 lines):**
-- `ScanConfig` struct - identical
-- `FileInfo` struct - identical
-- `is_binary_extension()` - CLI has more extensions
-- `is_binary_content()` - nearly identical
+**Phase 1 - COMPLETED (Shared Types):**
+Created `engine/src/scanner/` module with:
+- `mod.rs` - `ScannerConfig` struct, `FileInfo` struct
+- `common.rs` - `is_binary_extension()`, `is_binary_content()`, `BINARY_EXTENSIONS` const
+
+Files modified:
+- `engine/src/scanner/mod.rs` - New shared types (created)
+- `engine/src/scanner/common.rs` - Binary detection utilities (created)
+- `engine/src/lib.rs` - Export scanner module
+- `cli/src/scanner.rs` - Import `is_binary_extension` from engine, remove local copy (~30 lines)
+- `bindings/common/src/scanner.rs` - Import `is_binary_extension` from engine, remove local copy (~15 lines)
+
+**Remaining Work (Phase 2 - Future):**
+Still duplicated (~250 lines):
 - Walk builder setup - similar pattern
 - Statistics aggregation - similar logic
+- `is_binary_content()` - bindings uses `&str`, CLI uses `&[u8]`
 
 **Recommended Approach (Future Work):**
-1. Create `engine/src/scanner/mod.rs` with:
-   - Shared types (`ScanConfig`, `FileInfo`)
-   - Binary detection utilities
-   - Common trait for scanner implementations
-
-2. Create `engine/src/scanner/parallel.rs`:
+1. Create `engine/src/scanner/parallel.rs`:
    - Simple parallel scanner (current bindings approach)
 
-3. Create `engine/src/scanner/pipelined.rs`:
+2. Create `engine/src/scanner/pipelined.rs`:
    - Pipelined scanner with channels (current CLI approach)
 
-4. Let CLI and bindings choose appropriate implementation
+3. Let CLI and bindings choose appropriate implementation
 
-**Status:** Requires design - architectural differences make quick unification risky
-
-**Files to modify (when ready):**
-- `engine/src/lib.rs` - Add scanner module export
-- `engine/src/scanner/mod.rs` - Shared types and traits
-- `engine/src/scanner/parallel.rs` - Simple parallel scanner
-- `engine/src/scanner/pipelined.rs` - Pipelined scanner
-- `cli/src/scanner.rs` - Use engine scanner with pipelined backend
-- `bindings/common/src/scanner.rs` - Use engine scanner with parallel backend
+**Status:** Phase 1 complete. Full unification requires architectural design decisions.
 
 ---
 
@@ -177,12 +174,13 @@ This document tracks the progress of codebase improvements identified during the
 
 | Date | Issue # | Description | Commit |
 |------|---------|-------------|--------|
-| 2025-12-26 | 6 | Removed unused `_model` parameter from Node bindings `scan_repository_with_options()` | pending |
-| 2025-12-26 | 3 | Unified `determine_focus()` and `determine_focus_refs()` into `determine_focus_impl()` | pending |
-| 2025-12-26 | 5 | Removed unused `options` field from `GraphBuilder` (other dead code items are intentional public API) | pending |
-| 2025-12-26 | 7 | Added 100K entry limit to TOKEN_CACHE with automatic cleanup | pending |
-| 2025-12-26 | 2 | Created `detect_file_language()` in engine, removed 170-line duplicate from CLI | pending |
-| 2025-12-26 | 4 | Created `bindings/common/src/diff_utils.rs` with shared diff utilities, updated Node and Python bindings | pending |
+| 2025-12-26 | 6 | Removed unused `_model` parameter from Node bindings `scan_repository_with_options()` | 0d5a09a |
+| 2025-12-26 | 3 | Unified `determine_focus()` and `determine_focus_refs()` into `determine_focus_impl()` | 0d5a09a |
+| 2025-12-26 | 5 | Removed unused `options` field from `GraphBuilder` (other dead code items are intentional public API) | 0d5a09a |
+| 2025-12-26 | 7 | Added 100K entry limit to TOKEN_CACHE with automatic cleanup | 0d5a09a |
+| 2025-12-26 | 2 | Created `detect_file_language()` in engine, removed 170-line duplicate from CLI | 0d5a09a |
+| 2025-12-26 | 4 | Created `bindings/common/src/diff_utils.rs` with shared diff utilities, updated Node and Python bindings | 0d5a09a |
+| 2025-12-26 | 1 | Phase 1: Created `engine/src/scanner/` module with shared types and binary detection utilities | pending |
 
 ---
 

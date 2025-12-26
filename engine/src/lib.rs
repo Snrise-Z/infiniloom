@@ -114,6 +114,7 @@ pub mod output;
 pub mod parser;
 pub mod ranking;
 pub mod repomap;
+pub mod scanner;
 pub mod security;
 pub mod types;
 

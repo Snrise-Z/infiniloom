@@ -18,6 +18,7 @@ use std::thread;
 use infiniloom_engine::dependencies::DependencyGraph;
 use infiniloom_engine::mmap_scanner::MappedFile;
 use infiniloom_engine::parser::{detect_file_language, Language, Parser};
+use infiniloom_engine::scanner::is_binary_extension;
 use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository, TokenCounts};
 
 /// Threshold for using memory-mapped I/O (files >= 1MB use mmap)
@@ -794,36 +795,6 @@ fn estimate_tokens(size_bytes: u64, content: Option<&str>) -> TokenCounts {
 fn estimate_lines(size_bytes: u64) -> u64 {
     // Average ~40 characters per line
     size_bytes / 40
-}
-
-/// Check if file has a binary extension
-fn is_binary_extension(path: &Path) -> bool {
-    let ext = match path.extension().and_then(|e| e.to_str()) {
-        Some(e) => e.to_lowercase(),
-        None => return false,
-    };
-
-    matches!(
-        ext.as_str(),
-        // Executables
-        "exe" | "dll" | "so" | "dylib" | "a" | "o" | "obj" | "lib" |
-        // Compiled
-        "pyc" | "pyo" | "class" | "jar" | "war" | "ear" |
-        // Archives
-        "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" | "tgz" |
-        // Images
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "svg" | "tiff" | "psd" |
-        // Audio/Video
-        "mp3" | "mp4" | "avi" | "mov" | "wav" | "flac" | "ogg" | "webm" | "mkv" |
-        // Documents
-        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" |
-        // Fonts
-        "woff" | "woff2" | "ttf" | "eot" | "otf" |
-        // Database
-        "db" | "sqlite" | "sqlite3" |
-        // Misc binary
-        "bin" | "dat" | "cache"
-    )
 }
 
 /// Detect current git branch
