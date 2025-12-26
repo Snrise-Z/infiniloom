@@ -144,10 +144,24 @@ fn validate_file_path(file_path: &str) -> Result<()> {
 /// Validate token budget is non-negative
 fn validate_token_budget(budget: Option<i64>) -> Result<u32> {
     match budget {
-        None => Ok(0), // No limit
+        None => Ok(0), // No limit when not specified
         Some(b) if b < 0 => {
             Err(Error::new(Status::InvalidArg, format!("Token budget cannot be negative: {}", b)))
-        },
+        }
+        Some(0) => {
+            // Bug fix: tokenBudget=0 is ambiguous - reject with clear guidance
+            Err(Error::new(
+                Status::InvalidArg,
+                "tokenBudget cannot be 0. Omit the parameter for no limit, or use a value >= 1000 for meaningful output.".to_string(),
+            ))
+        }
+        Some(b) if b > 0 && b < 1000 => {
+            // Bug fix: Very small budgets are impractical (file + formatting overhead)
+            Err(Error::new(
+                Status::InvalidArg,
+                format!("tokenBudget {} is too small. Minimum is 1000 tokens for meaningful output.", b),
+            ))
+        }
         Some(b) => Ok(b as u32),
     }
 }
@@ -1731,7 +1745,7 @@ pub struct IndexStatus {
 /// The index enables fast diff-to-context lookups and impact analysis.
 ///
 /// # Arguments
-/// * `path` - Path to repository root
+/// * `path` - Path to repository root (null/undefined returns error)
 /// * `options` - Optional index build options
 ///
 /// # Returns
@@ -1748,9 +1762,9 @@ pub struct IndexStatus {
 /// const status2 = buildIndex('./my-repo', { force: true });
 /// ```
 #[napi]
-pub fn build_index(path: String, options: Option<IndexOptions>) -> Result<IndexStatus> {
-    // Input validation
-    validate_path(&path)?;
+pub fn build_index(path: Option<String>, options: Option<IndexOptions>) -> Result<IndexStatus> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
 
     let opts = options.unwrap_or(IndexOptions {
         force: None,
@@ -2619,12 +2633,25 @@ pub fn get_call_graph(
         .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
 
     let result = if let Some(opts) = options {
-        get_call_graph_filtered(
-            &index,
-            &graph,
-            opts.max_nodes.map(|n| n as usize),
-            opts.max_edges.map(|n| n as usize),
-        )
+        // Bug fix: maxNodes=0 or maxEdges=0 should return empty graph
+        let max_nodes = opts.max_nodes.map(|n| n as usize);
+        let max_edges = opts.max_edges.map(|n| n as usize);
+
+        // If either limit is explicitly set to 0, return empty graph
+        if max_nodes == Some(0) || max_edges == Some(0) {
+            EngineCallGraph {
+                nodes: vec![],
+                edges: vec![],
+                stats: EngineCallGraphStats {
+                    total_symbols: 0,
+                    total_calls: 0,
+                    functions: 0,
+                    classes: 0,
+                },
+            }
+        } else {
+            get_call_graph_filtered(&index, &graph, max_nodes, max_edges)
+        }
     } else {
         engine_get_call_graph(&index, &graph)
     };
@@ -2732,7 +2759,7 @@ pub struct RepoChunk {
 /// Useful for processing large repositories that exceed LLM context limits.
 ///
 /// # Arguments
-/// * `path` - Path to repository root
+/// * `path` - Path to repository root (null/undefined returns error)
 /// * `options` - Optional chunking options
 ///
 /// # Returns
@@ -2754,7 +2781,10 @@ pub struct RepoChunk {
 /// }
 /// ```
 #[napi]
-pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChunk>> {
+pub fn chunk(path: Option<String>, options: Option<ChunkOptions>) -> Result<Vec<RepoChunk>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+
     let opts = options.unwrap_or(ChunkOptions {
         strategy: None,
         max_tokens: None,
@@ -2778,7 +2808,23 @@ pub fn chunk(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChun
         )),
     };
 
+    // Bug fix: Validate maxTokens - values below minimum are rejected
+    // maxTokens=0 is ambiguous (could mean "no limit" or "return nothing")
+    // maxTokens < 100 is impractical for any meaningful chunking
     let max_tokens = opts.max_tokens.unwrap_or(8000);
+    if max_tokens == 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "maxTokens cannot be 0. Use a value >= 100 for meaningful chunks, or omit to use default (8000)".to_string(),
+        ));
+    }
+    if max_tokens > 0 && max_tokens < 100 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("maxTokens {} is too small. Minimum is 100 tokens for meaningful chunks.", max_tokens),
+        ));
+    }
+
     let overlap = opts.overlap.unwrap_or(0);
     let model = napi_parse_model(opts.model.as_deref())?;
     let format = napi_parse_format(opts.format.as_deref())?;
@@ -3949,7 +3995,10 @@ pub async fn scan_async(path: Option<String>, model: Option<String>) -> Result<S
 /// const status = await buildIndexAsync('./my-repo', { force: true });
 /// ```
 #[napi]
-pub async fn build_index_async(path: String, options: Option<IndexOptions>) -> Result<IndexStatus> {
+pub async fn build_index_async(
+    path: Option<String>,
+    options: Option<IndexOptions>,
+) -> Result<IndexStatus> {
     tokio::task::spawn_blocking(move || build_index(path, options))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -3964,7 +4013,10 @@ pub async fn build_index_async(path: String, options: Option<IndexOptions>) -> R
 /// const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
 /// ```
 #[napi]
-pub async fn chunk_async(path: String, options: Option<ChunkOptions>) -> Result<Vec<RepoChunk>> {
+pub async fn chunk_async(
+    path: Option<String>,
+    options: Option<ChunkOptions>,
+) -> Result<Vec<RepoChunk>> {
     tokio::task::spawn_blocking(move || chunk(path, options))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -4461,8 +4513,8 @@ pub fn get_tests_for_file(path: String, file_path: String) -> Result<Vec<String>
 /// Requires an index to be built first (use `buildIndex`).
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `symbol_name` - Name of the symbol to find call sites for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `symbol_name` - Name of the symbol to find call sites for (null/undefined returns error)
 ///
 /// # Returns
 /// Array of call sites with caller information and line numbers
@@ -4479,7 +4531,11 @@ pub fn get_tests_for_file(path: String, file_path: String) -> Result<Vec<String>
 /// }
 /// ```
 #[napi]
-pub fn get_call_sites(path: String, symbol_name: String) -> Result<Vec<CallSite>> {
+pub fn get_call_sites(path: Option<String>, symbol_name: Option<String>) -> Result<Vec<CallSite>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
+
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -4588,7 +4644,10 @@ pub async fn get_tests_for_file_async(path: String, file_path: String) -> Result
 
 /// Async version of getCallSites
 #[napi]
-pub async fn get_call_sites_async(path: String, symbol_name: String) -> Result<Vec<CallSite>> {
+pub async fn get_call_sites_async(
+    path: Option<String>,
+    symbol_name: Option<String>,
+) -> Result<Vec<CallSite>> {
     tokio::task::spawn_blocking(move || get_call_sites(path, symbol_name))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
@@ -4867,8 +4926,8 @@ pub struct TransitiveCallersOptions {
 /// of the specified symbol, up to a maximum depth.
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `symbol_name` - Name of the symbol to find callers for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `symbol_name` - Name of the symbol to find callers for (null/undefined returns error)
 /// * `options` - Optional query options
 ///
 /// # Returns
@@ -4886,10 +4945,14 @@ pub struct TransitiveCallersOptions {
 /// ```
 #[napi]
 pub fn get_transitive_callers(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     options: Option<TransitiveCallersOptions>,
 ) -> Result<Vec<TransitiveCallerInfo>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
+
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -4902,6 +4965,11 @@ pub fn get_transitive_callers(
 
     let max_depth = options.as_ref().and_then(|o| o.max_depth).unwrap_or(3);
     let max_results = options.as_ref().and_then(|o| o.max_results).unwrap_or(100) as usize;
+
+    // Bug fix: maxDepth=0 should return empty results (no traversal)
+    if max_depth == 0 {
+        return Ok(vec![]);
+    }
 
     let mut results: Vec<TransitiveCallerInfo> = Vec::new();
     let mut visited: HashSet<u32> = HashSet::new();
@@ -5003,8 +5071,8 @@ pub struct CallSitesContextOptions {
 /// for each call site, useful for AI-powered code review.
 ///
 /// # Arguments
-/// * `path` - Path to repository root
-/// * `symbol_name` - Name of the symbol to find call sites for
+/// * `path` - Path to repository root (null/undefined returns error)
+/// * `symbol_name` - Name of the symbol to find call sites for (null/undefined returns error)
 /// * `options` - Optional context options
 ///
 /// # Returns
@@ -5026,10 +5094,14 @@ pub struct CallSitesContextOptions {
 /// ```
 #[napi]
 pub fn get_call_sites_with_context(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     options: Option<CallSitesContextOptions>,
 ) -> Result<Vec<CallSiteWithContext>> {
+    // Input validation - handle null/undefined gracefully
+    let path = validate_path_option(path.as_deref())?;
+    let symbol_name = validate_symbol_name_option(symbol_name.as_deref())?;
+
     let path_buf = PathBuf::from(&path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -5125,8 +5197,8 @@ pub async fn get_changed_symbols_filtered_async(
 /// Async version of getTransitiveCallers
 #[napi]
 pub async fn get_transitive_callers_async(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     options: Option<TransitiveCallersOptions>,
 ) -> Result<Vec<TransitiveCallerInfo>> {
     tokio::task::spawn_blocking(move || get_transitive_callers(path, symbol_name, options))
@@ -5137,8 +5209,8 @@ pub async fn get_transitive_callers_async(
 /// Async version of getCallSitesWithContext
 #[napi]
 pub async fn get_call_sites_with_context_async(
-    path: String,
-    symbol_name: String,
+    path: Option<String>,
+    symbol_name: Option<String>,
     options: Option<CallSitesContextOptions>,
 ) -> Result<Vec<CallSiteWithContext>> {
     tokio::task::spawn_blocking(move || get_call_sites_with_context(path, symbol_name, options))

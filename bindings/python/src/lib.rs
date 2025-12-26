@@ -48,6 +48,7 @@ use infiniloom_engine::{
         get_references_by_name,
         BuildOptions,
         CallGraph as EngineCallGraph,
+        CallGraphStats as EngineCallGraphStats,
         ChangeType,
         ContextDepth,
         ContextExpander,
@@ -1477,6 +1478,21 @@ fn get_call_graph(
     max_nodes: Option<usize>,
     max_edges: Option<usize>,
 ) -> PyResult<PyObject> {
+    // Bug fix: max_nodes=0 or max_edges=0 should return empty graph
+    if max_nodes == Some(0) || max_edges == Some(0) {
+        let empty_result = EngineCallGraph {
+            nodes: vec![],
+            edges: vec![],
+            stats: EngineCallGraphStats {
+                total_symbols: 0,
+                total_calls: 0,
+                functions: 0,
+                classes: 0,
+            },
+        };
+        return Ok(call_graph_to_py(py, &empty_result).into());
+    }
+
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1742,6 +1758,20 @@ fn chunk(
     priority_first: bool,
     exclude: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
+    // Bug fix: Validate max_tokens - values below minimum are rejected
+    // max_tokens=0 is ambiguous (could mean "no limit" or "return nothing")
+    // max_tokens < 100 is impractical for any meaningful chunking
+    if max_tokens == 0 {
+        return Err(PyValueError::new_err(
+            "max_tokens cannot be 0. Use a value >= 100 for meaningful chunks, or omit to use default (8000)".to_string()
+        ));
+    }
+    if max_tokens < 100 {
+        return Err(PyValueError::new_err(format!(
+            "max_tokens {} is too small. Minimum is 100 tokens for meaningful chunks.", max_tokens
+        )));
+    }
+
     // Parse strategy
     let chunk_strategy = match strategy.to_lowercase().as_str() {
         "fixed" => ChunkStrategy::Fixed { size: max_tokens },
@@ -2510,6 +2540,11 @@ fn get_transitive_callers(
     max_depth: u32,
     max_results: usize,
 ) -> PyResult<PyObject> {
+    // Bug fix: max_depth=0 should return empty results (no traversal)
+    if max_depth == 0 {
+        return Ok(PyList::empty(py).into());
+    }
+
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
     let index = storage.load_index().map_err(to_py_err)?;

@@ -298,28 +298,33 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
     // First, check for well-known filenames without extensions
     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
         let lower = filename.to_lowercase();
-        let lang = match lower.as_str() {
-            // Docker
-            "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => Some("dockerfile"),
-            // Make
-            "makefile" | "gnumakefile" | "bsdmakefile" => Some("make"),
-            // Ruby
-            "gemfile" | "rakefile" | "guardfile" | "vagrantfile" | "berksfile" | "podfile"
-            | "fastfile" | "appfile" | "matchfile" | "deliverfile" | "snapfile" | "brewfile" => Some("ruby"),
-            // Shell
-            ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" | ".profile" | ".bash_aliases" => Some("shell"),
-            // Git
-            ".gitignore" | ".gitattributes" | ".gitmodules" => Some("gitignore"),
-            // Editor config
-            ".editorconfig" => Some("editorconfig"),
-            // Procfile (Heroku)
-            "procfile" => Some("procfile"),
-            // Justfile
-            "justfile" => Some("just"),
-            // Caddyfile
-            "caddyfile" => Some("caddyfile"),
-            _ => None,
-        };
+        let lang =
+            match lower.as_str() {
+                // Docker
+                "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => {
+                    Some("dockerfile")
+                },
+                // Make
+                "makefile" | "gnumakefile" | "bsdmakefile" => Some("make"),
+                // Ruby
+                "gemfile" | "rakefile" | "guardfile" | "vagrantfile" | "berksfile" | "podfile"
+                | "fastfile" | "appfile" | "matchfile" | "deliverfile" | "snapfile"
+                | "brewfile" => Some("ruby"),
+                // Shell
+                ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile" | ".profile"
+                | ".bash_aliases" => Some("shell"),
+                // Git
+                ".gitignore" | ".gitattributes" | ".gitmodules" => Some("gitignore"),
+                // Editor config
+                ".editorconfig" => Some("editorconfig"),
+                // Procfile (Heroku)
+                "procfile" => Some("procfile"),
+                // Justfile
+                "justfile" => Some("just"),
+                // Caddyfile
+                "caddyfile" => Some("caddyfile"),
+                _ => None,
+            };
         if lang.is_some() {
             return lang.map(|s| s.to_owned());
         }

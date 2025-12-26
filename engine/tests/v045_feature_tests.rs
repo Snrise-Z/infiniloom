@@ -879,7 +879,7 @@ fn test_change_type_renamed() {
 #[test]
 fn test_line_context_extraction() {
     // Simulate extracting context around a line
-    let lines = vec![
+    let lines = [
         "fn main() {".to_string(),
         "    let x = 1;".to_string(),
         "    let y = 2;".to_string(),
@@ -905,7 +905,7 @@ fn test_line_context_extraction() {
 #[test]
 fn test_line_context_at_file_start() {
     let lines =
-        vec!["// File header".to_string(), "fn foo() {}".to_string(), "fn bar() {}".to_string()];
+        ["// File header".to_string(), "fn foo() {}".to_string(), "fn bar() {}".to_string()];
 
     let target_line = 1; // First line
     let lines_before = 3; // More than available
@@ -925,7 +925,7 @@ fn test_line_context_at_file_start() {
 #[test]
 fn test_line_context_at_file_end() {
     let lines =
-        vec!["fn foo() {}".to_string(), "fn bar() {}".to_string(), "// End of file".to_string()];
+        ["fn foo() {}".to_string(), "fn bar() {}".to_string(), "// End of file".to_string()];
 
     let target_line = 3; // Last line
     let lines_before = 1;

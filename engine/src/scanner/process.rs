@@ -66,8 +66,8 @@ pub fn estimate_tokens(size_bytes: u64, content: Option<&str>) -> TokenCounts {
     let len = content.map(|c| c.len() as f32).unwrap_or(size_bytes as f32);
 
     TokenCounts {
-        o200k: (len / 4.0) as u32,   // OpenAI modern (GPT-5.x, GPT-4o, O-series)
-        cl100k: (len / 3.7) as u32,  // OpenAI legacy (GPT-4, GPT-3.5)
+        o200k: (len / 4.0) as u32,  // OpenAI modern (GPT-5.x, GPT-4o, O-series)
+        cl100k: (len / 3.7) as u32, // OpenAI legacy (GPT-4, GPT-3.5)
         claude: (len / 3.5) as u32,
         gemini: (len / 3.8) as u32,
         llama: (len / 3.5) as u32,

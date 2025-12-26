@@ -96,7 +96,9 @@ pub fn matches_any_pattern(path: &str, patterns: &[&str]) -> bool {
 }
 
 // Re-export commonly used items for convenience
-pub use infiniloom_engine::scanner::{is_binary_extension, FileInfo, ScannerConfig as EngineScannerConfig};
+pub use infiniloom_engine::scanner::{
+    is_binary_extension, FileInfo, ScannerConfig as EngineScannerConfig,
+};
 
 #[cfg(test)]
 mod tests {
@@ -181,10 +183,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
 
-        let config = ScanConfig {
-            skip_symbols: true,
-            ..Default::default()
-        };
+        let config = ScanConfig { skip_symbols: true, ..Default::default() };
         let repo = scan_repository(dir.path(), config).unwrap();
 
         assert_eq!(repo.files.len(), 1);

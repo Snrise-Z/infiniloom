@@ -391,7 +391,7 @@ export interface IndexStatus {
  * The index enables fast diff-to-context lookups and impact analysis.
  *
  * # Arguments
- * * `path` - Path to repository root
+ * * `path` - Path to repository root (null/undefined returns error)
  * * `options` - Optional index build options
  *
  * # Returns
@@ -408,7 +408,7 @@ export interface IndexStatus {
  * const status2 = buildIndex('./my-repo', { force: true });
  * ```
  */
-export declare function buildIndex(path: string, options?: IndexOptions | undefined | null): IndexStatus
+export declare function buildIndex(path?: string | undefined | null, options?: IndexOptions | undefined | null): IndexStatus
 /**
  * Get the status of an existing index
  *
@@ -853,7 +853,7 @@ export interface RepoChunk {
  * Useful for processing large repositories that exceed LLM context limits.
  *
  * # Arguments
- * * `path` - Path to repository root
+ * * `path` - Path to repository root (null/undefined returns error)
  * * `options` - Optional chunking options
  *
  * # Returns
@@ -875,7 +875,7 @@ export interface RepoChunk {
  * }
  * ```
  */
-export declare function chunk(path: string, options?: ChunkOptions | undefined | null): Array<RepoChunk>
+export declare function chunk(path?: string | undefined | null, options?: ChunkOptions | undefined | null): Array<RepoChunk>
 /** Options for impact analysis */
 export interface ImpactOptions {
   /** Depth of dependency traversal (1-3, default: 2) */
@@ -1068,7 +1068,7 @@ export declare function scanAsync(path?: string | undefined | null, model?: stri
  * const status = await buildIndexAsync('./my-repo', { force: true });
  * ```
  */
-export declare function buildIndexAsync(path: string, options?: IndexOptions | undefined | null): Promise<IndexStatus>
+export declare function buildIndexAsync(path?: string | undefined | null, options?: IndexOptions | undefined | null): Promise<IndexStatus>
 /**
  * Async version of chunk
  *
@@ -1079,7 +1079,7 @@ export declare function buildIndexAsync(path: string, options?: IndexOptions | u
  * const chunks = await chunkAsync('./large-repo', { maxTokens: 50000 });
  * ```
  */
-export declare function chunkAsync(path: string, options?: ChunkOptions | undefined | null): Promise<Array<RepoChunk>>
+export declare function chunkAsync(path?: string | undefined | null, options?: ChunkOptions | undefined | null): Promise<Array<RepoChunk>>
 /**
  * Async version of analyzeImpact
  *
@@ -1245,8 +1245,8 @@ export declare function getTestsForFile(path: string, filePath: string): Array<s
  * Requires an index to be built first (use `buildIndex`).
  *
  * # Arguments
- * * `path` - Path to repository root
- * * `symbol_name` - Name of the symbol to find call sites for
+ * * `path` - Path to repository root (null/undefined returns error)
+ * * `symbol_name` - Name of the symbol to find call sites for (null/undefined returns error)
  *
  * # Returns
  * Array of call sites with caller information and line numbers
@@ -1263,7 +1263,7 @@ export declare function getTestsForFile(path: string, filePath: string): Array<s
  * }
  * ```
  */
-export declare function getCallSites(path: string, symbolName: string): Array<CallSite>
+export declare function getCallSites(path?: string | undefined | null, symbolName?: string | undefined | null): Array<CallSite>
 /** Async version of getSymbolsInFile */
 export declare function getSymbolsInFileAsync(path: string, filePath: string, filter?: SymbolFilter | undefined | null): Promise<Array<SymbolInfo>>
 /** Async version of getSymbolSource */
@@ -1273,7 +1273,7 @@ export declare function getChangedSymbolsAsync(path: string, fromRef: string, to
 /** Async version of getTestsForFile */
 export declare function getTestsForFileAsync(path: string, filePath: string): Promise<Array<string>>
 /** Async version of getCallSites */
-export declare function getCallSitesAsync(path: string, symbolName: string): Promise<Array<CallSite>>
+export declare function getCallSitesAsync(path?: string | undefined | null, symbolName?: string | undefined | null): Promise<Array<CallSite>>
 /** Options for filtering changed symbols (Feature #6) */
 export interface ChangedSymbolsFilter {
   /**
@@ -1364,8 +1364,8 @@ export interface TransitiveCallersOptions {
  * of the specified symbol, up to a maximum depth.
  *
  * # Arguments
- * * `path` - Path to repository root
- * * `symbol_name` - Name of the symbol to find callers for
+ * * `path` - Path to repository root (null/undefined returns error)
+ * * `symbol_name` - Name of the symbol to find callers for (null/undefined returns error)
  * * `options` - Optional query options
  *
  * # Returns
@@ -1382,7 +1382,7 @@ export interface TransitiveCallersOptions {
  * }
  * ```
  */
-export declare function getTransitiveCallers(path: string, symbolName: string, options?: TransitiveCallersOptions | undefined | null): Array<TransitiveCallerInfo>
+export declare function getTransitiveCallers(path?: string | undefined | null, symbolName?: string | undefined | null, options?: TransitiveCallersOptions | undefined | null): Array<TransitiveCallerInfo>
 /** A call site with surrounding context (Feature #9) */
 export interface CallSiteWithContext {
   /** Name of the calling function/method */
@@ -1420,8 +1420,8 @@ export interface CallSitesContextOptions {
  * for each call site, useful for AI-powered code review.
  *
  * # Arguments
- * * `path` - Path to repository root
- * * `symbol_name` - Name of the symbol to find call sites for
+ * * `path` - Path to repository root (null/undefined returns error)
+ * * `symbol_name` - Name of the symbol to find call sites for (null/undefined returns error)
  * * `options` - Optional context options
  *
  * # Returns
@@ -1442,13 +1442,13 @@ export interface CallSitesContextOptions {
  * }
  * ```
  */
-export declare function getCallSitesWithContext(path: string, symbolName: string, options?: CallSitesContextOptions | undefined | null): Array<CallSiteWithContext>
+export declare function getCallSitesWithContext(path?: string | undefined | null, symbolName?: string | undefined | null, options?: CallSitesContextOptions | undefined | null): Array<CallSiteWithContext>
 /** Async version of getChangedSymbolsFiltered */
 export declare function getChangedSymbolsFilteredAsync(path: string, fromRef: string, toRef: string, filter?: ChangedSymbolsFilter | undefined | null): Promise<Array<ChangedSymbolInfo>>
 /** Async version of getTransitiveCallers */
-export declare function getTransitiveCallersAsync(path: string, symbolName: string, options?: TransitiveCallersOptions | undefined | null): Promise<Array<TransitiveCallerInfo>>
+export declare function getTransitiveCallersAsync(path?: string | undefined | null, symbolName?: string | undefined | null, options?: TransitiveCallersOptions | undefined | null): Promise<Array<TransitiveCallerInfo>>
 /** Async version of getCallSitesWithContext */
-export declare function getCallSitesWithContextAsync(path: string, symbolName: string, options?: CallSitesContextOptions | undefined | null): Promise<Array<CallSiteWithContext>>
+export declare function getCallSitesWithContextAsync(path?: string | undefined | null, symbolName?: string | undefined | null, options?: CallSitesContextOptions | undefined | null): Promise<Array<CallSiteWithContext>>
 /** Infiniloom class for advanced usage */
 export declare class Infiniloom {
   /**

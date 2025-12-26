@@ -7,9 +7,9 @@ use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use std::path::Path;
 
-use crate::parser::detect_file_language;
 use super::common::is_binary_extension;
 use super::{FileInfo, ScannerConfig};
+use crate::parser::detect_file_language;
 
 /// Collect file information (paths, sizes) without reading content
 ///
@@ -85,7 +85,9 @@ pub fn collect_file_infos(base_path: &Path, config: &ScannerConfig) -> Result<Ve
 /// This is a lighter version that doesn't detect languages.
 /// Useful when language detection will happen during content processing.
 pub fn collect_file_paths(base_path: &Path, config: &ScannerConfig) -> Result<Vec<FileInfo>> {
-    let base_path = base_path.canonicalize().context("Invalid repository path")?;
+    let base_path = base_path
+        .canonicalize()
+        .context("Invalid repository path")?;
     let mut file_infos = Vec::new();
 
     let walker = WalkBuilder::new(&base_path)

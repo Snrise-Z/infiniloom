@@ -483,16 +483,16 @@ test('pack with tokenBudget limits output size', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-budget-'))
   t.after(() => cleanup(dir))
 
-  // Create multiple files
-  for (let i = 0; i < 10; i++) {
-    const content = `def function_${i}():\n` + '    pass\n'.repeat(50)
+  // Create multiple larger files (each ~200+ tokens)
+  for (let i = 0; i < 20; i++) {
+    const content = `def function_${i}():\n` + '    print("line")\n'.repeat(100)
     fs.writeFileSync(path.join(dir, `file${i}.py`), content)
   }
 
-  // Pack with a small token budget
+  // Pack with minimum valid token budget
   const output = pack(dir, {
     format: 'json',
-    tokenBudget: 500,  // Very small budget
+    tokenBudget: 1000,  // Minimum valid budget
     skipSymbols: true,
   })
 
@@ -500,7 +500,7 @@ test('pack with tokenBudget limits output size', (t) => {
   const files = parsed.repository.files
 
   // With a small budget, we should get fewer files than without budget
-  assert.ok(files.length < 10, `Token budget should limit files (got ${files.length})`)
+  assert.ok(files.length < 20, `Token budget should limit files (got ${files.length})`)
   assert.ok(files.length >= 1, 'Should include at least one file')
 })
 
@@ -689,6 +689,7 @@ const {
   getCallSites,
   analyzeImpact,
   getDiffContext,
+  chunk,
 } = require('..')
 
 // Helper to create a git repo with multiple files for testing diff/index features
@@ -2237,13 +2238,16 @@ test('pack with tokenBudget=-100 throws error', (t) => {
   )
 })
 
-test('pack with tokenBudget=0 is accepted (no limit)', (t) => {
+test('pack with tokenBudget=0 throws validation error', (t) => {
   const dir = createTempRepo()
   t.after(() => cleanup(dir))
 
-  // tokenBudget=0 means "no limit" which should work
-  const output = pack(dir, { format: 'json', tokenBudget: 0 })
-  assert.ok(output.length > 0, 'tokenBudget=0 should work as no limit')
+  // tokenBudget=0 is now rejected - omit the parameter for no limit
+  assert.throws(
+    () => pack(dir, { format: 'json', tokenBudget: 0 }),
+    /tokenBudget cannot be 0|Omit the parameter for no limit/i,
+    'tokenBudget=0 should throw validation error'
+  )
 })
 
 // ============================================================================
@@ -2793,4 +2797,140 @@ test('Infiniloom handles empty path in constructor', () => {
     /Path does not exist|empty/i,
     'new Infiniloom("") should throw error'
   )
+})
+
+// ============================================================================
+// Bug fix regression tests (v0.4.9)
+// Tests for the 5 critical null crashes and parameter edge cases
+// ============================================================================
+
+test('getCallSites handles null path gracefully', (t) => {
+  assert.throws(
+    () => getCallSites(null, 'authenticate'),
+    /Path cannot be null|cannot be null or undefined|Null/i,
+    'getCallSites(null, ...) should throw clean error'
+  )
+})
+
+test('getCallSites handles null symbolName gracefully', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getCallSites(dir, null),
+    /Symbol name cannot be null|cannot be null or undefined|Null/i,
+    'getCallSites(path, null) should throw clean error'
+  )
+})
+
+test('getTransitiveCallers handles null path gracefully', (t) => {
+  assert.throws(
+    () => getTransitiveCallers(null, 'authenticate'),
+    /Path cannot be null|cannot be null or undefined|Null/i,
+    'getTransitiveCallers(null, ...) should throw clean error'
+  )
+})
+
+test('getTransitiveCallers handles null symbolName gracefully', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getTransitiveCallers(dir, null),
+    /Symbol name cannot be null|cannot be null or undefined|Null/i,
+    'getTransitiveCallers(path, null) should throw clean error'
+  )
+})
+
+test('getTransitiveCallers with maxDepth=0 returns empty array', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = getTransitiveCallers(dir, 'authenticate', { maxDepth: 0 })
+
+  assert.ok(Array.isArray(result), 'should return array')
+  assert.strictEqual(result.length, 0, 'maxDepth=0 should return empty array (no traversal)')
+})
+
+test('getCallSitesWithContext handles null path gracefully', (t) => {
+  assert.throws(
+    () => getCallSitesWithContext(null, 'authenticate'),
+    /Path cannot be null|cannot be null or undefined|Null/i,
+    'getCallSitesWithContext(null, ...) should throw clean error'
+  )
+})
+
+test('getCallSitesWithContext handles null symbolName gracefully', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => getCallSitesWithContext(dir, null),
+    /Symbol name cannot be null|cannot be null or undefined|Null/i,
+    'getCallSitesWithContext(path, null) should throw clean error'
+  )
+})
+
+test('buildIndex handles null path gracefully', (t) => {
+  assert.throws(
+    () => buildIndex(null),
+    /Path cannot be null|cannot be null or undefined|Null/i,
+    'buildIndex(null) should throw clean error'
+  )
+})
+
+test('chunk handles null path gracefully', (t) => {
+  assert.throws(
+    () => chunk(null),
+    /Path cannot be null|cannot be null or undefined|Null/i,
+    'chunk(null) should throw clean error'
+  )
+})
+
+test('chunk with maxTokens=0 throws validation error', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => chunk(dir, { maxTokens: 0 }),
+    /max_tokens cannot be 0|too small|cannot be 0/i,
+    'chunk with maxTokens=0 should throw validation error'
+  )
+})
+
+test('chunk with maxTokens below minimum throws validation error', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  assert.throws(
+    () => chunk(dir, { maxTokens: 50 }),
+    /too small|minimum is 100/i,
+    'chunk with maxTokens=50 should throw validation error (minimum is 100)'
+  )
+})
+
+test('getCallGraph with maxNodes=0 returns empty graph', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = getCallGraph(dir, { maxNodes: 0 })
+
+  assert.ok(result, 'should return result')
+  assert.ok(Array.isArray(result.nodes), 'should have nodes array')
+  assert.ok(Array.isArray(result.edges), 'should have edges array')
+  assert.strictEqual(result.nodes.length, 0, 'maxNodes=0 should return empty nodes')
+  assert.strictEqual(result.edges.length, 0, 'maxNodes=0 should return empty edges')
+})
+
+test('getCallGraph with maxEdges=0 returns empty graph', (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = getCallGraph(dir, { maxEdges: 0 })
+
+  assert.ok(result, 'should return result')
+  assert.ok(Array.isArray(result.nodes), 'should have nodes array')
+  assert.ok(Array.isArray(result.edges), 'should have edges array')
+  assert.strictEqual(result.nodes.length, 0, 'maxEdges=0 should return empty nodes')
+  assert.strictEqual(result.edges.length, 0, 'maxEdges=0 should return empty edges')
 })

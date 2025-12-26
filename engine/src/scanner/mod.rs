@@ -38,9 +38,8 @@ pub use io::{smart_read_file, smart_read_file_with_options, MMAP_THRESHOLD};
 pub use parallel::{scan_repository, UnifiedScanner};
 pub use pipelined::scan_files_pipelined;
 pub use process::{
-    count_tokens, count_tokens_accurate, estimate_lines, estimate_tokens,
-    parse_with_thread_local, process_file_content_only, process_file_with_content,
-    process_file_without_content,
+    count_tokens, count_tokens_accurate, estimate_lines, estimate_tokens, parse_with_thread_local,
+    process_file_content_only, process_file_with_content, process_file_without_content,
 };
 pub use walk::{collect_file_infos, collect_file_paths};
 
@@ -79,7 +78,6 @@ pub struct ScannerConfig {
     pub skip_symbols: bool,
 
     // Performance tuning options
-
     /// Use memory-mapped I/O for files >= MMAP_THRESHOLD (1MB)
     /// Default: true
     pub use_mmap: bool,
@@ -126,10 +124,7 @@ impl ScannerConfig {
 
     /// Create config for accurate API-style scanning
     pub fn accurate() -> Self {
-        Self {
-            accurate_tokens: true,
-            ..Default::default()
-        }
+        Self { accurate_tokens: true, ..Default::default() }
     }
 }
 
@@ -151,22 +146,12 @@ pub struct FileInfo {
 impl FileInfo {
     /// Create a new FileInfo with required fields
     pub fn new(path: PathBuf, relative_path: String) -> Self {
-        Self {
-            path,
-            relative_path,
-            size_bytes: None,
-            language: None,
-        }
+        Self { path, relative_path, size_bytes: None, language: None }
     }
 
     /// Create FileInfo with size information
     pub fn with_size(path: PathBuf, relative_path: String, size_bytes: u64) -> Self {
-        Self {
-            path,
-            relative_path,
-            size_bytes: Some(size_bytes),
-            language: None,
-        }
+        Self { path, relative_path, size_bytes: Some(size_bytes), language: None }
     }
 
     /// Set the detected language
@@ -221,7 +206,8 @@ mod tests {
 
     #[test]
     fn test_file_info_with_size() {
-        let info = FileInfo::with_size(PathBuf::from("/path/to/file.rs"), "file.rs".to_string(), 1024);
+        let info =
+            FileInfo::with_size(PathBuf::from("/path/to/file.rs"), "file.rs".to_string(), 1024);
         assert_eq!(info.size_bytes, Some(1024));
     }
 

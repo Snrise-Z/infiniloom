@@ -18,8 +18,8 @@ use std::path::Path;
 
 use infiniloom_engine::dependencies::DependencyGraph;
 use infiniloom_engine::scanner::{
-    collect_file_infos, scan_files_pipelined, smart_read_file_with_options,
-    FileInfo, ScannerConfig, PIPELINE_THRESHOLD,
+    collect_file_infos, scan_files_pipelined, smart_read_file_with_options, FileInfo,
+    ScannerConfig, PIPELINE_THRESHOLD,
 };
 use infiniloom_engine::types::{LanguageStats, RepoFile, RepoMetadata, Repository, TokenCounts};
 use infiniloom_engine::RepoCache;
@@ -119,7 +119,11 @@ pub(crate) fn scan_repository_with_cache(
 
                 let mut content = None;
                 if !needs_rescan && scanner_config.read_contents {
-                    content = smart_read_file_with_options(&info.path, cached.size, scanner_config.use_mmap);
+                    content = smart_read_file_with_options(
+                        &info.path,
+                        cached.size,
+                        scanner_config.use_mmap,
+                    );
                     if let Some(ref content_str) = content {
                         if cached.hash != 0 {
                             let content_hash = infiniloom_engine::incremental::hash_content(
@@ -185,12 +189,7 @@ pub(crate) fn scan_repository_with_cache(
     // Phase 4: Add CLI-specific metadata
     let metadata = build_cli_metadata(&path, &files);
 
-    Ok(Repository {
-        name: repo_name,
-        path,
-        files,
-        metadata,
-    })
+    Ok(Repository { name: repo_name, path, files, metadata })
 }
 
 /// Scan a repository and return a Repository struct
@@ -225,18 +224,13 @@ pub(crate) fn scan_repository(path: &Path, config: ScanConfig) -> Result<Reposit
     // Phase 3: Add CLI-specific metadata
     let metadata = build_cli_metadata(&path, &files);
 
-    Ok(Repository {
-        name: repo_name,
-        path,
-        files,
-        metadata,
-    })
+    Ok(Repository { name: repo_name, path, files, metadata })
 }
 
 /// Process files in parallel (for small repos or skip-symbols mode)
 fn process_files_parallel(file_infos: Vec<FileInfo>, config: &ScannerConfig) -> Vec<RepoFile> {
-    use rayon::prelude::*;
     use infiniloom_engine::scanner::{process_file_content_only, process_file_with_content};
+    use rayon::prelude::*;
 
     if config.skip_symbols {
         file_infos
@@ -252,7 +246,10 @@ fn process_files_parallel(file_infos: Vec<FileInfo>, config: &ScannerConfig) -> 
 }
 
 /// Process files without reading content
-fn process_files_without_content(file_infos: Vec<FileInfo>, config: &ScannerConfig) -> Vec<RepoFile> {
+fn process_files_without_content(
+    file_infos: Vec<FileInfo>,
+    config: &ScannerConfig,
+) -> Vec<RepoFile> {
     use infiniloom_engine::scanner::process_file_without_content;
 
     file_infos
@@ -384,9 +381,9 @@ fn detect_git_commit(path: &Path) -> Option<String> {
         // Follow ref
         let ref_path = content.trim_start_matches("ref: ").trim();
         let full_path = path.join(".git").join(ref_path);
-        std::fs::read_to_string(full_path).ok().map(|s| {
-            s.trim().chars().take(7).collect()
-        })
+        std::fs::read_to_string(full_path)
+            .ok()
+            .map(|s| s.trim().chars().take(7).collect())
     } else {
         // Detached HEAD
         Some(content.trim().chars().take(7).collect())

@@ -12,7 +12,10 @@ use std::path::Path;
 use crate::types::{LanguageStats, RepoFile, RepoMetadata, Repository};
 
 use super::pipelined::scan_files_pipelined;
-use super::process::{estimate_lines, process_file_content_only, process_file_with_content, process_file_without_content};
+use super::process::{
+    estimate_lines, process_file_content_only, process_file_with_content,
+    process_file_without_content,
+};
 use super::walk::collect_file_infos;
 use super::{FileInfo, ScannerConfig, PIPELINE_THRESHOLD};
 
@@ -100,12 +103,7 @@ pub fn scan_repository(path: &Path, config: ScannerConfig) -> Result<Repository>
     // Phase 3: Aggregate statistics
     let metadata = compute_metadata(&files);
 
-    Ok(Repository {
-        name: repo_name,
-        path,
-        files,
-        metadata,
-    })
+    Ok(Repository { name: repo_name, path, files, metadata })
 }
 
 /// Process files using the appropriate strategy based on count and config
@@ -212,12 +210,7 @@ fn compute_metadata(files: &[RepoFile]) -> RepoMetadata {
             } else {
                 0.0
             };
-            LanguageStats {
-                language: lang,
-                files: count,
-                lines,
-                percentage,
-            }
+            LanguageStats { language: lang, files: count, lines, percentage }
         })
         .collect();
 
@@ -320,10 +313,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
 
-        let config = ScannerConfig {
-            skip_symbols: true,
-            ..Default::default()
-        };
+        let config = ScannerConfig { skip_symbols: true, ..Default::default() };
         let repo = scan_repository(dir.path(), config).unwrap();
 
         assert_eq!(repo.files.len(), 1);
@@ -335,10 +325,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
 
-        let config = ScannerConfig {
-            read_contents: false,
-            ..Default::default()
-        };
+        let config = ScannerConfig { read_contents: false, ..Default::default() };
         let repo = scan_repository(dir.path(), config).unwrap();
 
         assert_eq!(repo.files.len(), 1);
@@ -360,29 +347,27 @@ mod tests {
 
     #[test]
     fn test_compute_metadata() {
-        let files = vec![
-            RepoFile {
-                path: std::path::PathBuf::from("test.rs"),
-                relative_path: "test.rs".to_string(),
-                language: Some("rust".to_string()),
-                size_bytes: 100,
-                token_count: crate::tokenizer::TokenCounts {
-                    o200k: 25,
-                    cl100k: 27,
-                    claude: 28,
-                    gemini: 26,
-                    llama: 28,
-                    mistral: 28,
-                    deepseek: 28,
-                    qwen: 28,
-                    cohere: 27,
-                    grok: 28,
-                },
-                symbols: vec![],
-                importance: 0.5,
-                content: Some("fn main() {\n    println!(\"hello\");\n}".to_string()),
+        let files = vec![RepoFile {
+            path: std::path::PathBuf::from("test.rs"),
+            relative_path: "test.rs".to_string(),
+            language: Some("rust".to_string()),
+            size_bytes: 100,
+            token_count: crate::tokenizer::TokenCounts {
+                o200k: 25,
+                cl100k: 27,
+                claude: 28,
+                gemini: 26,
+                llama: 28,
+                mistral: 28,
+                deepseek: 28,
+                qwen: 28,
+                cohere: 27,
+                grok: 28,
             },
-        ];
+            symbols: vec![],
+            importance: 0.5,
+            content: Some("fn main() {\n    println!(\"hello\");\n}".to_string()),
+        }];
 
         let metadata = compute_metadata(&files);
 
@@ -416,9 +401,8 @@ mod tests {
             ..Default::default()
         };
 
-        let files = process_files_batched(infos, &config, |info, cfg| {
-            process_file_content_only(info, cfg)
-        });
+        let files =
+            process_files_batched(infos, &config, |info, cfg| process_file_content_only(info, cfg));
 
         assert_eq!(files.len(), 10);
     }

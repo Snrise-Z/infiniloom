@@ -37,7 +37,11 @@ pub fn smart_read_file(path: &Path, size_bytes: u64) -> Option<String> {
 ///
 /// # Returns
 /// `Some(content)` if successful, `None` otherwise
-pub fn smart_read_file_with_options(path: &Path, size_bytes: u64, use_mmap: bool) -> Option<String> {
+pub fn smart_read_file_with_options(
+    path: &Path,
+    size_bytes: u64,
+    use_mmap: bool,
+) -> Option<String> {
     if use_mmap && size_bytes >= MMAP_THRESHOLD {
         read_file_mmap(path)
     } else {

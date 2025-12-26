@@ -54,7 +54,10 @@ struct FileContent {
 ///
 /// # Returns
 /// Vector of processed RepoFile structs
-pub fn scan_files_pipelined(file_infos: Vec<FileInfo>, config: &ScannerConfig) -> Result<Vec<RepoFile>> {
+pub fn scan_files_pipelined(
+    file_infos: Vec<FileInfo>,
+    config: &ScannerConfig,
+) -> Result<Vec<RepoFile>> {
     // Handle empty input
     if file_infos.is_empty() {
         return Ok(Vec::new());
@@ -283,10 +286,7 @@ mod tests {
             language: Some("rust".to_string()),
         }];
 
-        let config = ScannerConfig {
-            skip_symbols: true,
-            ..Default::default()
-        };
+        let config = ScannerConfig { skip_symbols: true, ..Default::default() };
         let files = scan_files_pipelined(infos, &config).unwrap();
 
         assert_eq!(files.len(), 1);
@@ -306,10 +306,7 @@ mod tests {
             language: Some("rust".to_string()),
         }];
 
-        let config = ScannerConfig {
-            accurate_tokens: true,
-            ..Default::default()
-        };
+        let config = ScannerConfig { accurate_tokens: true, ..Default::default() };
         let files = scan_files_pipelined(infos, &config).unwrap();
 
         assert_eq!(files.len(), 1);

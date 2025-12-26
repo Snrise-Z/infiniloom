@@ -72,7 +72,7 @@ pub fn load_file_lines<P: AsRef<Path>>(
             let lines: Vec<String> = content.lines().map(String::from).collect();
             cache.insert(file_path.to_string(), lines.clone());
             Some(lines)
-        }
+        },
         Err(_) => None,
     }
 }
@@ -124,11 +124,7 @@ pub fn get_line_context<P: AsRef<Path>>(
         })
         .collect();
 
-    (
-        Some(context_lines.join("\n")),
-        Some((start_idx + 1) as u32),
-        Some(end_idx as u32),
-    )
+    (Some(context_lines.join("\n")), Some((start_idx + 1) as u32), Some(end_idx as u32))
 }
 
 /// Find a function call within a range of lines.

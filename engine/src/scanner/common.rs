@@ -11,22 +11,15 @@ use std::path::Path;
 /// media files, documents, fonts, and databases.
 pub const BINARY_EXTENSIONS: &[&str] = &[
     // Executables and libraries
-    "exe", "dll", "so", "dylib", "a", "o", "obj", "lib",
-    // Compiled bytecode
-    "pyc", "pyo", "class", "jar", "war", "ear",
-    // Archives
-    "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "tgz",
-    // Images
+    "exe", "dll", "so", "dylib", "a", "o", "obj", "lib", // Compiled bytecode
+    "pyc", "pyo", "class", "jar", "war", "ear", // Archives
+    "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "tgz", // Images
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg", "tiff", "psd",
     // Audio/Video
-    "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg", "webm", "mkv",
-    // Documents
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt",
-    // Fonts
-    "woff", "woff2", "ttf", "eot", "otf",
-    // Database
-    "db", "sqlite", "sqlite3",
-    // Misc binary
+    "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg", "webm", "mkv", // Documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", // Fonts
+    "woff", "woff2", "ttf", "eot", "otf", // Database
+    "db", "sqlite", "sqlite3", // Misc binary
     "bin", "dat", "cache",
 ];
 
@@ -204,7 +197,9 @@ mod tests {
     #[test]
     fn test_binary_content_control_chars() {
         // Content with control characters
-        let control: Vec<u8> = (0..32).filter(|&b| b != b'\n' && b != b'\r' && b != b'\t').collect();
+        let control: Vec<u8> = (0..32)
+            .filter(|&b| b != b'\n' && b != b'\r' && b != b'\t')
+            .collect();
         let mut content = control.repeat(10);
         content.extend(b"some text");
         // This should be detected as binary due to many control chars
