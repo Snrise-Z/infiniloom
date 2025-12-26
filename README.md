@@ -69,12 +69,6 @@ The result is a context package that helps AI give you accurate, relevant answer
 - **Improve answer accuracy** — Relevant context produces relevant answers
 - **Enable code-aware agents** — Give autonomous systems the context they need to act correctly
 
-### For Non-Engineers
-
-- **Understand what a system does** — Ask questions about code in plain English
-- **Review system logic** — Audit how software makes decisions without reading code yourself
-- **Communicate with engineering** — Use AI as a translator between technical and non-technical perspectives
-
 ---
 
 ## Quick Start
