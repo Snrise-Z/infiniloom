@@ -200,7 +200,6 @@ impl Tokenizer {
         estimate_from_stats(&stats, model)
     }
 
-
     /// Count tokens for all supported models at once.
     ///
     /// **Optimized**: Computes hash once, estimation stats once, and reuses them
@@ -217,7 +216,11 @@ impl Tokenizer {
 
         // Compute hash once for cache lookups
         let content_hash = hash_content(text);
-        let cache = if self.use_cache { Some(get_token_cache()) } else { None };
+        let cache = if self.use_cache {
+            Some(get_token_cache())
+        } else {
+            None
+        };
 
         // Helper to get cached or compute exact count
         let get_exact = |model: TokenModel, tokenizer: &CoreBPE| -> u32 {
@@ -366,19 +369,14 @@ fn compute_estimation_stats(text: &str) -> EstimationStats {
         match byte {
             b' ' | b'\t' => whitespace_count += 1,
             b'\n' => newline_count += 1,
-            b'{' | b'}' | b'(' | b')' | b'[' | b']' | b';' | b':' | b',' | b'.' | b'='
-            | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'!' | b'&' | b'|' | b'@' | b'#'
-            | b'$' | b'%' | b'^' | b'~' | b'`' | b'"' | b'\'' => special_char_count += 1,
-            _ => {}
+            b'{' | b'}' | b'(' | b')' | b'[' | b']' | b';' | b':' | b',' | b'.' | b'=' | b'+'
+            | b'-' | b'*' | b'/' | b'<' | b'>' | b'!' | b'&' | b'|' | b'@' | b'#' | b'$' | b'%'
+            | b'^' | b'~' | b'`' | b'"' | b'\'' => special_char_count += 1,
+            _ => {},
         }
     }
 
-    EstimationStats {
-        len: text.len(),
-        whitespace_count,
-        newline_count,
-        special_char_count,
-    }
+    EstimationStats { len: text.len(), whitespace_count, newline_count, special_char_count }
 }
 
 /// Estimate tokens from pre-computed stats for a specific model.

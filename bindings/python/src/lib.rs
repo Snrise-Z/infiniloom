@@ -99,6 +99,92 @@ fn read_contents_parallel(repo: &mut Repository) {
     });
 }
 
+/// Recalculate repository metadata after content is read
+fn recalculate_metadata(repo: &mut Repository) {
+    use infiniloom_engine::tokenizer::Tokenizer;
+    use infiniloom_engine::types::{LanguageStats, TokenCounts};
+    use std::collections::HashMap;
+
+    // Recalculate token counts for each file
+    let tokenizer = Tokenizer::new();
+    for file in &mut repo.files {
+        if let Some(ref content) = file.content {
+            let counts = tokenizer.count_all(content);
+            file.token_count = TokenCounts {
+                o200k: counts.o200k,
+                cl100k: counts.cl100k,
+                claude: counts.claude,
+                gemini: counts.gemini,
+                llama: counts.llama,
+                mistral: counts.mistral,
+                deepseek: counts.deepseek,
+                qwen: counts.qwen,
+                cohere: counts.cohere,
+                grok: counts.grok,
+            };
+        }
+    }
+
+    // Update total files
+    repo.metadata.total_files = repo.files.len() as u32;
+
+    // Recalculate total lines
+    repo.metadata.total_lines = repo
+        .files
+        .iter()
+        .map(|f| {
+            f.content
+                .as_ref()
+                .map(|c| c.lines().count() as u64)
+                .unwrap_or_else(|| f.size_bytes / 40)
+        })
+        .sum();
+
+    // Recalculate total tokens
+    repo.metadata.total_tokens = TokenCounts {
+        o200k: repo.files.iter().map(|f| f.token_count.o200k).sum(),
+        cl100k: repo.files.iter().map(|f| f.token_count.cl100k).sum(),
+        claude: repo.files.iter().map(|f| f.token_count.claude).sum(),
+        gemini: repo.files.iter().map(|f| f.token_count.gemini).sum(),
+        llama: repo.files.iter().map(|f| f.token_count.llama).sum(),
+        mistral: repo.files.iter().map(|f| f.token_count.mistral).sum(),
+        deepseek: repo.files.iter().map(|f| f.token_count.deepseek).sum(),
+        qwen: repo.files.iter().map(|f| f.token_count.qwen).sum(),
+        cohere: repo.files.iter().map(|f| f.token_count.cohere).sum(),
+        grok: repo.files.iter().map(|f| f.token_count.grok).sum(),
+    };
+
+    // Recalculate language statistics
+    let mut language_counts: HashMap<String, (u32, u64)> = HashMap::new();
+    for file in &repo.files {
+        if let Some(ref lang) = file.language {
+            let entry = language_counts.entry(lang.clone()).or_insert((0, 0));
+            entry.0 += 1;
+            let file_lines = file
+                .content
+                .as_ref()
+                .map(|c| c.lines().count() as u64)
+                .unwrap_or_else(|| file.size_bytes / 40);
+            entry.1 += file_lines;
+        }
+    }
+
+    let total_files = repo.metadata.total_files;
+    let mut languages: Vec<LanguageStats> = language_counts
+        .into_iter()
+        .map(|(lang, (count, lines))| {
+            let percentage = if total_files > 0 {
+                (count as f32 / total_files as f32) * 100.0
+            } else {
+                0.0
+            };
+            LanguageStats { language: lang, files: count, lines, percentage }
+        })
+        .collect();
+    languages.sort_by(|a, b| b.files.cmp(&a.files));
+    repo.metadata.languages = languages;
+}
+
 /// Read file contents and optionally extract symbols in parallel
 ///
 /// When extract_symbols is true, uses thread-local Parser for symbol extraction.
@@ -282,6 +368,9 @@ fn scan(
     // STEP 3: Now read content only for filtered files (much faster!)
     read_contents_parallel(&mut repo);
 
+    // STEP 4: Recalculate metadata now that content is available
+    recalculate_metadata(&mut repo);
+
     // Convert to Python dict
     let dict = PyDict::new(py);
     dict.set_item("name", repo.name)?;
@@ -384,6 +473,7 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
 
     // STEP 2: Read content only for filtered files (much faster!)
     read_contents_parallel(&mut repo);
+    recalculate_metadata(&mut repo);
 
     let scanner = SecurityScanner::new();
     let mut all_findings = Vec::new();

@@ -127,9 +127,8 @@ pub(crate) fn scan_repository_with_cache(
                         cached.size,
                         scanner_config.use_mmap,
                     ) {
-                        let content_hash = infiniloom_engine::incremental::hash_content(
-                            content_str.as_bytes(),
-                        );
+                        let content_hash =
+                            infiniloom_engine::incremental::hash_content(content_str.as_bytes());
                         if cache.needs_rescan_with_hash(
                             &info.relative_path,
                             mtime,
