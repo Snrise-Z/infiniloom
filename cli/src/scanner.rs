@@ -118,28 +118,36 @@ pub(crate) fn scan_repository_with_cache(
                 }
 
                 let mut content = None;
-                if !needs_rescan && scanner_config.read_contents {
+                // Check content hash for cache validation when hash exists
+                // This is needed even when read_contents=false (filter-first pattern)
+                // because hash-based invalidation detects changes when mtime/size unchanged
+                if !needs_rescan && cached.hash != 0 {
+                    if let Some(content_str) = smart_read_file_with_options(
+                        &info.path,
+                        cached.size,
+                        scanner_config.use_mmap,
+                    ) {
+                        let content_hash = infiniloom_engine::incremental::hash_content(
+                            content_str.as_bytes(),
+                        );
+                        if cache.needs_rescan_with_hash(
+                            &info.relative_path,
+                            mtime,
+                            size_bytes,
+                            content_hash,
+                        ) {
+                            needs_rescan = true;
+                        } else if scanner_config.read_contents {
+                            // Keep content if we were going to read it anyway
+                            content = Some(content_str);
+                        }
+                    }
+                } else if !needs_rescan && scanner_config.read_contents {
                     content = smart_read_file_with_options(
                         &info.path,
                         cached.size,
                         scanner_config.use_mmap,
                     );
-                    if let Some(ref content_str) = content {
-                        if cached.hash != 0 {
-                            let content_hash = infiniloom_engine::incremental::hash_content(
-                                content_str.as_bytes(),
-                            );
-                            if cache.needs_rescan_with_hash(
-                                &info.relative_path,
-                                mtime,
-                                size_bytes,
-                                content_hash,
-                            ) {
-                                needs_rescan = true;
-                                content = None;
-                            }
-                        }
-                    }
                 }
 
                 if needs_rescan {
@@ -176,10 +184,18 @@ pub(crate) fn scan_repository_with_cache(
     }
 
     // Phase 3: Process only changed files using engine's pipelined scanner
-    let scanned_files = if scanner_config.read_contents && !files_to_scan.is_empty() {
-        scan_files_pipelined(files_to_scan, &scanner_config)?
+    // Note: Even when read_contents=false (filter-first pattern), we need to read and parse
+    // files that need rescanning when symbols are required, otherwise symbols won't be extracted
+    let scanned_files = if !files_to_scan.is_empty() {
+        if scanner_config.read_contents || !scanner_config.skip_symbols {
+            // Need content for token counting or symbol extraction
+            scan_files_pipelined(files_to_scan, &scanner_config)?
+        } else {
+            // Just metadata, no content or symbols needed
+            process_files_without_content(files_to_scan, &scanner_config)
+        }
     } else {
-        process_files_without_content(files_to_scan, &scanner_config)
+        Vec::new()
     };
 
     // Merge cached and scanned files

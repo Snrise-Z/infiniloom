@@ -320,9 +320,10 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
     let include_related = opts.include_related.unwrap_or(false);
     let related_depth = opts.related_depth.unwrap_or(1).clamp(1, 3);
 
-    // Scan repository (with contents for packing)
-    let mut repo = scan_repository_with_options(&path, true, skip_symbols)?;
+    // STEP 1: Fast file list without reading content (filter-first optimization)
+    let mut repo = scan_repository_with_options(&path, false, true)?;
 
+    // STEP 2: Apply all filters BEFORE reading content
     // Apply default ignores to filter out build outputs, dependencies, etc.
     repo.files
         .retain(|f| !matches_any(&f.relative_path, DEFAULT_IGNORES));
@@ -346,6 +347,9 @@ pub fn pack(path: Option<String>, options: Option<PackOptions>) -> Result<String
         repo.files
             .retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
     }
+
+    // STEP 3: Read content and optionally extract symbols for filtered files
+    read_contents_and_symbols_parallel(&mut repo, !skip_symbols);
 
     // Filter to changed files only (if enabled)
     if changed_only {
@@ -588,8 +592,10 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
     let apply_default_ignores = opts.apply_default_ignores.unwrap_or(true);
     let include_tests = opts.include_tests.unwrap_or(false);
 
-    let mut repo = scan_repository(&path, true)?;
+    // STEP 1: Fast file list without reading content (filter-first optimization)
+    let mut repo = scan_repository(&path, false)?;
 
+    // STEP 2: Apply all filters BEFORE reading content
     // Apply default ignores (Bug #2 fix)
     if apply_default_ignores {
         repo.files
@@ -615,6 +621,9 @@ pub fn scan_with_options(path: String, options: Option<ScanOptions>) -> Result<S
         repo.files
             .retain(|f| !matches_any_pattern(&f.relative_path, &patterns));
     }
+
+    // STEP 3: Read content only for filtered files (much faster!)
+    read_contents_parallel(&mut repo);
 
     // Recalculate metadata after filtering
     let total_files = repo.files.len() as u32;
@@ -731,13 +740,19 @@ impl Infiniloom {
     #[napi(constructor)]
     pub fn new(path: String, model: Option<String>) -> Result<Self> {
         let tokenizer_model = napi_parse_model(model.as_deref())?;
-        let mut repo = scan_repository(&path, true)?;
 
+        // STEP 1: Fast file list without reading content (filter-first optimization)
+        let mut repo = scan_repository(&path, false)?;
+
+        // STEP 2: Apply filters BEFORE reading content
         // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
         repo.files.retain(|f| {
             !matches_any(&f.relative_path, DEFAULT_IGNORES)
                 && !matches_any(&f.relative_path, TEST_IGNORES)
         });
+
+        // STEP 3: Read content only for filtered files (much faster!)
+        read_contents_parallel(&mut repo);
 
         // Prepare repository (count references, rank files, sort by importance)
         prepare_repository(&mut repo);
@@ -1080,6 +1095,55 @@ fn scan_repository_with_options(
     };
 
     do_scan(&path_buf, config).map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+}
+
+/// Read file contents in parallel for already-scanned files
+///
+/// This is used for the filter-first optimization pattern:
+/// 1. Scan without reading content (fast)
+/// 2. Apply filters
+/// 3. Read content only for filtered files (this function)
+fn read_contents_parallel(repo: &mut Repository) {
+    use rayon::prelude::*;
+
+    repo.files.par_iter_mut().for_each(|file| {
+        if let Ok(content) = std::fs::read_to_string(&file.path) {
+            file.content = Some(content);
+        }
+    });
+}
+
+/// Read file contents and optionally extract symbols in parallel
+///
+/// When extract_symbols is true, uses thread-local Parser for symbol extraction.
+fn read_contents_and_symbols_parallel(repo: &mut Repository, extract_symbols: bool) {
+    use infiniloom_engine::parser::{Language, Parser};
+    use rayon::prelude::*;
+    use std::cell::RefCell;
+
+    if extract_symbols {
+        thread_local! {
+            static THREAD_PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+        }
+
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                // Extract symbols if we have a supported language
+                if let Some(ref lang_str) = file.language {
+                    if let Ok(lang) = lang_str.parse::<Language>() {
+                        THREAD_PARSER.with(|parser| {
+                            if let Ok(symbols) = parser.borrow_mut().parse(&content, lang) {
+                                file.symbols = symbols;
+                            }
+                        });
+                    }
+                }
+                file.content = Some(content);
+            }
+        });
+    } else {
+        read_contents_parallel(repo);
+    }
 }
 
 // ============================================================================
@@ -2830,10 +2894,11 @@ pub fn chunk(path: Option<String>, options: Option<ChunkOptions>) -> Result<Vec<
     let format = napi_parse_format(opts.format.as_deref())?;
     let priority_first = opts.priority_first.unwrap_or(false);
 
-    // Scan repository
+    // STEP 1: Fast file list without reading content (filter-first optimization)
     let needs_symbols = matches!(strategy, ChunkStrategy::Dependency | ChunkStrategy::Symbol);
-    let mut repo = scan_repository_with_options(&path, true, !needs_symbols)?;
+    let mut repo = scan_repository_with_options(&path, false, true)?;
 
+    // STEP 2: Apply all filters BEFORE reading content
     // Apply default ignores
     apply_default_ignores(&mut repo);
 
@@ -2849,6 +2914,9 @@ pub fn chunk(path: Option<String>, options: Option<ChunkOptions>) -> Result<Vec<
             });
         }
     }
+
+    // STEP 3: Read content and optionally extract symbols for filtered files
+    read_contents_and_symbols_parallel(&mut repo, needs_symbols);
 
     // Create chunker
     let chunker = Chunker::new(strategy, max_tokens)

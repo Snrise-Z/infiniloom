@@ -43,17 +43,18 @@ pub fn cmd_chunk(
         infiniloom_engine::ChunkStrategy::Dependency | infiniloom_engine::ChunkStrategy::Symbol
     );
 
-    // Scan repository (need content for chunking)
+    // STEP 1: Fast file list without reading content (for filtering)
     let config = scanner::ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024u64,
-        skip_symbols: !needs_symbols, // Enable symbols for dependency chunking
+        skip_symbols: true, // Will extract symbols after filtering if needed
     };
 
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
+    // STEP 2: Apply all filters BEFORE reading content
     // Apply exclude patterns if provided
     if !exclude.is_empty() {
         repo.files.retain(|f| {
@@ -83,6 +84,35 @@ pub fn cmd_chunk(
         use infiniloom_engine::default_ignores::{matches_any, TEST_IGNORES};
         repo.files
             .retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
+    }
+
+    // STEP 3: Now read content and extract symbols only for filtered files (much faster!)
+    {
+        use infiniloom_engine::parser::{Language, Parser};
+        use rayon::prelude::*;
+        use std::cell::RefCell;
+
+        thread_local! {
+            static THREAD_PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+        }
+
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                // Extract symbols if needed and we have a supported language
+                if needs_symbols {
+                    if let Some(ref lang_str) = file.language {
+                        if let Ok(lang) = lang_str.parse::<Language>() {
+                            THREAD_PARSER.with(|parser| {
+                                if let Ok(symbols) = parser.borrow_mut().parse(&content, lang) {
+                                    file.symbols = symbols;
+                                }
+                            });
+                        }
+                    }
+                }
+                file.content = Some(content);
+            }
+        });
     }
 
     repo.metadata.total_files = repo.files.len() as u32;

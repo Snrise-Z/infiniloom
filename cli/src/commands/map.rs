@@ -26,16 +26,18 @@ pub fn cmd_map(
     use std::time::Instant;
     let start = Instant::now();
 
+    // STEP 1: Fast file list without reading content (for filtering)
     let config = scanner::ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024u64,
-        skip_symbols: false, // Map command needs symbols for ranking
+        skip_symbols: true, // Will extract symbols after filtering
     };
 
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
+    // STEP 2: Apply all filters BEFORE reading content
     // Apply default ignores to filter out build outputs, dependencies, etc.
     // This prevents dist/, node_modules/, etc. from appearing in the map
     {
@@ -76,6 +78,33 @@ pub fn cmd_map(
 
     if verbose {
         eprintln!("Scanning {} files...", repo.files.len());
+    }
+
+    // STEP 3: Now read content and extract symbols only for filtered files (much faster!)
+    {
+        use infiniloom_engine::parser::{Language, Parser};
+        use rayon::prelude::*;
+        use std::cell::RefCell;
+
+        thread_local! {
+            static THREAD_PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+        }
+
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                // Extract symbols if we have a supported language
+                if let Some(ref lang_str) = file.language {
+                    if let Ok(lang) = lang_str.parse::<Language>() {
+                        THREAD_PARSER.with(|parser| {
+                            if let Ok(symbols) = parser.borrow_mut().parse(&content, lang) {
+                                file.symbols = symbols;
+                            }
+                        });
+                    }
+                }
+                file.content = Some(content);
+            }
+        });
     }
 
     // Count cross-file symbol references (populates Symbol.references field)

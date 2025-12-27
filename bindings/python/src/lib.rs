@@ -79,6 +79,59 @@ fn to_py_err(err: impl std::fmt::Display) -> PyErr {
     InfiniloomError::new_err(format!("{}", err))
 }
 
+// ============================================================================
+// Performance Optimization Helpers
+// ============================================================================
+
+/// Read file contents in parallel for already-scanned files
+///
+/// This is used for the filter-first optimization pattern:
+/// 1. Scan without reading content (fast)
+/// 2. Apply filters
+/// 3. Read content only for filtered files (this function)
+fn read_contents_parallel(repo: &mut Repository) {
+    use rayon::prelude::*;
+
+    repo.files.par_iter_mut().for_each(|file| {
+        if let Ok(content) = std::fs::read_to_string(&file.path) {
+            file.content = Some(content);
+        }
+    });
+}
+
+/// Read file contents and optionally extract symbols in parallel
+///
+/// When extract_symbols is true, uses thread-local Parser for symbol extraction.
+fn read_contents_and_symbols_parallel(repo: &mut Repository, extract_symbols: bool) {
+    use infiniloom_engine::parser::{Language, Parser};
+    use rayon::prelude::*;
+    use std::cell::RefCell;
+
+    if extract_symbols {
+        thread_local! {
+            static THREAD_PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+        }
+
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                // Extract symbols if we have a supported language
+                if let Some(ref lang_str) = file.language {
+                    if let Ok(lang) = lang_str.parse::<Language>() {
+                        THREAD_PARSER.with(|parser| {
+                            if let Ok(symbols) = parser.borrow_mut().parse(&content, lang) {
+                                file.symbols = symbols;
+                            }
+                        });
+                    }
+                }
+                file.content = Some(content);
+            }
+        });
+    } else {
+        read_contents_parallel(repo);
+    }
+}
+
 /// Pack a repository into an LLM-optimized format
 ///
 /// Args:
@@ -122,20 +175,23 @@ fn pack(
     let compression_level =
         parse_compression(Some(compression)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // Scan repository
+    // STEP 1: Fast scan without reading content (for filtering)
     let path_buf = PathBuf::from(path);
     let config = ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024, // 50MB
-        skip_symbols,
+        skip_symbols: true,   // Will extract symbols after filtering if needed
     };
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
-    // Apply default ignores to filter out build outputs, dependencies, test fixtures, etc.
+    // STEP 2: Apply filters BEFORE reading content
     apply_default_ignores(&mut repo);
+
+    // STEP 3: Now read content and extract symbols only for filtered files (much faster!)
+    read_contents_and_symbols_parallel(&mut repo, !skip_symbols);
 
     // Prepare repository (count references, rank files, sort by importance)
     prepare_repository(&mut repo);
@@ -196,17 +252,18 @@ fn scan(
         return Err(InfiniloomError::new_err(format!("Path does not exist: {}", path)));
     }
 
+    // STEP 1: Fast scan without reading content (for filtering)
     let config = ScanConfig {
         include_hidden,
         respect_gitignore,
-        read_contents: true, // Must be true to get line counts and language stats
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024,
         skip_symbols: true, // Fast mode for scan stats
     };
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
-    // Apply exclude patterns if provided
+    // STEP 2: Apply exclude patterns BEFORE reading content
     if let Some(ref patterns) = exclude {
         if !patterns.is_empty() {
             repo.files.retain(|f| {
@@ -221,6 +278,9 @@ fn scan(
             repo.metadata.total_files = repo.files.len() as u32;
         }
     }
+
+    // STEP 3: Now read content only for filtered files (much faster!)
+    read_contents_parallel(&mut repo);
 
     // Convert to Python dict
     let dict = PyDict::new(py);
@@ -310,15 +370,20 @@ fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
 #[pyfunction]
 fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
     let path_buf = PathBuf::from(path);
+
+    // STEP 1: Fast scan without reading content (for filtering)
     let config = ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 10 * 1024 * 1024, // 10MB for security scan
         skip_symbols: true,              // Fast mode for security scan
     };
 
-    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+    let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    // STEP 2: Read content only for filtered files (much faster!)
+    read_contents_parallel(&mut repo);
 
     let scanner = SecurityScanner::new();
     let mut all_findings = Vec::new();
@@ -412,15 +477,20 @@ impl Infiniloom {
 
     /// Scan the repository and load it into memory
     fn load(&mut self, include_hidden: bool, respect_gitignore: bool) -> PyResult<()> {
+        // STEP 1: Fast scan without reading content (for filtering)
         let config = ScanConfig {
             include_hidden,
             respect_gitignore,
-            read_contents: true,
+            read_contents: false, // Don't read content yet - filter first!
             max_file_size: 50 * 1024 * 1024,
-            skip_symbols: false, // Extract symbols by default
+            skip_symbols: true, // Will extract symbols after filtering
         };
 
-        let repo = scan_repository(&self.path, config).map_err(to_py_err)?;
+        let mut repo = scan_repository(&self.path, config).map_err(to_py_err)?;
+
+        // STEP 2: Read content and extract symbols for filtered files (much faster!)
+        read_contents_and_symbols_parallel(&mut repo, true);
+
         self.repo = Some(repo);
         Ok(())
     }
@@ -1790,20 +1860,20 @@ fn chunk(
     let tokenizer_model =
         parse_model(Some(model)).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // Scan repository
+    // STEP 1: Fast scan without reading content (for filtering)
     let path_buf = PathBuf::from(path);
     let needs_symbols = matches!(chunk_strategy, ChunkStrategy::Dependency | ChunkStrategy::Symbol);
     let config = ScanConfig {
         include_hidden: false,
         respect_gitignore: true,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024,
-        skip_symbols: !needs_symbols,
+        skip_symbols: true, // Will extract symbols after filtering if needed
     };
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
-    // Apply default ignores
+    // STEP 2: Apply all filters BEFORE reading content
     apply_default_ignores(&mut repo);
 
     // Apply exclude patterns if provided
@@ -1821,6 +1891,9 @@ fn chunk(
             repo.metadata.total_files = repo.files.len() as u32;
         }
     }
+
+    // STEP 3: Now read content and extract symbols only for filtered files (much faster!)
+    read_contents_and_symbols_parallel(&mut repo, needs_symbols);
 
     // Create chunker
     let chunker = Chunker::new(chunk_strategy, max_tokens)

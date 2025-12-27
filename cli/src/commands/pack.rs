@@ -271,11 +271,11 @@ pub fn cmd_pack(
         CompressionLevel::Balanced
     };
 
-    // Scan repository
+    // STEP 1: Fast file list without reading content (for filtering)
     let config = scanner::ScanConfig {
         include_hidden,
         respect_gitignore,
-        read_contents: true,
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size,
         skip_symbols: !enable_symbols,
     };
@@ -300,19 +300,6 @@ pub fn cmd_pack(
     } else {
         scanner::scan_repository(&repo_path, config).context("Failed to scan repository")?
     };
-
-    // Update cache
-    if incremental_cache {
-        let cache = repo_cache.get_or_insert_with(|| {
-            infiniloom_engine::RepoCache::new(repo_path.to_string_lossy().as_ref())
-        });
-        update_repo_cache(cache, &repo, enable_symbols);
-        if let Err(e) = cache.save(&cache_path) {
-            if verbose {
-                eprintln!("{} Failed to save cache: {}", "⚠".yellow(), e);
-            }
-        }
-    }
 
     // Apply default ignores
     if use_default_ignores {
@@ -376,6 +363,29 @@ pub fn cmd_pack(
                 .iter()
                 .any(|p| pattern_matches_file(p, &f.relative_path))
         });
+    }
+
+    // STEP 2: Now read content only for filtered files (much faster!)
+    {
+        use rayon::prelude::*;
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                file.content = Some(content);
+            }
+        });
+    }
+
+    // Update cache AFTER content is read so hash is computed correctly
+    if incremental_cache {
+        let cache = repo_cache.get_or_insert_with(|| {
+            infiniloom_engine::RepoCache::new(repo_path.to_string_lossy().as_ref())
+        });
+        update_repo_cache(cache, &repo, enable_symbols);
+        if let Err(e) = cache.save(&cache_path) {
+            if verbose {
+                eprintln!("{} Failed to save cache: {}", "⚠".yellow(), e);
+            }
+        }
     }
 
     // Strip file contents if --no-content
@@ -449,53 +459,58 @@ pub fn cmd_pack(
                 | CompressionLevel::Extreme
         );
 
-    let semantic_compressor = if compression == CompressionLevel::Semantic {
-        Some(infiniloom_engine::HeuristicCompressor::new())
-    } else {
-        None
-    };
+    // Apply content transformations in parallel
+    {
+        use rayon::prelude::*;
 
-    for file in &mut repo.files {
-        if let Some(ref mut content) = file.content {
-            match compression {
-                CompressionLevel::Aggressive => {
-                    if let Some(lang) = &file.language {
-                        *content = extract_signatures_only(content, lang, &file.symbols);
-                    }
-                },
-                CompressionLevel::Extreme => {
-                    if let Some(lang) = &file.language {
-                        *content = extract_key_symbols_only(content, lang, &file.symbols);
-                    }
-                },
-                CompressionLevel::Focused => {
-                    if let Some(lang) = &file.language {
-                        *content = extract_key_symbols_focused(content, lang, &file.symbols);
-                    }
-                },
-                CompressionLevel::Semantic => {
-                    if let Some(ref compressor) = semantic_compressor {
-                        if let Ok(compressed) = compressor.compress(content) {
-                            *content = compressed;
-                        }
-                    }
-                },
-                _ => {
-                    if should_remove_empty {
-                        *content = remove_empty_lines_from_content(content, show_line_numbers);
-                    }
-                    if should_remove_comments {
+        let semantic_compressor = if compression == CompressionLevel::Semantic {
+            Some(infiniloom_engine::HeuristicCompressor::new())
+        } else {
+            None
+        };
+
+        repo.files.par_iter_mut().for_each(|file| {
+            if let Some(ref mut content) = file.content {
+                match compression {
+                    CompressionLevel::Aggressive => {
                         if let Some(lang) = &file.language {
-                            *content =
-                                remove_comments_from_content(content, lang, show_line_numbers);
+                            *content = extract_signatures_only(content, lang, &file.symbols);
                         }
-                    }
-                },
+                    },
+                    CompressionLevel::Extreme => {
+                        if let Some(lang) = &file.language {
+                            *content = extract_key_symbols_only(content, lang, &file.symbols);
+                        }
+                    },
+                    CompressionLevel::Focused => {
+                        if let Some(lang) = &file.language {
+                            *content = extract_key_symbols_focused(content, lang, &file.symbols);
+                        }
+                    },
+                    CompressionLevel::Semantic => {
+                        if let Some(ref compressor) = semantic_compressor {
+                            if let Ok(compressed) = compressor.compress(content) {
+                                *content = compressed;
+                            }
+                        }
+                    },
+                    _ => {
+                        if should_remove_empty {
+                            *content = remove_empty_lines_from_content(content, show_line_numbers);
+                        }
+                        if should_remove_comments {
+                            if let Some(lang) = &file.language {
+                                *content =
+                                    remove_comments_from_content(content, lang, show_line_numbers);
+                            }
+                        }
+                    },
+                }
+                if truncate_base64 {
+                    *content = truncate_base64_content(content);
+                }
             }
-            if truncate_base64 {
-                *content = truncate_base64_content(content);
-            }
-        }
+        });
     }
 
     // Security scan
@@ -565,10 +580,11 @@ pub fn cmd_pack(
         }
     }
 
-    // Recompute token counts after transformations
+    // Recompute token counts after transformations (parallelized for performance)
     {
+        use rayon::prelude::*;
         let tokenizer = Tokenizer::new();
-        for file in &mut repo.files {
+        repo.files.par_iter_mut().for_each(|file| {
             if let Some(ref content) = file.content {
                 let counts = tokenizer.count_all(content);
                 file.token_count = infiniloom_engine::types::TokenCounts {
@@ -584,7 +600,7 @@ pub fn cmd_pack(
                     grok: counts.grok,
                 };
             }
-        }
+        });
         recalculate_metadata(&mut repo);
     }
 
@@ -2208,7 +2224,7 @@ fn run_watch_mode(
                 let scan_config = scanner::ScanConfig {
                     include_hidden,
                     respect_gitignore,
-                    read_contents: true,
+                    read_contents: false, // Don't read content yet - filter first!
                     max_file_size,
                     skip_symbols: !enable_symbols,
                 };
@@ -2272,6 +2288,16 @@ fn run_watch_mode(
                             !compiled_exclude_patterns
                                 .iter()
                                 .any(|p| pattern_matches_file(p, &f.relative_path))
+                        });
+                    }
+
+                    // Read content only for filtered files (much faster!)
+                    {
+                        use rayon::prelude::*;
+                        new_repo.files.par_iter_mut().for_each(|file| {
+                            if let Ok(content) = std::fs::read_to_string(&file.path) {
+                                file.content = Some(content);
+                            }
                         });
                     }
 

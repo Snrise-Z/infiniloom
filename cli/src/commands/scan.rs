@@ -35,17 +35,18 @@ pub fn cmd_scan(
 
     let start = Instant::now();
 
-    // Always read content to get accurate token counts (not just heuristic estimates)
+    // STEP 1: Fast file list without reading content (for filtering)
     let config = scanner::ScanConfig {
         include_hidden,
         respect_gitignore: true,
-        read_contents: true, // Read content for accurate token counting
+        read_contents: false, // Don't read content yet - filter first!
         max_file_size: 50 * 1024 * 1024u64,
-        skip_symbols: true, // No need for symbols in scan mode
+        skip_symbols: true,
     };
 
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
+    // STEP 2: Apply filters BEFORE reading content (major performance win)
     // Apply exclude patterns if provided
     if !exclude.is_empty() {
         repo.files.retain(|f| {
@@ -76,6 +77,14 @@ pub fn cmd_scan(
         repo.files
             .retain(|f| !matches_any(&f.relative_path, TEST_IGNORES));
     }
+
+    // STEP 3: Now read content only for filtered files (much faster!)
+    use rayon::prelude::*;
+    repo.files.par_iter_mut().for_each(|file| {
+        if let Ok(content) = std::fs::read_to_string(&file.path) {
+            file.content = Some(content);
+        }
+    });
 
     // Update metadata after filtering
     repo.metadata.total_files = repo.files.len() as u32;
@@ -115,39 +124,39 @@ pub fn cmd_scan(
         1.0
     };
 
-    // Compute accurate token counts using the real tokenizer (not heuristics)
+    // Compute token counts using fast estimation (only for requested model)
+    // This is much faster than count_all() which computes all 10 models
     {
-        let tokenizer = Tokenizer::new();
+        use infiniloom_engine::tokenizer::TokenModel;
+        let tokenizer = Tokenizer::estimation_only();
+        let token_model: TokenModel = model.into();
+
+        // Count tokens for each file (single model only)
+        let mut total: u32 = 0;
         for file in &mut repo.files {
             if let Some(ref content) = file.content {
-                let counts = tokenizer.count_all(content);
-                file.token_count = infiniloom_engine::types::TokenCounts {
-                    o200k: counts.o200k,
-                    cl100k: counts.cl100k,
-                    claude: counts.claude,
-                    gemini: counts.gemini,
-                    llama: counts.llama,
-                    mistral: counts.mistral,
-                    deepseek: counts.deepseek,
-                    qwen: counts.qwen,
-                    cohere: counts.cohere,
-                    grok: counts.grok,
-                };
+                let count = tokenizer.count(content, token_model);
+                total += count;
+                // Store in the appropriate field based on encoding family
+                if token_model.uses_o200k() {
+                    file.token_count.o200k = count;
+                } else if token_model.uses_cl100k() {
+                    file.token_count.cl100k = count;
+                } else {
+                    // Non-OpenAI models - store in claude field (used for display)
+                    file.token_count.claude = count;
+                }
             }
         }
-        // Update metadata totals
-        repo.metadata.total_tokens = infiniloom_engine::types::TokenCounts {
-            o200k: repo.files.iter().map(|f| f.token_count.o200k).sum(),
-            cl100k: repo.files.iter().map(|f| f.token_count.cl100k).sum(),
-            claude: repo.files.iter().map(|f| f.token_count.claude).sum(),
-            gemini: repo.files.iter().map(|f| f.token_count.gemini).sum(),
-            llama: repo.files.iter().map(|f| f.token_count.llama).sum(),
-            mistral: repo.files.iter().map(|f| f.token_count.mistral).sum(),
-            deepseek: repo.files.iter().map(|f| f.token_count.deepseek).sum(),
-            qwen: repo.files.iter().map(|f| f.token_count.qwen).sum(),
-            cohere: repo.files.iter().map(|f| f.token_count.cohere).sum(),
-            grok: repo.files.iter().map(|f| f.token_count.grok).sum(),
-        };
+
+        // Store total in appropriate field
+        if token_model.uses_o200k() {
+            repo.metadata.total_tokens.o200k = total;
+        } else if token_model.uses_cl100k() {
+            repo.metadata.total_tokens.cl100k = total;
+        } else {
+            repo.metadata.total_tokens.claude = total;
+        }
     }
 
     // Run security scan if requested (parallelized for performance)
