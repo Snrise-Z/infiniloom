@@ -83,12 +83,49 @@ fn to_py_err(err: impl std::fmt::Display) -> PyErr {
 // Performance Optimization Helpers
 // ============================================================================
 
-/// Read file contents in parallel for already-scanned files
+/// Read file contents and count tokens in parallel for already-scanned files
 ///
 /// This is used for the filter-first optimization pattern:
 /// 1. Scan without reading content (fast)
 /// 2. Apply filters
-/// 3. Read content only for filtered files (this function)
+/// 3. Read content and tokenize only for filtered files (this function)
+///
+/// Combines reading and tokenization in one parallel pass for performance.
+fn read_contents_and_tokenize_parallel(repo: &mut Repository) {
+    use infiniloom_engine::tokenizer::Tokenizer;
+    use infiniloom_engine::types::TokenCounts;
+    use rayon::prelude::*;
+    use std::cell::RefCell;
+
+    // Use thread-local tokenizers to avoid initialization overhead per file
+    thread_local! {
+        static THREAD_TOKENIZER: RefCell<Tokenizer> = RefCell::new(Tokenizer::new());
+    }
+
+    repo.files.par_iter_mut().for_each(|file| {
+        if let Ok(content) = std::fs::read_to_string(&file.path) {
+            // Count tokens while we have the content
+            THREAD_TOKENIZER.with(|tokenizer| {
+                let counts = tokenizer.borrow().count_all(&content);
+                file.token_count = TokenCounts {
+                    o200k: counts.o200k,
+                    cl100k: counts.cl100k,
+                    claude: counts.claude,
+                    gemini: counts.gemini,
+                    llama: counts.llama,
+                    mistral: counts.mistral,
+                    deepseek: counts.deepseek,
+                    qwen: counts.qwen,
+                    cohere: counts.cohere,
+                    grok: counts.grok,
+                };
+            });
+            file.content = Some(content);
+        }
+    });
+}
+
+/// Read file contents in parallel (without tokenization, for backward compatibility)
 fn read_contents_parallel(repo: &mut Repository) {
     use rayon::prelude::*;
 
@@ -100,30 +137,10 @@ fn read_contents_parallel(repo: &mut Repository) {
 }
 
 /// Recalculate repository metadata after content is read
+/// Note: Token counts should already be computed by read_contents_and_tokenize_parallel()
 fn recalculate_metadata(repo: &mut Repository) {
-    use infiniloom_engine::tokenizer::Tokenizer;
     use infiniloom_engine::types::{LanguageStats, TokenCounts};
     use std::collections::HashMap;
-
-    // Recalculate token counts for each file
-    let tokenizer = Tokenizer::new();
-    for file in &mut repo.files {
-        if let Some(ref content) = file.content {
-            let counts = tokenizer.count_all(content);
-            file.token_count = TokenCounts {
-                o200k: counts.o200k,
-                cl100k: counts.cl100k,
-                claude: counts.claude,
-                gemini: counts.gemini,
-                llama: counts.llama,
-                mistral: counts.mistral,
-                deepseek: counts.deepseek,
-                qwen: counts.qwen,
-                cohere: counts.cohere,
-                grok: counts.grok,
-            };
-        }
-    }
 
     // Update total files
     repo.metadata.total_files = repo.files.len() as u32;
@@ -140,7 +157,7 @@ fn recalculate_metadata(repo: &mut Repository) {
         })
         .sum();
 
-    // Recalculate total tokens
+    // Recalculate total tokens (summing pre-computed per-file counts)
     repo.metadata.total_tokens = TokenCounts {
         o200k: repo.files.iter().map(|f| f.token_count.o200k).sum(),
         cl100k: repo.files.iter().map(|f| f.token_count.cl100k).sum(),
@@ -349,7 +366,10 @@ fn scan(
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
-    // STEP 2: Apply exclude patterns BEFORE reading content
+    // STEP 2: Apply default ignores (node_modules, .git, build outputs, etc.)
+    apply_default_ignores(&mut repo);
+
+    // STEP 3: Apply user-specified exclude patterns
     if let Some(ref patterns) = exclude {
         if !patterns.is_empty() {
             repo.files.retain(|f| {
@@ -365,10 +385,10 @@ fn scan(
         }
     }
 
-    // STEP 3: Now read content only for filtered files (much faster!)
-    read_contents_parallel(&mut repo);
+    // STEP 4: Read content AND tokenize in parallel (much faster than sequential!)
+    read_contents_and_tokenize_parallel(&mut repo);
 
-    // STEP 4: Recalculate metadata now that content is available
+    // STEP 5: Recalculate metadata (token counts already computed in step 4)
     recalculate_metadata(&mut repo);
 
     // Convert to Python dict
@@ -471,9 +491,12 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
-    // STEP 2: Read content only for filtered files (much faster!)
+    // STEP 2: Apply default ignores (node_modules, .git, build outputs, etc.)
+    apply_default_ignores(&mut repo);
+
+    // STEP 3: Read content only for filtered files (much faster!)
+    // Security scan only needs content, not token counts
     read_contents_parallel(&mut repo);
-    recalculate_metadata(&mut repo);
 
     let scanner = SecurityScanner::new();
     let mut all_findings = Vec::new();
