@@ -1,4 +1,249 @@
 //! Security scanning for secrets and sensitive data
+//!
+//! This module provides automatic detection and redaction of secrets, API keys,
+//! tokens, and other sensitive data before sharing code with LLMs or external services.
+//!
+//! # Quick Start
+//!
+//! ```rust
+//! use infiniloom_engine::security::SecurityScanner;
+//!
+//! let scanner = SecurityScanner::new();
+//! let code = r#"
+//!     const AWS_KEY = "AKIAIOSFODNN7EXAMPLE";
+//!     const API_TOKEN = "sk-proj-abc123xyz789";
+//! "#;
+//!
+//! // Scan for secrets
+//! let findings = scanner.scan(code, "config.rs");
+//!
+//! if !findings.is_empty() {
+//!     println!("⚠️  Found {} secrets!", findings.len());
+//!     for finding in &findings {
+//!         println!("  {} on line {}: {}",
+//!             finding.kind.name(),
+//!             finding.line,
+//!             finding.pattern);  // Already redacted: "AKIA************MPLE"
+//!     }
+//! }
+//! ```
+//!
+//! # Scanning with Detailed Results
+//!
+//! The scanner returns structured findings with metadata:
+//!
+//! ```rust
+//! use infiniloom_engine::security::{SecurityScanner, Severity};
+//!
+//! let scanner = SecurityScanner::new();
+//! let findings = scanner.scan(r#"
+//!     DB_URL = "postgresql://user:pass@localhost/db"
+//!     STRIPE_KEY = "sk_live_abc123xyz789"
+//! "#, ".env");
+//!
+//! for finding in findings {
+//!     match finding.severity {
+//!         Severity::Critical => println!("🔴 CRITICAL: {}", finding.pattern),
+//!         Severity::High => println!("🟠 HIGH: {}", finding.pattern),
+//!         Severity::Medium => println!("🟡 MEDIUM: {}", finding.pattern),
+//!         Severity::Low => println!("🟢 LOW: {}", finding.pattern),
+//!     }
+//! }
+//! ```
+//!
+//! # Automatic Redaction
+//!
+//! Replace detected secrets with `[REDACTED]` markers:
+//!
+//! ```rust
+//! use infiniloom_engine::security::SecurityScanner;
+//!
+//! let scanner = SecurityScanner::new();
+//! let code = r#"
+//!     const apiKey = "sk-proj-secret123";
+//!     const githubToken = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+//! "#;
+//!
+//! // Scan and redact in one operation
+//! let (redacted, findings) = scanner.scan_and_redact(code, "api.ts");
+//!
+//! println!("Original had {} secrets", findings.len());
+//! println!("Redacted version:\n{}", redacted);
+//! // Output: const apiKey = "sk-p****ect123";
+//! //         const githubToken = "ghp_****7890";
+//! ```
+//!
+//! # Custom Patterns
+//!
+//! Add organization-specific secret patterns:
+//!
+//! ```rust
+//! use infiniloom_engine::security::SecurityScanner;
+//!
+//! let mut scanner = SecurityScanner::new();
+//!
+//! // Add custom patterns for internal systems
+//! scanner.add_custom_pattern(r"MYCOMPANY_API_[A-Z0-9]{32}");
+//! scanner.add_custom_pattern(r"INTERNAL_TOKEN_[a-f0-9]{64}");
+//!
+//! // Or add multiple at once
+//! scanner.add_custom_patterns(&[
+//!     "ORG_SECRET_[A-Z0-9]{16}".to_string(),
+//!     "DEPLOY_KEY_[a-z0-9]{40}".to_string(),
+//! ]);
+//!
+//! // Now scan with both built-in and custom patterns
+//! let findings = scanner.scan(r#"
+//!     MYCOMPANY_API_ABCD1234EFGH5678IJKL9012MNOP
+//! "#, "internal.rs");
+//!
+//! assert!(!findings.is_empty());
+//! ```
+//!
+//! # Allowlist for Test Data
+//!
+//! Mark known test/example secrets as safe:
+//!
+//! ```rust
+//! use infiniloom_engine::security::SecurityScanner;
+//!
+//! let mut scanner = SecurityScanner::new();
+//!
+//! // Allowlist test keys that are intentionally public
+//! scanner.allowlist("EXAMPLE");
+//! scanner.allowlist("test_key");
+//! scanner.allowlist("mock_secret");
+//!
+//! // This won't trigger detection (contains "EXAMPLE")
+//! let test_code = r#"
+//!     AWS_KEY = "AKIAIOSFODNN7EXAMPLE"  // Official AWS test key
+//! "#;
+//!
+//! let findings = scanner.scan(test_code, "test.rs");
+//! assert!(findings.is_empty(), "Test keys should be allowed");
+//!
+//! // But this WILL trigger (real key format)
+//! let prod_code = r#"
+//!     AWS_KEY = "AKIAIOSFODNN7PRODKEY"
+//! "#;
+//!
+//! let findings = scanner.scan(prod_code, "prod.rs");
+//! assert!(!findings.is_empty(), "Real keys should be detected");
+//! ```
+//!
+//! # Repository Integration
+//!
+//! Scan all files in a repository:
+//!
+//! ```rust,ignore
+//! use infiniloom_engine::security::SecurityScanner;
+//!
+//! let scanner = SecurityScanner::new();
+//! let mut all_findings = Vec::new();
+//!
+//! for file in repository.files {
+//!     let findings = scanner.scan(&file.content, &file.relative_path);
+//!     all_findings.extend(findings);
+//! }
+//!
+//! if !all_findings.is_empty() {
+//!     eprintln!("⚠️  Security scan found {} secrets across {} files",
+//!         all_findings.len(),
+//!         all_findings.iter()
+//!             .map(|f| &f.file)
+//!             .collect::<std::collections::HashSet<_>>()
+//!             .len()
+//!     );
+//!
+//!     // Exit with error in CI/CD
+//!     std::process::exit(1);
+//! }
+//! ```
+//!
+//! # Severity-Based Filtering
+//!
+//! Work with different severity levels:
+//!
+//! ```rust
+//! use infiniloom_engine::security::{SecurityScanner, Severity};
+//!
+//! let scanner = SecurityScanner::new();
+//! let findings = scanner.scan(r#"
+//!     AWS_KEY = "AKIAIOSFODNN7PRODKEY"      # Critical
+//!     password = "weak123"                  # High
+//! "#, ".env");
+//!
+//! // Count by severity
+//! let critical_count = findings.iter()
+//!     .filter(|f| f.severity == Severity::Critical)
+//!     .count();
+//!
+//! let high_count = findings.iter()
+//!     .filter(|f| f.severity == Severity::High)
+//!     .count();
+//!
+//! println!("Critical: {}, High: {}", critical_count, high_count);
+//!
+//! // Check if safe to proceed (only low/medium severity)
+//! let is_safe = findings.iter()
+//!     .all(|f| f.severity < Severity::High);
+//!
+//! if !is_safe {
+//!     eprintln!("⛔ Cannot proceed - high/critical secrets detected");
+//! }
+//! ```
+//!
+//! # Supported Secret Types
+//!
+//! ## Cloud Credentials (Critical Severity)
+//! - **AWS**: Access keys (AKIA...), Secret access keys
+//! - **GitHub**: Personal access tokens (ghp_..., github_pat_...), OAuth tokens
+//! - **Private Keys**: RSA, EC, DSA, OpenSSH private keys
+//!
+//! ## API Keys (Critical Severity)
+//! - **OpenAI**: sk-... API keys
+//! - **Anthropic**: sk-ant-... API keys
+//! - **Stripe**: sk_live_..., pk_test_... keys
+//!
+//! ## Service Tokens (High Severity)
+//! - **Slack**: xoxb-..., xoxa-... tokens
+//! - **JWT**: Encoded JSON Web Tokens
+//! - **Database**: Connection strings (PostgreSQL, MongoDB, MySQL, Redis, etc.)
+//!
+//! ## Generic Secrets (High Severity)
+//! - Generic API keys (api_key=...)
+//! - Access tokens (token=..., secret=...)
+//! - Passwords (password=...)
+//!
+//! # Why Pre-compiled Patterns?
+//!
+//! The module uses `once_cell::sync::Lazy` for regex patterns:
+//!
+//! ```rust,ignore
+//! static RE_AWS_KEY: Lazy<Regex> =
+//!     Lazy::new(|| Regex::new(r"AKIA[0-9A-Z]{16}").unwrap());
+//! ```
+//!
+//! **Benefits**:
+//! - Compiled once at first use
+//! - Reused across all scanner instances
+//! - Thread-safe sharing
+//! - Zero runtime compilation overhead
+//!
+//! **Pattern Order**: More specific patterns (Stripe, Slack, JWT) come BEFORE
+//! generic patterns (api_key, secret) to ensure accurate detection and avoid
+//! masking by broader patterns.
+//!
+//! # False Positive Reduction
+//!
+//! The scanner automatically skips:
+//! - **Comments**: Lines starting with //, #, /*, *
+//! - **Documentation**: Lines containing "example" as a word
+//! - **Placeholders**: Lines with "xxxxx" or "placeholder"
+//! - **Allowlisted patterns**: User-configured safe patterns
+//!
+//! This reduces false positives in documentation, test files, and examples
+//! while catching real secrets in code.
 
 use once_cell::sync::Lazy;
 use regex::Regex;

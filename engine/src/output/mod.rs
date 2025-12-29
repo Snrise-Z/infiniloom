@@ -8,7 +8,11 @@
 //!
 //! Formatters support both in-memory (`format()`) and streaming (`format_to_writer()`)
 //! modes. Use streaming for large repositories to reduce memory usage.
+//!
+//! The [`escaping`] submodule provides text escaping utilities for XML, YAML,
+//! and other formats.
 
+pub mod escaping;
 mod markdown;
 mod toon;
 mod xml;

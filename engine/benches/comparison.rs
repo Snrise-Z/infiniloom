@@ -853,6 +853,158 @@ fn bench_parallel_parsing(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// Phase 1 Refactoring Benchmarks (Item 6)
+// ============================================================================
+
+/// Benchmark XML escaping function (Item 3 - Centralize XML/YAML Escaping)
+fn bench_xml_escaping(c: &mut Criterion) {
+    use infiniloom_engine::output::escaping::{escape_xml_attribute, escape_xml_text};
+
+    // Various test strings with different characteristics
+    let simple = "Hello, world!";
+    let with_ampersand = "This & that & the other thing";
+    let with_tags = "<div class=\"container\"><p>Text with <b>bold</b> & <i>italic</i></p></div>";
+    let with_quotes = r#"attribute="value" and 'another' value"#;
+    let mixed = r#"Complex: <tag attr="val & 'quoted'">content & more</tag>"#;
+    let large = "<tag>".repeat(1000) + &"content & text".repeat(1000) + &"</tag>".repeat(1000);
+    let no_escaping_needed = "JustPlainTextWithNoSpecialCharacters".repeat(100);
+
+    let mut group = c.benchmark_group("xml_escaping");
+
+    // escape_xml_text benchmarks
+    group.bench_function("text_simple", |b| b.iter(|| black_box(escape_xml_text(simple))));
+
+    group.bench_function("text_with_ampersand", |b| {
+        b.iter(|| black_box(escape_xml_text(with_ampersand)))
+    });
+
+    group.bench_function("text_with_tags", |b| b.iter(|| black_box(escape_xml_text(with_tags))));
+
+    group
+        .bench_function("text_with_quotes", |b| b.iter(|| black_box(escape_xml_text(with_quotes))));
+
+    group.bench_function("text_mixed", |b| b.iter(|| black_box(escape_xml_text(mixed))));
+
+    group.bench_function("text_large", |b| b.iter(|| black_box(escape_xml_text(&large))));
+
+    group.bench_function("text_no_escaping", |b| {
+        b.iter(|| black_box(escape_xml_text(&no_escaping_needed)))
+    });
+
+    // escape_xml_attribute benchmarks (delegates to text escaping)
+    group
+        .bench_function("attribute_simple", |b| b.iter(|| black_box(escape_xml_attribute(simple))));
+
+    group.bench_function("attribute_mixed", |b| b.iter(|| black_box(escape_xml_attribute(mixed))));
+
+    group.finish();
+}
+
+/// Benchmark YAML escaping function (Item 3 - Centralize XML/YAML Escaping)
+fn bench_yaml_escaping(c: &mut Criterion) {
+    use infiniloom_engine::output::escaping::escape_yaml_string;
+
+    // Various test strings
+    let simple = "Simple string";
+    let with_backslash = r"Path: C:\Users\test\file.txt";
+    let with_quotes = r#"String with "double quotes" inside"#;
+    let with_newlines = "Line 1\nLine 2\nLine 3\n";
+    let with_tabs = "Col1\tCol2\tCol3\t";
+    let mixed = r#"Complex: "quoted" with \backslash\ and newlines\n"#;
+    let large = "Text\n".repeat(1000) + &r#""quoted" \"#.repeat(1000);
+    let no_escaping_needed = "PlainTextNoEscaping".repeat(100);
+
+    let mut group = c.benchmark_group("yaml_escaping");
+
+    group.bench_function("simple", |b| b.iter(|| black_box(escape_yaml_string(simple))));
+
+    group.bench_function("with_backslash", |b| {
+        b.iter(|| black_box(escape_yaml_string(with_backslash)))
+    });
+
+    group.bench_function("with_quotes", |b| b.iter(|| black_box(escape_yaml_string(with_quotes))));
+
+    group.bench_function("with_newlines", |b| {
+        b.iter(|| black_box(escape_yaml_string(with_newlines)))
+    });
+
+    group.bench_function("with_tabs", |b| b.iter(|| black_box(escape_yaml_string(with_tabs))));
+
+    group.bench_function("mixed", |b| b.iter(|| black_box(escape_yaml_string(mixed))));
+
+    group.bench_function("large", |b| b.iter(|| black_box(escape_yaml_string(&large))));
+
+    group.bench_function("no_escaping", |b| {
+        b.iter(|| black_box(escape_yaml_string(&no_escaping_needed)))
+    });
+
+    group.finish();
+}
+
+/// Benchmark base64 truncation function (Item 4 - Centralize Base64 Truncation)
+fn bench_base64_truncation(c: &mut Criterion) {
+    use infiniloom_engine::content_processing::truncate_base64;
+
+    // Test strings with different base64 patterns
+    let no_base64 = "This is just plain text with no base64 content at all.".repeat(100);
+
+    let data_uri_small = r#"<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA" />"#;
+
+    let data_uri_large = format!(r#"<img src="data:image/png;base64,{}" />"#, "A".repeat(1000));
+
+    let long_base64 = format!(
+        "Some text before {} and some text after",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(10)
+    );
+
+    let multiple_data_uris = format!(
+        r#"<img src="data:image/png;base64,{}" />
+           <img src="data:image/jpeg;base64,{}" />
+           <img src="data:image/gif;base64,{}" />"#,
+        "A".repeat(500),
+        "B".repeat(500),
+        "C".repeat(500)
+    );
+
+    let mixed_content = format!(
+        "Normal text here. data:text/plain;base64,{} More text. {} End text.",
+        "D".repeat(300),
+        "EFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(5)
+    );
+
+    let very_large = format!(
+        "Before {} Middle {} After",
+        "data:image/png;base64,".to_string() + &"X".repeat(10000),
+        "YZ0123456789+/".repeat(1000)
+    );
+
+    let mut group = c.benchmark_group("base64_truncation");
+
+    group.bench_function("no_base64", |b| b.iter(|| black_box(truncate_base64(&no_base64))));
+
+    group.bench_function("data_uri_small", |b| {
+        b.iter(|| black_box(truncate_base64(data_uri_small)))
+    });
+
+    group.bench_function("data_uri_large", |b| {
+        b.iter(|| black_box(truncate_base64(&data_uri_large)))
+    });
+
+    group.bench_function("long_base64", |b| b.iter(|| black_box(truncate_base64(&long_base64))));
+
+    group.bench_function("multiple_data_uris", |b| {
+        b.iter(|| black_box(truncate_base64(&multiple_data_uris)))
+    });
+
+    group
+        .bench_function("mixed_content", |b| b.iter(|| black_box(truncate_base64(&mixed_content))));
+
+    group.bench_function("very_large", |b| b.iter(|| black_box(truncate_base64(&very_large))));
+
+    group.finish();
+}
+
 // Configure criterion
 criterion_group!(
     benches,
@@ -870,6 +1022,10 @@ criterion_group!(
     bench_cycle_detection,
     bench_pagerank,
     bench_parallel_parsing,
+    // Phase 1 refactoring benchmarks
+    bench_xml_escaping,
+    bench_yaml_escaping,
+    bench_base64_truncation,
 );
 
 criterion_main!(benches);

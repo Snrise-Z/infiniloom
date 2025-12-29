@@ -7,6 +7,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::{generate, Shell as ClapShell};
 use std::path::PathBuf;
 
 use infiniloom_engine::{
@@ -16,7 +17,14 @@ use infiniloom_engine::{
 
 mod commands;
 mod config;
+mod error;
 mod scanner;
+mod watch;
+
+// Import PackConfig for cleaner argument handling
+use commands::pack::{
+    GitOptions, OutputOptions, PackConfig, ScanOptions, SecurityOptions, WatchOptions,
+};
 
 /// Infiniloom - Repository context generator for LLMs
 #[derive(Parser)]
@@ -524,6 +532,14 @@ enum Commands {
         #[arg(long)]
         include_tests: bool,
     },
+
+    /// Generate shell completions for infiniloom
+    #[command(hide = true)]
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy)]
@@ -688,6 +704,32 @@ impl From<Compression> for CompressionLevel {
     }
 }
 
+#[derive(ValueEnum, Clone, Copy)]
+enum Shell {
+    /// Bash shell
+    Bash,
+    /// Zsh shell
+    Zsh,
+    /// Fish shell
+    Fish,
+    /// PowerShell
+    PowerShell,
+    /// Elvish shell
+    Elvish,
+}
+
+impl From<Shell> for ClapShell {
+    fn from(s: Shell) -> Self {
+        match s {
+            Shell::Bash => ClapShell::Bash,
+            Shell::Zsh => ClapShell::Zsh,
+            Shell::Fish => ClapShell::Fish,
+            Shell::PowerShell => ClapShell::PowerShell,
+            Shell::Elvish => ClapShell::Elvish,
+        }
+    }
+}
+
 fn main() -> Result<()> {
     // Initialize logging
     let default_filter = if std::env::var("INFINILOOM_TIMING").is_ok() {
@@ -746,49 +788,59 @@ fn main() -> Result<()> {
             watch,
             cache,
             map_budget,
-        } => commands::cmd_pack(
-            path,
-            format.map(|f| f.into()),
-            model.map(|m| m.into()),
-            compression.map(|c| c.into()),
-            max_tokens,
-            output,
-            hidden,
-            !no_gitignore,
-            (symbols || full) && !no_symbols, // Enable symbols unless --no-symbols
-            full && !no_symbols,              // Full mode disabled if --no-symbols
-            no_content,                       // Exclude file contents
-            include_tests,
-            include_docs,
-            !no_default_ignores,
-            verbose,
-            header_text,
-            instruction_file,
-            copy_to_clipboard,
-            token_tree,
-            !no_directory_structure,
-            !no_file_summary,
-            remove_empty_lines,
-            remove_comments,
-            top_files,
-            include_logs,
-            logs_count,
-            include_diffs,
-            sort_by_changes,
-            stdin,
-            truncate_base64,
-            include_patterns,
-            exclude_patterns,
-            security_check,
-            remote_branch,
-            sparse_paths,
-            line_numbers || !no_line_numbers, // line_numbers explicit OR not disabled
-            redact_secrets,
-            config,
-            watch,
-            cache,
-            map_budget,
-        ),
+        } => {
+            // Build PackConfig using builder pattern
+            let pack_config = PackConfig::builder()
+                .path(path)
+                .output(OutputOptions {
+                    format: format.map(|f| f.into()),
+                    model: model.map(|m| m.into()),
+                    compression: compression.map(|c| c.into()),
+                    max_tokens,
+                    output_file: output,
+                    header_text,
+                    instruction_file,
+                    show_line_numbers: line_numbers || !no_line_numbers,
+                    show_directory_structure: !no_directory_structure,
+                    show_file_summary: !no_file_summary,
+                    token_tree,
+                    copy_to_clipboard,
+                })
+                .scan(ScanOptions {
+                    include_hidden: hidden,
+                    respect_gitignore: !no_gitignore,
+                    enable_symbols: (symbols || full) && !no_symbols,
+                    full_mode: full && !no_symbols,
+                    exclude_content: no_content,
+                    include_tests,
+                    include_docs,
+                    use_default_ignores: !no_default_ignores,
+                    remove_empty_lines,
+                    remove_comments,
+                    top_files,
+                    truncate_base64,
+                    include_patterns,
+                    exclude_patterns,
+                    stdin,
+                    incremental_cache: cache,
+                })
+                .git(GitOptions {
+                    include_logs,
+                    logs_count,
+                    include_diffs,
+                    sort_by_changes,
+                    remote_branch,
+                    sparse_paths,
+                })
+                .security(SecurityOptions { security_check, redact_secrets })
+                .watch(WatchOptions { enabled: watch })
+                .verbose(verbose)
+                .config_path(config)
+                .map_budget(map_budget)
+                .build()?;
+
+            commands::cmd_pack(pack_config)
+        },
         Commands::Scan {
             path,
             model,
@@ -945,5 +997,11 @@ fn main() -> Result<()> {
             include_patterns,
             include_tests,
         ),
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            generate(shell.into(), &mut cmd, name, &mut std::io::stdout());
+            Ok(())
+        },
     }
 }

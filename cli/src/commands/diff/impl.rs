@@ -12,7 +12,7 @@ use infiniloom_engine::index::{
     BuildOptions, ChangeType, ContextDepth, ContextExpander, ContextSnippet, DiffChange,
     IndexBuilder, IndexStorage, LazyContextBuilder,
 };
-use infiniloom_engine::output::OutputFormat;
+use infiniloom_engine::output::{escaping::{escape_xml_attribute, escape_xml_text}, OutputFormat};
 use infiniloom_engine::tokenizer::{TokenModel, Tokenizer};
 use infiniloom_engine::types::TokenizerModel;
 
@@ -59,7 +59,6 @@ pub fn cmd_diff(
         TokenizerModel::Claude
     };
 
-    let token_model = to_token_model(model);
     let base_ref = resolve_base_ref(reference.as_deref(), &path);
 
     // Always load diff content for accurate change classification
@@ -166,8 +165,8 @@ pub fn cmd_diff(
         }
     }
 
-    enrich_diff_context(&path, &changes, base_ref.as_deref(), &mut context, token_model)?;
-    apply_diff_budget(&mut context, budget, token_model);
+    enrich_diff_context(&path, &changes, base_ref.as_deref(), &mut context, model)?;
+    apply_diff_budget(&mut context, budget, model);
 
     // Fetch commit history for changed files if requested
     let file_history: FileHistory = if include_history && history_count > 0 {
@@ -211,42 +210,6 @@ pub fn cmd_diff(
     eprintln!("  Tokens: ~{}", context.total_tokens);
 
     Ok(())
-}
-
-/// Convert TokenizerModel to the tokenizer's TokenModel
-fn to_token_model(model: TokenizerModel) -> TokenModel {
-    match model {
-        // OpenAI o200k_base models
-        TokenizerModel::Gpt52 => TokenModel::Gpt52,
-        TokenizerModel::Gpt52Pro => TokenModel::Gpt52Pro,
-        TokenizerModel::Gpt51 => TokenModel::Gpt51,
-        TokenizerModel::Gpt51Mini => TokenModel::Gpt51Mini,
-        TokenizerModel::Gpt51Codex => TokenModel::Gpt51Codex,
-        TokenizerModel::Gpt5 => TokenModel::Gpt5,
-        TokenizerModel::Gpt5Mini => TokenModel::Gpt5Mini,
-        TokenizerModel::Gpt5Nano => TokenModel::Gpt5Nano,
-        TokenizerModel::O4Mini => TokenModel::O4Mini,
-        TokenizerModel::O3 => TokenModel::O3,
-        TokenizerModel::O3Mini => TokenModel::O3Mini,
-        TokenizerModel::O1 => TokenModel::O1,
-        TokenizerModel::O1Mini => TokenModel::O1Mini,
-        TokenizerModel::O1Preview => TokenModel::O1Preview,
-        TokenizerModel::Gpt4o => TokenModel::Gpt4o,
-        TokenizerModel::Gpt4oMini => TokenModel::Gpt4oMini,
-        // OpenAI cl100k_base models (legacy)
-        TokenizerModel::Gpt4 => TokenModel::Gpt4,
-        TokenizerModel::Gpt35Turbo => TokenModel::Gpt35Turbo,
-        // Other vendors
-        TokenizerModel::Claude => TokenModel::Claude,
-        TokenizerModel::Gemini => TokenModel::Gemini,
-        TokenizerModel::Llama => TokenModel::Llama,
-        TokenizerModel::CodeLlama => TokenModel::CodeLlama,
-        TokenizerModel::Mistral => TokenModel::Mistral,
-        TokenizerModel::DeepSeek => TokenModel::DeepSeek,
-        TokenizerModel::Qwen => TokenModel::Qwen,
-        TokenizerModel::Cohere => TokenModel::Cohere,
-        TokenizerModel::Grok => TokenModel::Grok,
-    }
 }
 
 /// Check if git is available on the system
@@ -1329,9 +1292,9 @@ fn format_diff_context_xml(
                     for commit in commits {
                         xml.push_str(&format!(
                             "        <commit hash=\"{}\" date=\"{}\" author=\"{}\">\n          {}\n        </commit>\n",
-                            escape_xml_attr(&commit.short_hash),
-                            escape_xml_attr(&commit.date),
-                            escape_xml_attr(&commit.author),
+                            escape_xml_attribute(&commit.short_hash),
+                            escape_xml_attribute(&commit.date),
+                            escape_xml_attribute(&commit.author),
                             escape_xml_text(&commit.message)
                         ));
                     }
@@ -1864,96 +1827,11 @@ fn apply_diff_budget(
         .sum();
 }
 
-// XML escaping utilities
-
-fn escape_xml_text(input: &str) -> String {
-    let mut escaped = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
-fn escape_xml_attr(input: &str) -> String {
-    escape_xml_text(input)
-}
+// XML escaping utilities (imported from engine/src/output/escaping.rs)
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ============================================
-    // to_token_model Tests
-    // ============================================
-
-    #[test]
-    fn test_to_token_model_claude() {
-        let model = to_token_model(TokenizerModel::Claude);
-        assert_eq!(model, TokenModel::Claude);
-    }
-
-    #[test]
-    fn test_to_token_model_gpt4o() {
-        let model = to_token_model(TokenizerModel::Gpt4o);
-        assert_eq!(model, TokenModel::Gpt4o);
-    }
-
-    #[test]
-    fn test_to_token_model_gpt4() {
-        let model = to_token_model(TokenizerModel::Gpt4);
-        assert_eq!(model, TokenModel::Gpt4);
-    }
-
-    #[test]
-    fn test_to_token_model_gemini() {
-        let model = to_token_model(TokenizerModel::Gemini);
-        assert_eq!(model, TokenModel::Gemini);
-    }
-
-    #[test]
-    fn test_to_token_model_all_variants() {
-        // Test all model conversions work without panic
-        let models = [
-            TokenizerModel::Claude,
-            TokenizerModel::Gpt4o,
-            TokenizerModel::Gpt4oMini,
-            TokenizerModel::Gpt4,
-            TokenizerModel::Gpt35Turbo,
-            TokenizerModel::Gemini,
-            TokenizerModel::Llama,
-            TokenizerModel::CodeLlama,
-            TokenizerModel::Mistral,
-            TokenizerModel::DeepSeek,
-            TokenizerModel::Qwen,
-            TokenizerModel::Cohere,
-            TokenizerModel::Grok,
-            TokenizerModel::O1,
-            TokenizerModel::O1Mini,
-            TokenizerModel::O1Preview,
-            TokenizerModel::O3,
-            TokenizerModel::O3Mini,
-            TokenizerModel::O4Mini,
-            TokenizerModel::Gpt5,
-            TokenizerModel::Gpt5Mini,
-            TokenizerModel::Gpt5Nano,
-            TokenizerModel::Gpt51,
-            TokenizerModel::Gpt51Mini,
-            TokenizerModel::Gpt51Codex,
-            TokenizerModel::Gpt52,
-            TokenizerModel::Gpt52Pro,
-        ];
-
-        for tokenizer_model in models {
-            let _ = to_token_model(tokenizer_model);
-        }
-    }
 
     // ============================================
     // is_word_char Tests
@@ -2045,66 +1923,6 @@ mod tests {
     fn test_line_contains_symbol_name_with_underscore() {
         assert!(line_contains_symbol_name("my_func()", "my_func"));
         assert!(!line_contains_symbol_name("my_function()", "my_func"));
-    }
-
-    // ============================================
-    // escape_xml_text Tests
-    // ============================================
-
-    #[test]
-    fn test_escape_xml_text_ampersand() {
-        assert_eq!(escape_xml_text("foo & bar"), "foo &amp; bar");
-    }
-
-    #[test]
-    fn test_escape_xml_text_less_than() {
-        assert_eq!(escape_xml_text("a < b"), "a &lt; b");
-    }
-
-    #[test]
-    fn test_escape_xml_text_greater_than() {
-        assert_eq!(escape_xml_text("a > b"), "a &gt; b");
-    }
-
-    #[test]
-    fn test_escape_xml_text_quotes() {
-        assert_eq!(escape_xml_text("say \"hello\""), "say &quot;hello&quot;");
-        assert_eq!(escape_xml_text("it's"), "it&apos;s");
-    }
-
-    #[test]
-    fn test_escape_xml_text_multiple() {
-        assert_eq!(
-            escape_xml_text("<tag attr=\"val\" & more>"),
-            "&lt;tag attr=&quot;val&quot; &amp; more&gt;"
-        );
-    }
-
-    #[test]
-    fn test_escape_xml_text_no_escaping_needed() {
-        assert_eq!(escape_xml_text("hello world"), "hello world");
-        assert_eq!(escape_xml_text(""), "");
-    }
-
-    #[test]
-    fn test_escape_xml_text_code_snippet() {
-        let code = "if (a < b && c > d) { return \"ok\"; }";
-        let escaped = escape_xml_text(code);
-        assert!(escaped.contains("&lt;"));
-        assert!(escaped.contains("&gt;"));
-        assert!(escaped.contains("&amp;"));
-        assert!(escaped.contains("&quot;"));
-    }
-
-    // ============================================
-    // escape_xml_attr Tests
-    // ============================================
-
-    #[test]
-    fn test_escape_xml_attr() {
-        // escape_xml_attr delegates to escape_xml_text
-        assert_eq!(escape_xml_attr("foo & bar"), "foo &amp; bar");
-        assert_eq!(escape_xml_attr("<tag>"), "&lt;tag&gt;");
     }
 
     // ============================================

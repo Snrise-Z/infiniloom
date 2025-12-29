@@ -47,30 +47,13 @@ pub fn cmd_scan(
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
     // STEP 2: Apply filters BEFORE reading content (major performance win)
-    // Apply exclude patterns if provided
-    if !exclude.is_empty() {
-        repo.files.retain(|f| {
-            !exclude.iter().any(|pattern| {
-                f.relative_path.contains(pattern)
-                    || f.relative_path.starts_with(pattern)
-                    || f.relative_path.split('/').any(|part| part == pattern)
-            })
-        });
-    }
-
-    // Apply include patterns if provided (only keep matching files)
-    if !include_patterns.is_empty() {
-        repo.files.retain(|f| {
-            include_patterns.iter().any(|pattern| {
-                // Support glob-like patterns
-                if pattern.contains('*') {
-                    glob::Pattern::new(pattern).is_ok_and(|p| p.matches(&f.relative_path))
-                } else {
-                    f.relative_path.contains(pattern) || f.relative_path.ends_with(pattern)
-                }
-            })
-        });
-    }
+    // Apply centralized filtering
+    infiniloom_engine::filtering::apply_exclude_patterns(&mut repo.files, &exclude, |f| {
+        &f.relative_path
+    });
+    infiniloom_engine::filtering::apply_include_patterns(&mut repo.files, &include_patterns, |f| {
+        &f.relative_path
+    });
 
     // Exclude test files unless include_tests is true
     if !include_tests {

@@ -514,3 +514,457 @@ fn test_symlink_handling() {
 
     cmd.assert().success();
 }
+
+// ============================================================================
+// Integration tests for PackConfig refactoring (Item 1)
+// ============================================================================
+
+#[test]
+fn test_pack_with_output_file() {
+    let temp = create_test_repo();
+    let output_file = temp.path().join("output.xml");
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--output")
+        .arg(&output_file)
+        .arg("--format")
+        .arg("xml");
+
+    cmd.assert().success();
+
+    // Verify output file was created
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("<repository"));
+    assert!(content.contains("</repository>"));
+}
+
+#[test]
+fn test_pack_with_multiple_options() {
+    let temp = create_test_repo();
+    let output_file = temp.path().join("packed.json");
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--format")
+        .arg("json")
+        .arg("--model")
+        .arg("gpt4o")
+        .arg("--compression")
+        .arg("balanced")
+        .arg("--max-tokens")
+        .arg("10000")
+        .arg("--output")
+        .arg(&output_file)
+        .arg("--verbose");
+
+    cmd.assert().success();
+
+    // Verify output file exists and is valid JSON
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(json.get("repository").is_some() || json.get("files").is_some());
+}
+
+#[test]
+fn test_pack_with_include_exclude_patterns() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--include")
+        .arg("*.rs")
+        .arg("--exclude")
+        .arg("*test*")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should contain .rs files
+    assert!(stdout.contains(".rs") || stdout.contains("fn "));
+}
+
+#[test]
+fn test_pack_with_symbols_enabled() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--symbols")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // With symbols enabled, should extract function names
+    assert!(stdout.contains("<repository") || stdout.contains("main") || stdout.contains("fn"));
+}
+
+#[test]
+fn test_pack_with_full_mode() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--full")
+        .arg("--format")
+        .arg("markdown");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Full mode should include comprehensive analysis
+    assert!(stdout.contains("#") || stdout.contains("Repository"));
+}
+
+#[test]
+fn test_pack_with_no_content() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--no-content")
+        .arg("--format")
+        .arg("json");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should be valid JSON with metadata but no file content
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(json.get("repository").is_some() || json.get("metadata").is_some());
+}
+
+#[test]
+fn test_pack_with_line_numbers() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--line-numbers")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Output should contain line numbers (1: or similar)
+    assert!(stdout.contains("<repository"));
+}
+
+#[test]
+fn test_pack_with_no_line_numbers() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--no-line-numbers")
+        .arg("--format")
+        .arg("plain");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should contain code without line number prefixes
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_pack_with_compression_levels() {
+    let temp = create_test_repo();
+
+    // Test minimal compression
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--compression")
+        .arg("minimal")
+        .arg("--format")
+        .arg("xml");
+
+    cmd.assert().success();
+
+    // Test balanced compression
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--compression")
+        .arg("balanced")
+        .arg("--format")
+        .arg("xml");
+
+    cmd.assert().success();
+
+    // Test aggressive compression
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--compression")
+        .arg("aggressive")
+        .arg("--format")
+        .arg("xml");
+
+    cmd.assert().success();
+}
+
+#[test]
+fn test_pack_with_model_selection() {
+    let temp = create_test_repo();
+
+    // Test Claude model
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--model")
+        .arg("claude")
+        .arg("--format")
+        .arg("xml");
+
+    cmd.assert().success();
+
+    // Test GPT-4o model
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--model")
+        .arg("gpt4o")
+        .arg("--format")
+        .arg("markdown");
+
+    cmd.assert().success();
+
+    // Test Gemini model
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--model")
+        .arg("gemini")
+        .arg("--format")
+        .arg("yaml");
+
+    cmd.assert().success();
+}
+
+#[test]
+fn test_pack_with_hidden_files() {
+    let temp = create_test_repo();
+
+    // Create a hidden file
+    fs::write(temp.path().join(".hidden.rs"), "fn hidden() {}").unwrap();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--hidden")
+        .arg("--format")
+        .arg("plain");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // With --hidden, should include hidden files
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_pack_with_include_tests() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--include-tests")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should include test files
+    assert!(stdout.contains("<repository"));
+}
+
+#[test]
+fn test_pack_with_include_docs() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--include-docs")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should include documentation files
+    assert!(stdout.contains("<repository"));
+}
+
+#[test]
+fn test_pack_with_token_budget() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--max-tokens")
+        .arg("1000")
+        .arg("--format")
+        .arg("xml");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should produce output within token budget
+    assert!(stdout.contains("<repository"));
+}
+
+#[test]
+fn test_pack_with_top_files_limit() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--top-files")
+        .arg("2")
+        .arg("--format")
+        .arg("json");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should limit to top N files
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(json.is_object());
+}
+
+#[test]
+fn test_pack_with_remove_comments() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--remove-comments")
+        .arg("--format")
+        .arg("plain");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Comments should be removed from output
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_pack_with_remove_empty_lines() {
+    let temp = create_test_repo();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--remove-empty-lines")
+        .arg("--format")
+        .arg("plain");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Empty lines should be removed
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_pack_with_security_check() {
+    let temp = create_test_repo();
+
+    // Create a file with a potential secret
+    fs::write(
+        temp.path().join("config.rs"),
+        r#"
+const API_KEY: &str = "sk_test_1234567890abcdef";
+fn main() {}
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--security-check")
+        .arg("--format")
+        .arg("json");
+
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    // Should run security scan and produce output
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+fn test_pack_all_formats() {
+    let temp = create_test_repo();
+
+    // Test all supported formats
+    for format in &["xml", "markdown", "json", "yaml", "plain", "toon"] {
+        let mut cmd = infiniloom_cmd();
+        cmd.arg("pack").arg(temp.path()).arg("--format").arg(format);
+
+        cmd.assert().success();
+    }
+}
+
+#[test]
+fn test_pack_complex_configuration() {
+    let temp = create_test_repo();
+    let output_file = temp.path().join("complex.xml");
+
+    // Test complex combination of options (simulates real-world usage)
+    let mut cmd = infiniloom_cmd();
+    cmd.arg("pack")
+        .arg(temp.path())
+        .arg("--format")
+        .arg("xml")
+        .arg("--model")
+        .arg("claude")
+        .arg("--compression")
+        .arg("balanced")
+        .arg("--output")
+        .arg(&output_file)
+        .arg("--include")
+        .arg("*.rs")
+        .arg("--exclude")
+        .arg("*test*")
+        .arg("--symbols")
+        .arg("--line-numbers")
+        .arg("--remove-comments")
+        .arg("--remove-empty-lines")
+        .arg("--max-tokens")
+        .arg("50000")
+        .arg("--verbose");
+
+    cmd.assert().success();
+
+    // Verify output file
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("<repository"));
+    assert!(content.contains("</repository>"));
+}

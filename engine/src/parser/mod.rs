@@ -64,6 +64,7 @@ pub mod init;
 pub mod language;
 pub mod queries;
 pub mod query_builder;
+pub mod thread_local;
 
 // Re-export core parser functionality
 pub use core::{Parser, ParserError};
@@ -71,6 +72,9 @@ pub use core::{Parser, ParserError};
 // Re-export Language from language module (new location)
 // For backward compatibility, also keep it accessible from core
 pub use language::{detect_file_language, Language};
+
+// Re-export optimized thread-local parser API
+pub use thread_local::{parse_file_symbols, parse_with_language};
 
 #[cfg(test)]
 mod tests {

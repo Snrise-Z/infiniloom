@@ -55,29 +55,13 @@ pub fn cmd_chunk(
     let mut repo = scanner::scan_repository(&path, config).context("Failed to scan repository")?;
 
     // STEP 2: Apply all filters BEFORE reading content
-    // Apply exclude patterns if provided
-    if !exclude.is_empty() {
-        repo.files.retain(|f| {
-            !exclude.iter().any(|pattern| {
-                f.relative_path.contains(pattern)
-                    || f.relative_path.starts_with(pattern)
-                    || f.relative_path.split('/').any(|part| part == pattern)
-            })
-        });
-    }
-
-    // Apply include patterns (only keep matching files)
-    if !include_patterns.is_empty() {
-        repo.files.retain(|f| {
-            include_patterns.iter().any(|pattern| {
-                if pattern.contains('*') {
-                    glob::Pattern::new(pattern).is_ok_and(|p| p.matches(&f.relative_path))
-                } else {
-                    f.relative_path.contains(pattern) || f.relative_path.ends_with(pattern)
-                }
-            })
-        });
-    }
+    // Apply centralized filtering
+    infiniloom_engine::filtering::apply_exclude_patterns(&mut repo.files, &exclude, |f| {
+        &f.relative_path
+    });
+    infiniloom_engine::filtering::apply_include_patterns(&mut repo.files, &include_patterns, |f| {
+        &f.relative_path
+    });
 
     // Exclude test files unless include_tests is true
     if !include_tests {
@@ -88,27 +72,14 @@ pub fn cmd_chunk(
 
     // STEP 3: Now read content and extract symbols only for filtered files (much faster!)
     {
-        use infiniloom_engine::parser::{Language, Parser};
+        use infiniloom_engine::parser::parse_file_symbols;
         use rayon::prelude::*;
-        use std::cell::RefCell;
-
-        thread_local! {
-            static THREAD_PARSER: RefCell<Parser> = RefCell::new(Parser::new());
-        }
 
         repo.files.par_iter_mut().for_each(|file| {
             if let Ok(content) = std::fs::read_to_string(&file.path) {
-                // Extract symbols if needed and we have a supported language
+                // Extract symbols using optimized thread-local parser if needed
                 if needs_symbols {
-                    if let Some(ref lang_str) = file.language {
-                        if let Ok(lang) = lang_str.parse::<Language>() {
-                            THREAD_PARSER.with(|parser| {
-                                if let Ok(symbols) = parser.borrow_mut().parse(&content, lang) {
-                                    file.symbols = symbols;
-                                }
-                            });
-                        }
-                    }
+                    file.symbols = parse_file_symbols(&content, &file.path);
                 }
                 file.content = Some(content);
             }

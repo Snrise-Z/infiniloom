@@ -12,7 +12,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.4.11"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.91"
 license = "MIT"
@@ -89,6 +89,30 @@ clone_on_ref_ptr = "warn"
 
 # String handling
 str_to_string = "warn"
+
+# Code quality and best practices
+explicit_deref_methods = "warn"
+explicit_iter_loop = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+inefficient_to_string = "warn"
+manual_ok_or = "warn"
+map_flatten = "warn"
+map_unwrap_or = "warn"
+needless_pass_by_value = "warn"
+redundant_clone = "warn"
+redundant_pattern_matching = "warn"
+single_char_pattern = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+
+# Documentation quality
+missing_docs_in_private_items = "allow"  # Too noisy, but good for libraries
+undocumented_unsafe_blocks = "warn"
+
+# Error handling
+panic_in_result_fn = "warn"
+unwrap_in_result = "warn"
 
 # Allowed lints (common in real-world code)
 too_long_first_doc_paragraph = "allow"

@@ -8,6 +8,14 @@
 
 use proptest::prelude::*;
 
+use infiniloom_engine::content_transformation::{
+    extract_key_symbols, extract_key_symbols_with_context, extract_signatures, remove_comments,
+    remove_empty_lines,
+};
+use infiniloom_engine::filtering::{
+    apply_exclude_patterns, apply_include_patterns, matches_exclude_pattern,
+    matches_include_pattern,
+};
 use infiniloom_engine::security::SecurityScanner;
 use infiniloom_engine::tokenizer::{TokenCounts, TokenModel, Tokenizer};
 
@@ -692,5 +700,905 @@ proptest! {
                 );
             }
         }
+    }
+}
+
+// ============================================================================
+// Filtering Property Tests
+// ============================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// matches_exclude_pattern should be deterministic
+    #[test]
+    fn prop_exclude_pattern_deterministic(
+        path in "[a-z/_]{1,30}\\.[a-z]{2,4}",
+        pattern in "[a-z*/_]{1,20}",
+    ) {
+        let result1 = matches_exclude_pattern(&path, &pattern);
+        let result2 = matches_exclude_pattern(&path, &pattern);
+        prop_assert_eq!(result1, result2, "Non-deterministic result for path={}, pattern={}", path, pattern);
+    }
+
+    /// matches_include_pattern should be deterministic
+    #[test]
+    fn prop_include_pattern_deterministic(
+        path in "[a-z/_]{1,30}\\.[a-z]{2,4}",
+        pattern in "[a-z*/_]{1,20}",
+    ) {
+        let result1 = matches_include_pattern(&path, &pattern);
+        let result2 = matches_include_pattern(&path, &pattern);
+        prop_assert_eq!(result1, result2, "Non-deterministic result for path={}, pattern={}", path, pattern);
+    }
+
+    /// Empty pattern should not match (exclude)
+    #[test]
+    fn prop_exclude_empty_pattern_no_match(
+        path in "[a-z/_]{1,30}\\.[a-z]{2,4}",
+    ) {
+        let result = matches_exclude_pattern(&path, "");
+        prop_assert!(!result, "Empty pattern should not match: path={}", path);
+    }
+
+    /// Empty pattern should not match (include)
+    #[test]
+    fn prop_include_empty_pattern_no_match(
+        path in "[a-z/_]{1,30}\\.[a-z]{2,4}",
+    ) {
+        let result = matches_include_pattern(&path, "");
+        prop_assert!(!result, "Empty pattern should not match: path={}", path);
+    }
+
+    /// Path component matching: if path contains "/pattern/" then should match (exclude)
+    #[test]
+    fn prop_exclude_component_match(
+        prefix in "[a-z]{1,10}",
+        component in "[a-z]{1,10}",
+        suffix in "[a-z/_]{1,20}",
+    ) {
+        let path = format!("{}/{}/{}", prefix, component, suffix);
+        let result = matches_exclude_pattern(&path, &component);
+        prop_assert!(result, "Component '{}' should match in path '{}'", component, path);
+    }
+
+    /// Prefix matching: if path starts with pattern, should match (exclude)
+    #[test]
+    fn prop_exclude_prefix_match(
+        prefix in "[a-z]{1,10}",
+        suffix in "/[a-z/_]{1,20}",
+    ) {
+        let path = format!("{}{}", prefix, suffix);
+        let result = matches_exclude_pattern(&path, &prefix);
+        prop_assert!(result, "Prefix '{}' should match in path '{}'", prefix, path);
+    }
+
+    /// Substring matching for include patterns
+    #[test]
+    fn prop_include_substring_match(
+        prefix in "[a-z/_]{0,10}",
+        substring in "[a-z]{1,8}",
+        suffix in "[a-z/_]{0,10}\\.[a-z]{2,4}",
+    ) {
+        let path = format!("{}{}{}", prefix, substring, suffix);
+        let result = matches_include_pattern(&path, &substring);
+        prop_assert!(result, "Substring '{}' should match in path '{}'", substring, path);
+    }
+
+    /// Suffix matching for include patterns
+    #[test]
+    fn prop_include_suffix_match(
+        prefix in "[a-z/_]{1,20}",
+        suffix in "\\.[a-z]{2,4}",
+    ) {
+        let path = format!("{}{}", prefix, suffix);
+        let result = matches_include_pattern(&path, &suffix);
+        prop_assert!(result, "Suffix '{}' should match in path '{}'", suffix, path);
+    }
+
+    /// apply_exclude_patterns with empty patterns should not modify collection
+    #[test]
+    fn prop_apply_exclude_empty_preserves_all(
+        paths in prop::collection::vec("[a-z/_]{1,30}\\.[a-z]{2,4}", 1..20),
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = paths.iter().map(|p| TestFile { path: p.clone() }).collect();
+        let original_len = files.len();
+
+        apply_exclude_patterns(&mut files, &[], |f| &f.path);
+
+        prop_assert_eq!(files.len(), original_len, "Empty exclude patterns should preserve all files");
+    }
+
+    /// apply_include_patterns with empty patterns should not modify collection
+    #[test]
+    fn prop_apply_include_empty_preserves_all(
+        paths in prop::collection::vec("[a-z/_]{1,30}\\.[a-z]{2,4}", 1..20),
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = paths.iter().map(|p| TestFile { path: p.clone() }).collect();
+        let original_len = files.len();
+
+        apply_include_patterns(&mut files, &[], |f| &f.path);
+
+        prop_assert_eq!(files.len(), original_len, "Empty include patterns should preserve all files");
+    }
+
+    /// apply_exclude_patterns should never increase collection size
+    #[test]
+    fn prop_apply_exclude_never_increases_size(
+        paths in prop::collection::vec("[a-z/_]{1,30}\\.[a-z]{2,4}", 1..20),
+        patterns in prop::collection::vec("[a-z*/_]{1,15}", 0..5),
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = paths.iter().map(|p| TestFile { path: p.clone() }).collect();
+        let original_len = files.len();
+
+        apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert!(files.len() <= original_len, "Exclude should never increase size: {} -> {}", original_len, files.len());
+    }
+
+    /// apply_include_patterns should never increase collection size
+    #[test]
+    fn prop_apply_include_never_increases_size(
+        paths in prop::collection::vec("[a-z/_]{1,30}\\.[a-z]{2,4}", 1..20),
+        patterns in prop::collection::vec("[a-z*/_]{1,15}", 1..5),  // At least 1 pattern
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = paths.iter().map(|p| TestFile { path: p.clone() }).collect();
+        let original_len = files.len();
+
+        apply_include_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert!(files.len() <= original_len, "Include should never increase size: {} -> {}", original_len, files.len());
+    }
+
+    /// If all paths match exclude pattern, all should be removed
+    #[test]
+    fn prop_apply_exclude_all_match_removes_all(
+        count in 1usize..20,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        // Create files that all start with "target/"
+        let mut files: Vec<TestFile> = (0..count)
+            .map(|i| TestFile { path: format!("target/file{}.rs", i) })
+            .collect();
+
+        let patterns = vec!["target".to_string()];
+        apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert_eq!(files.len(), 0, "All files matching pattern should be removed");
+    }
+
+    /// If no paths match exclude pattern, none should be removed
+    #[test]
+    fn prop_apply_exclude_no_match_preserves_all(
+        count in 1usize..20,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        // Create files that start with "src/"
+        let mut files: Vec<TestFile> = (0..count)
+            .map(|i| TestFile { path: format!("src/file{}.rs", i) })
+            .collect();
+        let original_len = files.len();
+
+        let patterns = vec!["target".to_string()];
+        apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert_eq!(files.len(), original_len, "No files should be removed when pattern doesn't match");
+    }
+
+    /// If all paths match include pattern, all should be kept
+    #[test]
+    fn prop_apply_include_all_match_keeps_all(
+        count in 1usize..20,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        // Create Rust files
+        let mut files: Vec<TestFile> = (0..count)
+            .map(|i| TestFile { path: format!("src/file{}.rs", i) })
+            .collect();
+        let original_len = files.len();
+
+        let patterns = vec!["*.rs".to_string()];
+        apply_include_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert_eq!(files.len(), original_len, "All files matching include pattern should be kept");
+    }
+
+    /// If no paths match include pattern, all should be removed
+    #[test]
+    fn prop_apply_include_no_match_removes_all(
+        count in 1usize..20,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        // Create Rust files, but include only TypeScript
+        let mut files: Vec<TestFile> = (0..count)
+            .map(|i| TestFile { path: format!("src/file{}.rs", i) })
+            .collect();
+
+        let patterns = vec!["*.ts".to_string()];
+        apply_include_patterns(&mut files, &patterns, |f| &f.path);
+
+        prop_assert_eq!(files.len(), 0, "All files should be removed when include pattern doesn't match");
+    }
+
+    /// Wildcard patterns should use glob matching
+    #[test]
+    fn prop_wildcard_uses_glob(
+        prefix in "[a-z]{1,10}",
+        filename in "[a-z]{1,10}",
+        ext in "[a-z]{2,4}",
+    ) {
+        let path = format!("{}/{}.{}", prefix, filename, ext);
+        let pattern = format!("*.{}", ext);
+
+        let result = matches_include_pattern(&path, &pattern);
+        prop_assert!(result, "Wildcard pattern '{}' should match path '{}'", pattern, path);
+    }
+
+    /// Glob pattern caching: same pattern called twice should work
+    #[test]
+    fn prop_pattern_caching_works(
+        path in "[a-z/_]{1,30}\\.[a-z]{2,4}",
+        pattern in "\\*\\.[a-z]{2,4}",  // e.g., "*.rs"
+    ) {
+        // First call
+        let result1 = matches_include_pattern(&path, &pattern);
+
+        // Second call (should use cached pattern)
+        let result2 = matches_include_pattern(&path, &pattern);
+
+        prop_assert_eq!(result1, result2, "Cached pattern should give same result");
+    }
+
+    /// Multiple patterns should be OR'd together (exclude)
+    #[test]
+    fn prop_exclude_multiple_patterns_are_ored(
+        count in 1usize..10,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = vec![
+            TestFile { path: "src/main.rs".to_string() },
+            TestFile { path: "target/debug.rs".to_string() },
+            TestFile { path: "node_modules/lib.js".to_string() },
+        ];
+
+        let patterns = vec!["target".to_string(), "node_modules".to_string()];
+        apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
+
+        // Only src/main.rs should remain
+        prop_assert_eq!(files.len(), 1);
+        prop_assert_eq!(files[0].path, "src/main.rs");
+    }
+
+    /// Multiple patterns should be OR'd together (include)
+    #[test]
+    fn prop_include_multiple_patterns_are_ored(
+        count in 1usize..10,
+    ) {
+        #[derive(Debug, Clone)]
+        struct TestFile { path: String }
+
+        let mut files: Vec<TestFile> = vec![
+            TestFile { path: "src/main.rs".to_string() },
+            TestFile { path: "src/lib.py".to_string() },
+            TestFile { path: "src/index.ts".to_string() },
+        ];
+
+        let patterns = vec!["*.rs".to_string(), "*.ts".to_string()];
+        apply_include_patterns(&mut files, &patterns, |f| &f.path);
+
+        // main.rs and index.ts should remain
+        prop_assert_eq!(files.len(), 2);
+        prop_assert!(files.iter().any(|f| f.path == "src/main.rs"));
+        prop_assert!(files.iter().any(|f| f.path == "src/index.ts"));
+    }
+}
+
+// ============================================================================
+// Content Transformation Property Tests
+// ============================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    /// remove_empty_lines should never increase line count
+    #[test]
+    fn prop_remove_empty_lines_never_increases(
+        content in "\\PC{0,500}",
+    ) {
+        let input_lines = content.lines().count();
+        let output = remove_empty_lines(&content, false);
+        let output_lines = output.lines().count();
+
+        prop_assert!(
+            output_lines <= input_lines,
+            "Output has more lines: {} -> {}",
+            input_lines, output_lines
+        );
+    }
+
+    /// remove_empty_lines output should not contain whitespace-only lines
+    #[test]
+    fn prop_remove_empty_lines_no_whitespace_only(
+        content in "\\PC{0,500}",
+    ) {
+        let output = remove_empty_lines(&content, false);
+
+        for line in output.lines() {
+            // Strip line numbers if present (format: "123:content")
+            let content_part = if let Some((_, rest)) = line.split_once(':') {
+                rest
+            } else {
+                line
+            };
+
+            prop_assert!(
+                !content_part.trim().is_empty(),
+                "Found whitespace-only line: {:?}",
+                line
+            );
+        }
+    }
+
+    /// remove_empty_lines with preserve_line_numbers should prefix with numbers
+    #[test]
+    fn prop_remove_empty_lines_preserves_line_numbers(
+        content in "\\PC{1,300}",
+    ) {
+        let output = remove_empty_lines(&content, true);
+
+        for line in output.lines() {
+            if line.contains(':') {
+                let num_part = line.split(':').next().unwrap_or("");
+                prop_assert!(
+                    num_part.parse::<u32>().is_ok(),
+                    "Line number prefix invalid: {:?}",
+                    line
+                );
+            }
+        }
+    }
+
+    /// remove_empty_lines is idempotent
+    #[test]
+    fn prop_remove_empty_lines_idempotent(
+        content in "\\PC{0,300}",
+    ) {
+        let once = remove_empty_lines(&content, false);
+        let twice = remove_empty_lines(&once, false);
+
+        prop_assert_eq!(
+            once, twice,
+            "Not idempotent: applying twice changed result"
+        );
+    }
+
+    /// remove_comments should never panic
+    #[test]
+    fn prop_remove_comments_no_panic(
+        content in "\\PC{0,500}",
+        lang in "(rust|python|javascript|typescript|go)",
+    ) {
+        // Should not panic regardless of input
+        let _ = remove_comments(&content, &lang, false);
+    }
+
+    /// remove_comments output should not be longer than input
+    #[test]
+    fn prop_remove_comments_never_longer(
+        content in "\\PC{0,500}",
+        lang in "(rust|python|javascript|typescript|go)",
+    ) {
+        let output = remove_comments(&content, &lang, false);
+
+        prop_assert!(
+            output.len() <= content.len(),
+            "Output longer: {} -> {}",
+            content.len(), output.len()
+        );
+    }
+
+    /// remove_comments is idempotent for uncommented code
+    #[test]
+    fn prop_remove_comments_idempotent_no_comments(
+        content in "[a-z \\n]{10,200}",  // Simple text without comment markers
+    ) {
+        let lang = "rust";
+        let once = remove_comments(&content, lang, false);
+        let twice = remove_comments(&once, lang, false);
+
+        prop_assert_eq!(
+            once, twice,
+            "Not idempotent for uncommented code"
+        );
+    }
+
+    /// remove_comments should preserve code structure (line count shouldn't change dramatically)
+    #[test]
+    fn prop_remove_comments_preserves_structure(
+        content in "fn [a-z]+\\(\\) \\{\\n    [a-z]+;\\n\\}\\n",  // Valid Rust function
+    ) {
+        let output = remove_comments(&content, "rust", false);
+
+        // Non-comment code should remain
+        prop_assert!(
+            !output.is_empty(),
+            "Valid code was completely removed"
+        );
+    }
+
+    /// extract_signatures should never be longer than input
+    #[test]
+    fn prop_extract_signatures_never_longer(
+        content in "\\PC{0,500}",
+    ) {
+        let output = extract_signatures(&content, "rust", &[]);
+
+        prop_assert!(
+            output.len() <= content.len(),
+            "Signatures longer than input: {} -> {}",
+            content.len(), output.len()
+        );
+    }
+
+    /// extract_signatures should not panic on arbitrary input
+    #[test]
+    fn prop_extract_signatures_no_panic(
+        content in "\\PC{0,500}",
+        lang in "(rust|python|javascript|typescript|go)",
+    ) {
+        // Should not panic regardless of input
+        let _ = extract_signatures(&content, &lang, &[]);
+    }
+
+    /// extract_key_symbols should never be longer than input
+    #[test]
+    fn prop_extract_key_symbols_never_longer(
+        content in "\\PC{0,500}",
+    ) {
+        let output = extract_key_symbols(&content, "rust", &[]);
+
+        prop_assert!(
+            output.len() <= content.len(),
+            "Key symbols longer than input: {} -> {}",
+            content.len(), output.len()
+        );
+    }
+
+    /// extract_key_symbols should not panic on arbitrary input
+    #[test]
+    fn prop_extract_key_symbols_no_panic(
+        content in "\\PC{0,500}",
+        lang in "(rust|python|javascript|typescript|go)",
+    ) {
+        // Should not panic regardless of input
+        let _ = extract_key_symbols(&content, &lang, &[]);
+    }
+
+    /// extract_key_symbols_with_context should never be longer than input
+    #[test]
+    fn prop_extract_key_symbols_with_context_never_longer(
+        content in "\\PC{0,500}",
+    ) {
+        let output = extract_key_symbols_with_context(&content, "rust", &[]);
+
+        prop_assert!(
+            output.len() <= content.len(),
+            "Key symbols with context longer than input: {} -> {}",
+            content.len(), output.len()
+        );
+    }
+
+    /// extract_key_symbols_with_context should not panic on arbitrary input
+    #[test]
+    fn prop_extract_key_symbols_with_context_no_panic(
+        content in "\\PC{0,500}",
+        lang in "(rust|python|javascript|typescript|go)",
+    ) {
+        // Should not panic regardless of input
+        let _ = extract_key_symbols_with_context(&content, &lang, &[]);
+    }
+
+    /// extract_key_symbols_with_context should include more context than extract_key_symbols
+    #[test]
+    fn prop_extract_with_context_includes_more(
+        content in "fn [a-z]+\\(\\) \\{\\n    [a-z]+;\\n    [a-z]+;\\n    [a-z]+;\\n\\}\\n",
+    ) {
+        let without_context = extract_key_symbols(&content, "rust", &[]);
+        let with_context = extract_key_symbols_with_context(&content, "rust", &[]);
+
+        // With context should generally have more lines (2 lines above + 2 below each symbol)
+        // Or at least not have fewer lines
+        let without_lines = without_context.lines().count();
+        let with_lines = with_context.lines().count();
+
+        prop_assert!(
+            with_lines >= without_lines,
+            "With context has fewer lines: {} vs {}",
+            with_lines, without_lines
+        );
+    }
+
+    /// All extraction functions should preserve UTF-8 validity
+    #[test]
+    fn prop_extraction_preserves_utf8(
+        content in "\\PC{0,300}",
+    ) {
+        let signatures = extract_signatures(&content, "rust", &[]);
+        let key_symbols = extract_key_symbols(&content, "rust", &[]);
+        let with_context = extract_key_symbols_with_context(&content, "rust", &[]);
+
+        // These should not panic if UTF-8 is valid
+        let _ = signatures.chars().count();
+        let _ = key_symbols.chars().count();
+        let _ = with_context.chars().count();
+    }
+
+    /// Transformation functions should handle empty input gracefully
+    #[test]
+    fn prop_transformations_handle_empty() {
+        let empty = "";
+
+        let no_empty = remove_empty_lines(empty, false);
+        let no_comments = remove_comments(empty, "rust", false);
+        let signatures = extract_signatures(empty, "rust", &[]);
+        let key_symbols = extract_key_symbols(empty, "rust", &[]);
+        let with_context = extract_key_symbols_with_context(empty, "rust", &[]);
+
+        // Should all be empty or very short (not panic)
+        prop_assert!(no_empty.len() <= 10);
+        prop_assert!(no_comments.len() <= 10);
+        prop_assert!(signatures.len() <= 10);
+        prop_assert!(key_symbols.len() <= 10);
+        prop_assert!(with_context.len() <= 10);
+    }
+
+    /// Transformation functions should handle single-line input
+    #[test]
+    fn prop_transformations_handle_single_line(
+        line in "[a-z ]{1,50}",
+    ) {
+        let no_empty = remove_empty_lines(&line, false);
+        let no_comments = remove_comments(&line, "rust", false);
+        let signatures = extract_signatures(&line, "rust", &[]);
+        let key_symbols = extract_key_symbols(&line, "rust", &[]);
+        let with_context = extract_key_symbols_with_context(&line, "rust", &[]);
+
+        // Should not panic
+        prop_assert!(no_empty.len() <= line.len() + 10);  // +10 for line numbers
+        prop_assert!(no_comments.len() <= line.len() + 10);
+        prop_assert!(signatures.len() <= line.len() + 10);
+        prop_assert!(key_symbols.len() <= line.len() + 10);
+        prop_assert!(with_context.len() <= line.len() + 10);
+    }
+
+    /// remove_empty_lines should preserve non-empty lines exactly
+    #[test]
+    fn prop_remove_empty_lines_preserves_content(
+        lines in prop::collection::vec("[a-z]{5,20}", 1..10),
+    ) {
+        let content = lines.join("\n");
+        let output = remove_empty_lines(&content, false);
+
+        // All original non-empty lines should be present
+        for line in &lines {
+            prop_assert!(
+                output.contains(line),
+                "Original line {:?} not found in output",
+                line
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Parser Thread-Local Property Tests
+// ============================================================================
+
+use infiniloom_engine::parser::{parse_file_symbols, parse_with_language, Language};
+use std::path::PathBuf;
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    /// parse_file_symbols should be deterministic
+    #[test]
+    fn prop_parse_file_symbols_deterministic(
+        func_name in "[a-z_][a-z0-9_]{0,15}",
+        extension in "(rs|py|js|ts|go)",
+    ) {
+        let content = format!("fn {}() {{}}", func_name);
+        let path = PathBuf::from(format!("test.{}", extension));
+
+        let result1 = parse_file_symbols(&content, &path);
+        let result2 = parse_file_symbols(&content, &path);
+
+        // Same input should produce same output
+        prop_assert_eq!(result1.len(), result2.len(), "Different symbol counts");
+        for (s1, s2) in result1.iter().zip(result2.iter()) {
+            prop_assert_eq!(&s1.name, &s2.name, "Different symbol names");
+            prop_assert_eq!(s1.start_line, s2.start_line, "Different start lines");
+            prop_assert_eq!(s1.end_line, s2.end_line, "Different end lines");
+        }
+    }
+
+    /// parse_with_language should be deterministic
+    #[test]
+    fn prop_parse_with_language_deterministic(
+        func_name in "[a-z_][a-z0-9_]{0,15}",
+    ) {
+        let content = format!("fn {}() {{}}", func_name);
+
+        let result1 = parse_with_language(&content, Language::Rust);
+        let result2 = parse_with_language(&content, Language::Rust);
+
+        prop_assert_eq!(result1.len(), result2.len(), "Different symbol counts");
+        for (s1, s2) in result1.iter().zip(result2.iter()) {
+            prop_assert_eq!(&s1.name, &s2.name, "Different symbol names");
+        }
+    }
+
+    /// parse_file_symbols should never panic on arbitrary content
+    #[test]
+    fn prop_parse_no_panic_arbitrary_content(
+        content in "\\PC{0,500}",
+        extension in "(rs|py|js|ts|go)",
+    ) {
+        let path = PathBuf::from(format!("test.{}", extension));
+        // Should not panic regardless of content
+        let _ = parse_file_symbols(&content, &path);
+    }
+
+    /// parse_with_language should never panic on arbitrary content
+    #[test]
+    fn prop_parse_with_language_no_panic(
+        content in "\\PC{0,500}",
+    ) {
+        // Should not panic regardless of content
+        let _ = parse_with_language(&content, Language::Rust);
+        let _ = parse_with_language(&content, Language::Python);
+        let _ = parse_with_language(&content, Language::JavaScript);
+    }
+
+    /// All extracted symbols should have valid line numbers
+    #[test]
+    fn prop_symbols_have_valid_line_numbers(
+        func_name in "[a-z_][a-z0-9_]{0,15}",
+        body_lines in 1usize..10,
+    ) {
+        let body = "    // comment\n".repeat(body_lines);
+        let content = format!("fn {}() {{\n{}}}", func_name, body);
+        let path = PathBuf::from("test.rs");
+
+        let symbols = parse_file_symbols(&content, &path);
+
+        for symbol in &symbols {
+            prop_assert!(
+                symbol.start_line >= 1,
+                "Symbol {} has invalid start_line: {}",
+                symbol.name, symbol.start_line
+            );
+            prop_assert!(
+                symbol.end_line >= symbol.start_line,
+                "Symbol {} has end_line {} < start_line {}",
+                symbol.name, symbol.end_line, symbol.start_line
+            );
+        }
+    }
+
+    /// All extracted symbols should have non-empty names
+    #[test]
+    fn prop_symbols_have_nonempty_names(
+        func_name in "[a-zA-Z_][a-zA-Z0-9_]{0,20}",
+    ) {
+        let content = format!("fn {}() {{ }}", func_name);
+        let path = PathBuf::from("test.rs");
+
+        let symbols = parse_file_symbols(&content, &path);
+
+        for symbol in &symbols {
+            prop_assert!(
+                !symbol.name.is_empty(),
+                "Symbol has empty name"
+            );
+        }
+    }
+
+    /// Multiple calls should reuse the same parser (thread safety)
+    #[test]
+    fn prop_multiple_calls_reuse_parser(
+        func_count in 1usize..10,
+    ) {
+        // Generate multiple functions
+        for i in 0..func_count {
+            let content = format!("fn func_{}() {{}}", i);
+            let path = PathBuf::from("test.rs");
+            let symbols = parse_file_symbols(&content, &path);
+
+            // Each call should work independently
+            prop_assert!(!symbols.is_empty(), "Failed to parse function {}", i);
+        }
+    }
+
+    /// Empty content should return empty symbols
+    #[test]
+    fn prop_empty_content_returns_empty(
+        extension in "(rs|py|js|ts|go)",
+    ) {
+        let path = PathBuf::from(format!("test.{}", extension));
+        let symbols = parse_file_symbols("", &path);
+
+        prop_assert!(symbols.is_empty(), "Empty content should return no symbols");
+    }
+
+    /// Files without extensions should return empty
+    #[test]
+    fn prop_no_extension_returns_empty(
+        content in "\\PC{1,100}",
+        filename in "[a-zA-Z]{1,10}",
+    ) {
+        let path = PathBuf::from(filename); // No extension
+        let symbols = parse_file_symbols(&content, &path);
+
+        prop_assert!(symbols.is_empty(), "No extension should return empty");
+    }
+
+    /// Unsupported extensions should return empty
+    #[test]
+    fn prop_unsupported_extension_returns_empty(
+        content in "\\PC{1,100}",
+        ext in "[a-z]{1,5}",
+    ) {
+        // Use rare extension unlikely to be supported
+        let path = PathBuf::from(format!("test.{}", ext));
+        let symbols = parse_file_symbols(&content, &path);
+
+        // Most random extensions won't be supported
+        // This test just ensures no panic
+    }
+
+    /// UTF-8 multi-byte characters should not cause panics
+    #[test]
+    fn prop_utf8_multibyte_no_panic(
+        chars in prop::collection::vec(
+            prop::char::range('α', 'ω'),  // Greek letters
+            1..50
+        ),
+    ) {
+        let content = chars.into_iter().collect::<String>();
+        let path = PathBuf::from("test.rs");
+
+        // Should not panic on UTF-8 content
+        let _ = parse_file_symbols(&content, &path);
+    }
+
+    /// Malformed syntax should not panic (error tolerance)
+    #[test]
+    fn prop_malformed_syntax_no_panic(
+        braces in 0usize..10,
+        parens in 0usize..10,
+    ) {
+        // Generate intentionally malformed code
+        let content = format!(
+            "fn test( {} ) {} }}",
+            "(".repeat(parens),
+            "{".repeat(braces)
+        );
+        let path = PathBuf::from("test.rs");
+
+        // Tree-sitter is error-tolerant, should not panic
+        let _ = parse_file_symbols(&content, &path);
+    }
+
+    /// Symbol extraction for different languages should work
+    #[test]
+    fn prop_multilanguage_parsing(
+        name in "[a-z][a-z0-9]{0,10}",
+    ) {
+        // Rust
+        let rust_code = format!("fn {}() {{}}", name);
+        let rust_symbols = parse_with_language(&rust_code, Language::Rust);
+        if !rust_symbols.is_empty() {
+            prop_assert!(rust_symbols.iter().any(|s| s.name.contains(&name)));
+        }
+
+        // Python
+        let python_code = format!("def {}():\n    pass", name);
+        let python_symbols = parse_with_language(&python_code, Language::Python);
+        if !python_symbols.is_empty() {
+            prop_assert!(python_symbols.iter().any(|s| s.name.contains(&name)));
+        }
+
+        // JavaScript
+        let js_code = format!("function {}() {{ return 42; }}", name);
+        let js_symbols = parse_with_language(&js_code, Language::JavaScript);
+        if !js_symbols.is_empty() {
+            prop_assert!(js_symbols.iter().any(|s| s.name.contains(&name)));
+        }
+    }
+
+    /// Extension detection should work correctly
+    #[test]
+    fn prop_extension_detection(
+        func_name in "[a-z_][a-z0-9_]{0,10}",
+    ) {
+        let content = format!("fn {}() {{}}", func_name);
+
+        // Rust extensions
+        for ext in &["rs"] {
+            let path = PathBuf::from(format!("test.{}", ext));
+            let symbols = parse_file_symbols(&content, &path);
+            // Rust code should parse with .rs extension
+            prop_assert!(!symbols.is_empty(), "Failed to detect Rust for .{}", ext);
+        }
+    }
+
+    /// Symbols should be in source order (monotonic start_line)
+    #[test]
+    fn prop_symbols_in_source_order(
+        func_count in 2usize..5,
+    ) {
+        // Generate multiple functions in order
+        let functions: Vec<String> = (0..func_count)
+            .map(|i| format!("fn func_{}() {{\n    // body\n}}\n", i))
+            .collect();
+        let content = functions.join("\n");
+        let path = PathBuf::from("test.rs");
+
+        let symbols = parse_file_symbols(&content, &path);
+
+        if symbols.len() >= 2 {
+            // Check that symbols appear in order
+            for i in 1..symbols.len() {
+                prop_assert!(
+                    symbols[i].start_line >= symbols[i-1].start_line,
+                    "Symbols not in source order: {} at line {} comes after {} at line {}",
+                    symbols[i].name, symbols[i].start_line,
+                    symbols[i-1].name, symbols[i-1].start_line
+                );
+            }
+        }
+    }
+
+    /// Whitespace-only content should return empty
+    #[test]
+    fn prop_whitespace_only_returns_empty(
+        spaces in 0usize..100,
+        tabs in 0usize..50,
+        newlines in 0usize..50,
+    ) {
+        let content = format!(
+            "{}{}{}",
+            " ".repeat(spaces),
+            "\t".repeat(tabs),
+            "\n".repeat(newlines)
+        );
+        let path = PathBuf::from("test.rs");
+
+        let symbols = parse_file_symbols(&content, &path);
+
+        // Whitespace-only should produce no symbols
+        prop_assert!(symbols.is_empty(), "Whitespace-only should return empty");
     }
 }

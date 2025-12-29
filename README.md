@@ -101,7 +101,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | **Multiple output formats** | XML, Markdown, YAML, JSON — optimized for different AI models |
 | **Token-aware packaging** | Respects context limits so you can fit within model constraints |
 | **Git integration** | Understands diffs, branches, and commit history for change-aware context |
-| **21 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, and more |
+| **22 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, and more |
 
 ---
 
@@ -187,6 +187,48 @@ Infiniloom is **stable and actively maintained**.
 | **Cargo** (Rust users) | `cargo install infiniloom` |
 | **pip** (Python library) | `pip install infiniloom` |
 | **From source** | `git clone https://github.com/Topos-Labs/infiniloom && cd infiniloom && cargo build --release` |
+
+---
+
+## Shell Completions
+
+Infiniloom supports tab completion for bash, zsh, fish, PowerShell, and Elvish.
+
+### Bash
+
+```bash
+infiniloom completions bash > /tmp/infiniloom.bash
+sudo mv /tmp/infiniloom.bash /etc/bash_completion.d/
+```
+
+### Zsh
+
+```bash
+infiniloom completions zsh > ~/.zfunc/_infiniloom
+# Add to ~/.zshrc:
+fpath=(~/.zfunc $fpath)
+autoload -U compinit && compinit
+```
+
+### Fish
+
+```bash
+infiniloom completions fish > ~/.config/fish/completions/infiniloom.fish
+```
+
+### PowerShell
+
+```powershell
+infiniloom completions powershell | Out-String | Invoke-Expression
+# Or add to your profile:
+infiniloom completions powershell >> $PROFILE
+```
+
+### Elvish
+
+```bash
+infiniloom completions elvish > ~/.config/elvish/completions/infiniloom.elv
+```
 
 ---
 

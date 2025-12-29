@@ -8,6 +8,35 @@ use std::path::PathBuf;
 pub use crate::tokenizer::{TokenCounts, TokenModel};
 
 /// Backward-compatible alias for TokenModel
+///
+/// # Important: No Conversion Needed
+///
+/// `TokenizerModel` and `TokenModel` are the **same type** - this is a type alias,
+/// not a separate type. Any function expecting `TokenModel` can directly accept
+/// `TokenizerModel` without conversion.
+///
+/// **Before (incorrect, ~30 lines of duplication)**:
+/// ```ignore
+/// fn to_token_model(model: TokenizerModel) -> TokenModel {
+///     match model {
+///         TokenizerModel::Claude => TokenModel::Claude,
+///         // ... 26 more identical mappings
+///     }
+/// }
+/// ```
+///
+/// **After (correct)**:
+/// ```ignore
+/// // Direct usage - no conversion function needed
+/// let tokenizer = Tokenizer::new();
+/// tokenizer.count(text, model) // Works with TokenizerModel directly
+/// ```
+///
+/// This alias exists solely for backward compatibility with legacy CLI code that
+/// used the name `TokenizerModel`. All new code should prefer `TokenModel`.
+///
+/// Eliminated in Phase 1 refactoring (Item 2): Removed 193 lines of duplicate
+/// conversion functions and tests from pack.rs and diff.rs.
 pub type TokenizerModel = TokenModel;
 
 /// A scanned repository

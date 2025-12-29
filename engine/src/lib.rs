@@ -97,6 +97,9 @@
 //! | [`parser`] | AST-based symbol extraction using Tree-sitter |
 //! | [`repomap`] | PageRank-based symbol importance ranking |
 //! | [`output`] | Model-specific formatters (XML, Markdown, etc.) |
+//! | [`content_processing`] | Content transformation utilities (base64 truncation) |
+//! | [`content_transformation`] | Code compression (comment removal, signature extraction) |
+//! | [`filtering`] | Centralized file filtering and pattern matching |
 //! | [`security`] | Secret detection and redaction |
 //! | [`tokenizer`] | Multi-model token counting |
 //! | [`chunking`] | Semantic code chunking |
@@ -108,7 +111,10 @@
 // Core modules
 pub mod chunking;
 pub mod constants;
+pub mod content_processing;
+pub mod content_transformation;
 pub mod default_ignores;
+pub mod filtering;
 pub mod newtypes;
 pub mod output;
 pub mod parser;
@@ -150,9 +156,19 @@ pub use constants::{
     index as index_constants, pagerank as pagerank_constants, parser as parser_constants,
     repomap as repomap_constants, security as security_constants, timeouts as timeout_constants,
 };
+pub use content_transformation::{
+    extract_key_symbols, extract_key_symbols_with_context, extract_signatures, remove_comments,
+    remove_empty_lines,
+};
+pub use filtering::{
+    apply_exclude_patterns, apply_include_patterns, compile_patterns, matches_exclude_pattern,
+    matches_include_pattern,
+};
 pub use newtypes::{ByteOffset, FileSize, ImportanceScore, LineNumber, SymbolId, TokenCount};
 pub use output::{OutputFormat, OutputFormatter};
-pub use parser::{detect_file_language, Language, Parser, ParserError};
+pub use parser::{
+    detect_file_language, parse_file_symbols, parse_with_language, Language, Parser, ParserError,
+};
 pub use ranking::{count_symbol_references, rank_files, sort_files_by_importance, SymbolRanker};
 pub use repomap::{RepoMap, RepoMapGenerator};
 pub use security::SecurityScanner;
