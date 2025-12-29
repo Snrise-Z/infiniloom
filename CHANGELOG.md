@@ -5,6 +5,26 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-12-29
+
+### Fixed
+
+- **Node.js Bindings - Missing `Infiniloom.securityScan()` Method**
+  - Added missing `securityScan()` method to `Infiniloom` class
+  - Method scans pre-loaded repository files for secrets and sensitive information
+  - Returns array of `SecurityFinding` objects with file, line, severity, kind, and pattern
+  - Fixes 2 failing tests: "Infiniloom class exposes stats, map, pack, and security scan" and "Infiniloom.securityScan returns structured findings"
+
+- **Node.js Bindings - Missing Empty Path Validation**
+  - Added path validation in `Infiniloom` constructor to reject empty strings
+  - Throws `InvalidArg` error with message "Path cannot be empty"
+  - Fixes 1 failing test: "Infiniloom handles empty path in constructor"
+  - Ensures consistent validation across all path inputs
+
+### Changed
+
+- All 212 Node.js tests now passing (was 209/212 in v0.5.1)
+
 ## [0.5.1] - 2025-12-29
 
 ### Fixed

@@ -334,6 +334,9 @@ impl Infiniloom {
     /// ```
     #[napi(constructor)]
     pub fn new(path: String, model: Option<String>) -> Result<Self> {
+        // Validate path is not empty
+        crate::validation::validate_path(&path)?;
+
         let tokenizer_model = parse_model(model.as_deref())
             .map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?;
 
@@ -564,6 +567,44 @@ impl Infiniloom {
         let output = formatter.format(&repo_copy, &map);
 
         Ok(output)
+    }
+
+    /// Scan repository for security issues
+    ///
+    /// Scans the pre-loaded repository files for secrets and sensitive information.
+    ///
+    /// # Returns
+    /// Array of security findings with file, line, severity, kind, and pattern
+    ///
+    /// # Example
+    /// ```javascript
+    /// const loom = new Infiniloom('./my-repo');
+    /// const findings = loom.securityScan();
+    /// for (const finding of findings) {
+    ///   console.log(`${finding.severity}: ${finding.kind} in ${finding.file}:${finding.line}`);
+    /// }
+    /// ```
+    #[napi]
+    pub fn security_scan(&self) -> Result<Vec<types::SecurityFinding>> {
+        let scanner = SecurityScanner::new();
+        let mut findings = Vec::new();
+
+        for file in &self.repo.files {
+            if let Some(content) = &file.content {
+                let file_findings = scanner.scan(content, &file.relative_path);
+                for finding in file_findings {
+                    findings.push(types::SecurityFinding {
+                        file: finding.file.clone(),
+                        line: finding.line,
+                        severity: format!("{:?}", finding.severity),
+                        kind: finding.kind.name().to_string(),
+                        pattern: finding.pattern.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(findings)
     }
 }
 
