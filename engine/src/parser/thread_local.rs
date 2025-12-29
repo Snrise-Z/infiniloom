@@ -53,7 +53,7 @@
 //! let symbols = parse_file_symbols(content, path);
 //! ```
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::path::Path;
 
 use super::{Language, Parser};
@@ -61,7 +61,7 @@ use crate::types::Symbol;
 
 // Thread-local parser with lazy initialization (OnceLock alternative for stable Rust)
 thread_local! {
-    static THREAD_PARSER: OnceCell<Parser> = const { OnceCell::new() };
+    static THREAD_PARSER: OnceCell<RefCell<Parser>> = const { OnceCell::new() };
 }
 
 /// Parse file content using optimized thread-local parser
@@ -117,8 +117,8 @@ pub fn parse_file_symbols(content: &str, path: &Path) -> Vec<Symbol> {
 
     // Get or initialize thread-local parser (happens once per thread)
     THREAD_PARSER.with(|cell| {
-        let parser = cell.get_or_init(|| Parser::new());
-        parser.parse(content, lang).unwrap_or_default()
+        let parser = cell.get_or_init(|| RefCell::new(Parser::new()));
+        parser.borrow_mut().parse(content, lang).unwrap_or_default()
     })
 }
 
@@ -146,8 +146,11 @@ pub fn parse_file_symbols(content: &str, path: &Path) -> Vec<Symbol> {
 /// ```
 pub fn parse_with_language(content: &str, language: Language) -> Vec<Symbol> {
     THREAD_PARSER.with(|cell| {
-        let parser = cell.get_or_init(|| Parser::new());
-        parser.parse(content, language).unwrap_or_default()
+        let parser = cell.get_or_init(|| RefCell::new(Parser::new()));
+        parser
+            .borrow_mut()
+            .parse(content, language)
+            .unwrap_or_default()
     })
 }
 

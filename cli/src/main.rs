@@ -6,7 +6,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell as ClapShell};
 use std::path::PathBuf;
 
@@ -1000,7 +1000,8 @@ fn main() -> Result<()> {
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_string();
-            generate(shell.into(), &mut cmd, name, &mut std::io::stdout());
+            let clap_shell: ClapShell = shell.into();
+            generate(clap_shell, &mut cmd, name, &mut std::io::stdout());
             Ok(())
         },
     }
