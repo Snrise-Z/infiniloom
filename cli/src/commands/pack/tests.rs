@@ -1,6 +1,18 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::pack::budget::{
+        budget_token_model_for, estimate_tokens, truncate_to_tokens,
+    };
+    use crate::commands::pack::compression::{
+        remove_comments_from_content, remove_empty_lines_from_content,
+    };
+    use crate::commands::pack::filters::pattern_matches_file;
+    use crate::commands::pack::output::{append_yaml_block, SecurityIssueEntry, TokenTreeEntry};
+    use infiniloom_engine::content_transformation::extract_signatures_heuristic;
+    use infiniloom_engine::output::escaping::{escape_xml_text, escape_yaml_string};
+    use infiniloom_engine::tokenizer::TokenModel;
+    use infiniloom_engine::types::TokenizerModel;
 
     // ============================================
     // pattern_matches_file Tests
@@ -39,7 +51,8 @@ mod tests {
     // ============================================
     // is_inside_string Tests
     // ============================================
-
+    // NOTE: is_inside_string tests commented out - function removed during refactoring
+    /*
     #[test]
     fn test_is_inside_string_double_quotes_open() {
         assert!(is_inside_string("\"hello"));
@@ -85,6 +98,7 @@ mod tests {
     fn test_is_inside_string_no_quotes() {
         assert!(!is_inside_string("hello world"));
     }
+    */
 
     // ============================================
     // remove_empty_lines_from_content Tests

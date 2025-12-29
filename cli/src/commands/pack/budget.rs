@@ -360,7 +360,7 @@ pub fn update_repo_cache(
 /// Convert TokenizerModel to TokenModel for budget enforcement
 ///
 /// Maps the 27 TokenizerModel variants to the 10 TokenModel families used by the tokenizer.
-fn budget_token_model_for(model: TokenizerModel) -> TokenModel {
+pub fn budget_token_model_for(model: TokenizerModel) -> TokenModel {
     match model {
         TokenizerModel::Claude => TokenModel::Claude,
         TokenizerModel::Gpt52

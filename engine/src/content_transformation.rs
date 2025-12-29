@@ -368,7 +368,7 @@ pub fn extract_signatures(content: &str, language: &str, symbols: &[Symbol]) -> 
 /// # Returns
 ///
 /// Lines that look like function/class declarations.
-fn extract_signatures_heuristic(content: &str, language: &str) -> String {
+pub fn extract_signatures_heuristic(content: &str, language: &str) -> String {
     let mut result = String::new();
     let signature_patterns: &[&str] = match language.to_lowercase().as_str() {
         "python" => &["def ", "class ", "async def "],
@@ -819,6 +819,12 @@ mod tests {
                 signature: Some("fn foo()".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
             Symbol {
                 name: "bar".to_string(),
@@ -828,6 +834,12 @@ mod tests {
                 signature: Some("fn bar()".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
         ];
         let result = extract_signatures(content, "rust", &symbols);
@@ -847,6 +859,12 @@ mod tests {
             signature: Some("fn foo()".to_string()),
             docstring: Some("Does something important".to_string()),
             visibility: Visibility::Public,
+            references: 0,
+            importance: 0.0,
+            parent: None,
+            calls: vec![],
+            extends: None,
+            implements: vec![],
         }];
         let result = extract_signatures(content, "rust", &symbols);
         assert!(result.contains("fn foo()"));
@@ -866,6 +884,12 @@ mod tests {
                 signature: Some("pub fn foo()".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
             Symbol {
                 name: "bar".to_string(),
@@ -875,6 +899,12 @@ mod tests {
                 signature: Some("fn bar()".to_string()),
                 docstring: None,
                 visibility: Visibility::Private,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
             Symbol {
                 name: "Baz".to_string(),
@@ -884,6 +914,12 @@ mod tests {
                 signature: Some("pub struct Baz".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
         ];
         let result = extract_key_symbols(content, "rust", &symbols);
@@ -912,6 +948,12 @@ mod tests {
             signature: Some("pub fn foo()".to_string()),
             docstring: None,
             visibility: Visibility::Public,
+            references: 0,
+            importance: 0.0,
+            parent: None,
+            calls: vec![],
+            extends: None,
+            implements: vec![],
         }];
         let result = extract_key_symbols_with_context(content, "rust", &symbols);
         assert!(result.contains("// Setup")); // Context before
@@ -931,6 +973,12 @@ mod tests {
                 signature: Some("fn foo()".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
             Symbol {
                 name: "bar".to_string(),
@@ -940,6 +988,12 @@ mod tests {
                 signature: Some("fn bar()".to_string()),
                 docstring: None,
                 visibility: Visibility::Public,
+                references: 0,
+                importance: 0.0,
+                parent: None,
+                calls: vec![],
+                extends: None,
+                implements: vec![],
             },
         ];
         let result = extract_key_symbols_with_context(content, "rust", &symbols);

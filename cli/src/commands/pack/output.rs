@@ -18,17 +18,17 @@ use std::path::PathBuf;
 
 // Type definitions for serializable data structures
 #[derive(serde::Serialize)]
-struct TokenTreeEntry {
-    path: String,
-    tokens: u32,
+pub struct TokenTreeEntry {
+    pub path: String,
+    pub tokens: u32,
 }
 
 #[derive(serde::Serialize)]
-struct SecurityIssueEntry {
-    file: String,
-    line: u32,
-    kind: String,
-    severity: String,
+pub struct SecurityIssueEntry {
+    pub file: String,
+    pub line: u32,
+    pub kind: String,
+    pub severity: String,
 }
 
 /// Read instruction file contents
@@ -80,7 +80,7 @@ fn security_issue_entries(
 }
 
 /// Append YAML block with multi-line value
-fn append_yaml_block(output: &mut String, key: &str, value: &str) {
+pub fn append_yaml_block(output: &mut String, key: &str, value: &str) {
     output.push_str(&format!("\n{}: |\n", key));
     for line in value.lines() {
         output.push_str(&format!("  {}\n", line));
