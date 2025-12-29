@@ -5,6 +5,40 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2025-12-29
+
+### Fixed
+
+- **Node.js Bindings - Missing Exports Restored** - Critical regression fix from v0.5.0
+  - Restored 6 async wrapper functions that were missing: `packAsync`, `scanAsync`, `buildIndexAsync`, `chunkAsync`, `analyzeImpactAsync`, `getDiffContextAsync`
+  - Restored `Infiniloom` class with `new()`, `getStats()`, `generateMap()`, and `pack()` methods
+  - Restored `semanticCompress()` function for heuristic compression
+  - All 8 exports now available in Node.js bindings
+
+- **Property Tests - Empty Pattern Edge Case** - Fixed filtering tests failing on empty string patterns
+  - Added empty string guards in `matches_exclude_pattern()` and `matches_include_pattern()`
+  - Fixed `prop_exclude_empty_pattern_no_match` test (empty pattern should not match anything)
+  - Fixed `prop_include_empty_pattern_no_match` test (empty pattern should not match anything)
+  - Prevents `"".starts_with("")` edge case where empty strings match everything
+
+### Added
+
+- **Comprehensive Test Coverage for Async Functions** - 18 new tests for Node.js bindings
+  - `packAsync`: 3 tests (JSON output, XML format, error handling)
+  - `scanAsync`: 3 tests (claude model, gpt4o model, error handling)
+  - `buildIndexAsync`: 3 tests (create index, force rebuild, error handling)
+  - `chunkAsync`: 3 tests (file strategy, module strategy, validation)
+  - `analyzeImpactAsync`: 3 tests (single file, multiple files, error handling)
+  - `getDiffContextAsync`: 3 tests (commit range, different ranges, error handling)
+  - All tests passing with 0 failures
+
+### Changed
+
+- **Python Bindings** - Verified all exports present and functional
+  - `Infiniloom` class already implemented
+  - `semantic_compress()` function already implemented
+  - No changes needed, compiles successfully
+
 ## [0.4.9] - 2025-12-26
 
 ### Added

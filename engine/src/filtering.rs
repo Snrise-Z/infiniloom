@@ -83,6 +83,11 @@ fn compile_pattern(pattern: &str) -> Option<Pattern> {
 /// assert!(matches_exclude_pattern("dist/bundle.min.js", "*.min.js"));
 /// ```
 pub fn matches_exclude_pattern(path: &str, pattern: &str) -> bool {
+    // Empty pattern should not match anything
+    if pattern.is_empty() {
+        return false;
+    }
+
     // Try as glob pattern first if contains wildcard
     if pattern.contains('*') {
         if let Some(glob) = compile_pattern(pattern) {
@@ -132,6 +137,11 @@ pub fn matches_exclude_pattern(path: &str, pattern: &str) -> bool {
 /// assert!(matches_include_pattern("foo.test.ts", "*.test.ts"));
 /// ```
 pub fn matches_include_pattern(path: &str, pattern: &str) -> bool {
+    // Empty pattern should not match anything
+    if pattern.is_empty() {
+        return false;
+    }
+
     // Try as glob pattern first if contains wildcard
     if pattern.contains('*') {
         if let Some(glob) = compile_pattern(pattern) {

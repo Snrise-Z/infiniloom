@@ -5,7 +5,23 @@ const os = require('node:os')
 const path = require('node:path')
 const { execSync } = require('node:child_process')
 
-const { pack, scan, scanWithOptions, countTokens, semanticCompress, Infiniloom, isGitRepo, GitRepo, scanSecurity } = require('..')
+const {
+  pack,
+  scan,
+  scanWithOptions,
+  countTokens,
+  semanticCompress,
+  Infiniloom,
+  isGitRepo,
+  GitRepo,
+  scanSecurity,
+  packAsync,
+  scanAsync,
+  buildIndexAsync,
+  chunkAsync,
+  analyzeImpactAsync,
+  getDiffContextAsync,
+} = require('..')
 
 function createTempRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'infiniloom-node-'))
@@ -2933,4 +2949,233 @@ test('getCallGraph with maxEdges=0 returns empty graph', (t) => {
   assert.ok(Array.isArray(result.edges), 'should have edges array')
   assert.strictEqual(result.nodes.length, 0, 'maxEdges=0 should return empty nodes')
   assert.strictEqual(result.edges.length, 0, 'maxEdges=0 should return empty edges')
+})
+
+// ============================================================================
+// Async Wrapper Function Tests
+// ============================================================================
+
+test('packAsync returns valid JSON output', async (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  const output = await packAsync(dir, {
+    format: 'json',
+    model: 'claude',
+    mapBudget: 500,
+  })
+
+  assert.ok(output, 'packAsync should return output')
+  assert.ok(output.length > 0, 'packAsync output should not be empty')
+
+  // Output is a JSON string, parse it
+  const parsed = JSON.parse(output)
+  assert.ok(parsed, 'packAsync output should be valid JSON')
+  assert.ok(parsed.repository || parsed.map, 'packAsync JSON should have repository or map data')
+})
+
+test('packAsync with XML format', async (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  const output = await packAsync(dir, {
+    format: 'xml',
+    model: 'gpt4o',
+  })
+
+  assert.ok(output, 'packAsync XML should return output')
+  assert.ok(output.includes('<files>'), 'packAsync should contain files tag')
+  assert.ok(output.includes('<file'), 'packAsync should contain file tag')
+})
+
+test('packAsync throws on invalid path', async (t) => {
+  await assert.rejects(
+    async () => await packAsync('/nonexistent/path/to/repo'),
+    /not found|does not exist/i,
+    'packAsync should throw on invalid path'
+  )
+})
+
+test('scanAsync returns statistics', async (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  const result = await scanAsync(dir, 'claude')
+
+  assert.ok(result, 'scanAsync should return result')
+  assert.ok(typeof result.totalFiles === 'number', 'scanAsync should return totalFiles')
+  assert.ok(typeof result.totalTokens === 'number', 'scanAsync should return totalTokens')
+  assert.ok(result.totalFiles > 0, 'scanAsync should find files')
+  assert.ok(Array.isArray(result.languages), 'scanAsync should have languages array')
+})
+
+test('scanAsync with different model', async (t) => {
+  const dir = createTempRepo()
+  t.after(() => cleanup(dir))
+
+  const result = await scanAsync(dir, 'gpt4o')
+
+  assert.ok(result, 'scanAsync with gpt4o should return result')
+  assert.ok(result.totalFiles > 0, 'scanAsync should find files')
+  assert.ok(result.totalTokens > 0, 'scanAsync should count tokens')
+})
+
+test('scanAsync throws on invalid path', async (t) => {
+  await assert.rejects(
+    async () => await scanAsync('/invalid/repo/path', 'claude'),
+    /not found|does not exist/i,
+    'scanAsync should throw on invalid path'
+  )
+})
+
+test('buildIndexAsync creates index', async (t) => {
+  const dir = createGitRepo()
+  t.after(() => cleanup(dir))
+
+  const result = await buildIndexAsync(dir, {
+    force: false,
+    includeTests: false,
+  })
+
+  assert.ok(result, 'buildIndexAsync should return result')
+  assert.ok(typeof result.fileCount === 'number', 'buildIndexAsync should return fileCount')
+  assert.ok(typeof result.symbolCount === 'number', 'buildIndexAsync should return symbolCount')
+})
+
+test('buildIndexAsync with force rebuild', async (t) => {
+  const dir = createGitRepo()
+  t.after(() => cleanup(dir))
+
+  // Build once
+  await buildIndexAsync(dir, { force: false })
+
+  // Force rebuild
+  const result = await buildIndexAsync(dir, { force: true })
+
+  assert.ok(result, 'buildIndexAsync force should return result')
+})
+
+test('buildIndexAsync throws on invalid path', async (t) => {
+  await assert.rejects(
+    async () => await buildIndexAsync('/nonexistent/path'),
+    /not found|does not exist/i,
+    'buildIndexAsync should throw on invalid path'
+  )
+})
+
+test('chunkAsync returns chunks', async (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = await chunkAsync(dir, {
+    maxTokens: 1000,
+    overlap: 200,
+    strategy: 'file',
+  })
+
+  assert.ok(result, 'chunkAsync should return result')
+  assert.ok(Array.isArray(result), 'chunkAsync should return array')
+  assert.ok(result.length > 0, 'chunkAsync should create chunks')
+  assert.ok(result[0].content, 'chunkAsync chunks should have content')
+  assert.ok(typeof result[0].tokens === 'number', 'chunkAsync chunks should have token count')
+})
+
+test('chunkAsync with module strategy', async (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = await chunkAsync(dir, {
+    maxTokens: 2000,
+    strategy: 'module',
+  })
+
+  assert.ok(result, 'chunkAsync module should return result')
+  assert.ok(Array.isArray(result), 'chunkAsync module should return array')
+})
+
+test('chunkAsync throws on maxTokens below minimum', async (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  await assert.rejects(
+    async () => await chunkAsync(dir, { maxTokens: 50 }),
+    /too small|minimum is 100/i,
+    'chunkAsync with maxTokens=50 should throw validation error'
+  )
+})
+
+test('analyzeImpactAsync returns impact analysis', async (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = await analyzeImpactAsync(dir, ['main.rs'], {
+    depth: 1,
+  })
+
+  assert.ok(result, 'analyzeImpactAsync should return result')
+  assert.ok(Array.isArray(result.affectedSymbols) || Array.isArray(result.testFiles) ||
+    result.impactLevel !== undefined, 'analyzeImpactAsync should have impact data')
+})
+
+test('analyzeImpactAsync with multiple files', async (t) => {
+  const dir = createTestRepoWithIndex()
+  t.after(() => cleanup(dir))
+
+  const result = await analyzeImpactAsync(dir, ['main.rs', 'script.py'], {
+    depth: 2,
+  })
+
+  assert.ok(result, 'analyzeImpactAsync multiple files should return result')
+})
+
+test('analyzeImpactAsync throws on invalid path', async (t) => {
+  await assert.rejects(
+    async () => await analyzeImpactAsync('/nonexistent/path', ['main.rs']),
+    /not found|does not exist/i,
+    'analyzeImpactAsync should throw on invalid path'
+  )
+})
+
+test('getDiffContextAsync returns diff context', async (t) => {
+  const dir = createGitRepo() // Already has initial commit with test.py
+  t.after(() => cleanup(dir))
+
+  // Make a change to existing file and commit
+  fs.writeFileSync(path.join(dir, 'test.py'), 'def hello():\n    return "changed"\n')
+  execSync('git add test.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "change test.py"', { cwd: dir, stdio: 'pipe' })
+
+  const result = await getDiffContextAsync(dir, 'HEAD~1', 'HEAD', {
+    depth: 1,
+  })
+
+  assert.ok(result, 'getDiffContextAsync should return result')
+  assert.ok(Array.isArray(result.changedFiles) || Array.isArray(result.changed_files),
+    'getDiffContextAsync should have changed files')
+})
+
+test('getDiffContextAsync with different commit range', async (t) => {
+  const dir = createGitRepo() // Already has initial commit with test.py
+  t.after(() => cleanup(dir))
+
+  // Add a new file and commit
+  fs.writeFileSync(path.join(dir, 'new_file.py'), 'def new_function():\n    pass\n')
+  execSync('git add new_file.py', { cwd: dir, stdio: 'pipe' })
+  execSync('git commit -m "add new file"', { cwd: dir, stdio: 'pipe' })
+
+  const result = await getDiffContextAsync(dir, 'HEAD~1', 'HEAD', {
+    depth: 2,
+  })
+
+  assert.ok(result, 'getDiffContextAsync range should return result')
+  assert.ok(Array.isArray(result.changedFiles) || Array.isArray(result.changed_files),
+    'getDiffContextAsync should have changed files')
+})
+
+test('getDiffContextAsync throws on invalid path', async (t) => {
+  await assert.rejects(
+    async () => await getDiffContextAsync('/nonexistent/path', 'HEAD~1', 'HEAD'),
+    /not found|does not exist|not a git repository/i,
+    'getDiffContextAsync should throw on invalid path'
+  )
 })

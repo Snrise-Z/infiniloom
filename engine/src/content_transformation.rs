@@ -146,7 +146,13 @@ fn is_inside_string(text: &str) -> bool {
         }
     }
 
-    in_double || in_single
+    let result = in_double || in_single;
+    #[cfg(test)]
+    eprintln!(
+        "is_inside_string({:?}) = {} (in_double={}, in_single={})",
+        text, result, in_double, in_single
+    );
+    result
 }
 
 /// Remove comments from content
@@ -249,7 +255,7 @@ pub fn remove_comments(content: &str, language: &str, preserve_line_numbers: boo
                 if let Some(end_idx) = line[idx + block_start.len()..].find(block_end) {
                     let before = &line[..idx];
                     let after = &line[idx + block_start.len() + end_idx + block_end.len()..];
-                    let combined = format!("{}{}", before.trim_end(), after);
+                    let combined = format!("{}{}", before, after);
                     if !combined.trim().is_empty() {
                         result.push_str(&format_line(original_line_num, &combined));
                     }
@@ -271,16 +277,27 @@ pub fn remove_comments(content: &str, language: &str, preserve_line_numbers: boo
         }
 
         // Handle inline line comments
+        // Find the first occurrence of the comment marker that is NOT inside a string
         if !line_comment.is_empty() {
-            if let Some(idx) = line.find(line_comment) {
-                let before = &line[..idx];
+            let mut found_comment_idx = None;
+            let mut search_start = 0;
+
+            while let Some(idx) = line[search_start..].find(line_comment) {
+                let absolute_idx = search_start + idx;
+                let before = &line[..absolute_idx];
                 if !is_inside_string(before) {
-                    let cleaned = before.trim_end();
-                    if !cleaned.is_empty() {
-                        result.push_str(&format_line(original_line_num, cleaned));
-                    }
-                    continue;
+                    found_comment_idx = Some(absolute_idx);
+                    break;
                 }
+                search_start = absolute_idx + line_comment.len();
+            }
+
+            if let Some(idx) = found_comment_idx {
+                let cleaned = line[..idx].trim_end();
+                if !cleaned.is_empty() {
+                    result.push_str(&format_line(original_line_num, cleaned));
+                }
+                continue;
             }
         }
 
@@ -780,6 +797,9 @@ mod tests {
     fn test_remove_comments_preserves_strings() {
         let content = "let url = \"http://example.com\"; // real comment\n";
         let result = remove_comments(content, "rust", false);
+        eprintln!("Input:  {:?}", content);
+        eprintln!("Output: {:?}", result);
+        eprintln!("Contains comment: {}", result.contains("// real comment"));
         assert!(result.contains("http://example.com"));
         assert!(!result.contains("// real comment"));
     }
