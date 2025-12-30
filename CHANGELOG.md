@@ -5,6 +5,25 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2025-12-29
+
+### Fixed
+
+- **Release Workflow** - Fixed PyPI version conflict
+  - PyPI doesn't allow re-uploading same version number
+  - Bumped to v0.5.3 to enable successful PyPI publish
+  - No code changes from v0.5.2
+
+### Changed
+
+- **Version**: All packages bumped from 0.5.2 → 0.5.3 for PyPI compatibility
+  - CLI (infiniloom): 0.5.2 → 0.5.3
+  - Engine (infiniloom-engine): 0.5.2 → 0.5.3
+  - Common bindings (infiniloom-bindings-common): 0.5.2 → 0.5.3
+  - Node.js bindings (infiniloom-node): 0.5.2 → 0.5.3
+  - Python bindings (infiniloom): 0.5.2 → 0.5.3
+  - npm CLI package (infiniloom): 0.5.0 → 0.5.3
+
 ## [0.5.2] - 2025-12-29
 
 ### Fixed
