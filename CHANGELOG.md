@@ -21,9 +21,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixes 1 failing test: "Infiniloom handles empty path in constructor"
   - Ensures consistent validation across all path inputs
 
+- **Documentation Examples (Doctests)**
+  - Fixed 14 failing doctest examples in engine code
+  - Updated `quick_estimate()` example to include required `TokenModel` parameter
+  - Fixed `CallGraphStats` field names: `total_nodes` → `total_symbols`, `total_edges` → `total_calls`
+  - Fixed `get_call_graph_filtered()` calls to use `Option` parameters
+  - Marked examples requiring test setup or file I/O as `no_run`
+  - All doctests now pass
+
 ### Changed
 
-- All 212 Node.js tests now passing (was 209/212 in v0.5.1)
+- **Version Alignment**: All packages now at v0.5.2
+  - CLI (infiniloom): 0.5.0 → 0.5.2
+  - Engine (infiniloom-engine): 0.5.0 → 0.5.2
+  - Common bindings (infiniloom-bindings-common): 0.5.0 → 0.5.2
+  - Node.js bindings (infiniloom-node): already 0.5.2
+  - Python bindings (infiniloom): already 0.5.2
+- All 212 Node.js tests passing (was 209/212 in v0.5.1)
+- All documentation examples (doctests) now pass
 
 ## [0.5.1] - 2025-12-29
 

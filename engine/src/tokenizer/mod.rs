@@ -24,7 +24,7 @@
 //!
 //! Count tokens for all supported models at once:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use infiniloom_engine::tokenizer::Tokenizer;
 //!
 //! let tokenizer = Tokenizer::new();
@@ -64,7 +64,7 @@
 //!
 //! The tokenizer is thread-safe and uses lazy initialization:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use infiniloom_engine::tokenizer::Tokenizer;
 //! use rayon::prelude::*;
 //!
@@ -89,12 +89,12 @@
 //! For rough estimates without tiktoken overhead:
 //!
 //! ```rust
-//! use infiniloom_engine::tokenizer::quick_estimate;
+//! use infiniloom_engine::tokenizer::{quick_estimate, TokenModel};
 //!
 //! let text = "Some text to estimate";
-//! let estimated_tokens = quick_estimate(text);
+//! let estimated_tokens = quick_estimate(text, TokenModel::Claude);
 //!
-//! // Uses ~3.5 chars/token heuristic
+//! // Uses model-specific estimation
 //! println!("Estimated tokens: {}", estimated_tokens);
 //! ```
 //!

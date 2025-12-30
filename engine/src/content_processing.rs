@@ -99,7 +99,7 @@ static BASE64_PATTERN: Lazy<Regex> = Lazy::new(|| {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use infiniloom_engine::content_processing::truncate_base64;
 ///
 /// // Data URI truncation

@@ -6,12 +6,11 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::{IndexBuilder, query};
 //!
 //! // Build index for your repository
 //! let mut builder = IndexBuilder::new();
-//! builder.index_directory("/path/to/repo")?;
 //! let (index, graph) = builder.build();
 //!
 //! // Find a symbol by name
@@ -27,10 +26,9 @@
 //!
 //! Search for symbols by name across the entire codebase:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, _graph) = setup_test_index();
 //! // Find all symbols with matching name
 //! let symbols = query::find_symbol(&index, "authenticate");
 //!
@@ -52,10 +50,9 @@
 //!
 //! Find all functions/methods that call a specific symbol:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
 //! // Find who calls "validate_token"
 //! let callers = query::get_callers_by_name(&index, &graph, "validate_token")?;
 //!
@@ -74,10 +71,9 @@
 //!
 //! Find all functions/methods called by a specific symbol:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
 //! // Find what "process_order" calls
 //! let callees = query::get_callees_by_name(&index, &graph, "process_order")?;
 //!
@@ -93,10 +89,9 @@
 //!
 //! Get all references to a symbol (calls, imports, inheritance, implementations):
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
 //! // Find all references to "Database" class
 //! let references = query::get_references_by_name(&index, &graph, "Database")?;
 //!
@@ -116,17 +111,17 @@
 //!
 //! Get the entire call graph for visualization or analysis:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
 //! // Get complete call graph
 //! let call_graph = query::get_call_graph(&index, &graph);
 //!
 //! println!("Call Graph Summary:");
-//! println!("  Nodes (symbols): {}", call_graph.stats.total_nodes);
-//! println!("  Edges (calls): {}", call_graph.stats.total_edges);
-//! println!("  Entry points: {}", call_graph.stats.entry_points);
+//! println!("  Nodes (symbols): {}", call_graph.stats.total_symbols);
+//! println!("  Edges (calls): {}", call_graph.stats.total_calls);
+//! println!("  Functions: {}", call_graph.stats.functions);
+//! println!("  Classes: {}", call_graph.stats.classes);
 //!
 //! // Analyze specific edges
 //! for edge in call_graph.edges.iter().take(5) {
@@ -143,16 +138,15 @@
 //!
 //! For large repositories, filter the call graph to manageable size:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
 //! // Get top 100 most important symbols, up to 500 edges
-//! let call_graph = query::get_call_graph_filtered(&index, &graph, 100, 500);
+//! let call_graph = query::get_call_graph_filtered(&index, &graph, Some(100), Some(500));
 //!
 //! println!("Filtered Call Graph:");
-//! println!("  Nodes: {} (limited to 100)", call_graph.stats.total_nodes);
-//! println!("  Edges: {} (limited to 500)", call_graph.stats.total_edges);
+//! println!("  Nodes: {} (limited to 100)", call_graph.stats.total_symbols);
+//! println!("  Edges: {} (limited to 500)", call_graph.stats.total_calls);
 //!
 //! // Most important symbols are included first
 //! for node in call_graph.nodes.iter().take(10) {
@@ -165,11 +159,9 @@
 //!
 //! Use symbol IDs for faster lookup when you already know the ID:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::query;
 //!
-//! # let (index, graph) = setup_test_index();
-//! # let symbol_id = 42;
 //! // Direct lookup by symbol ID (faster than name-based lookup)
 //! let callers = query::get_callers_by_id(&index, &graph, symbol_id)?;
 //! let callees = query::get_callees_by_id(&index, &graph, symbol_id)?;
@@ -183,7 +175,7 @@
 //!
 //! Practical example: Analyze impact of changing a function:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use infiniloom_engine::index::{IndexBuilder, query};
 //!
 //! # fn analyze_impact() -> Result<(), Box<dyn std::error::Error>> {

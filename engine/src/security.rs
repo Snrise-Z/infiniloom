@@ -77,7 +77,7 @@
 //!
 //! Add organization-specific secret patterns:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use infiniloom_engine::security::SecurityScanner;
 //!
 //! let mut scanner = SecurityScanner::new();
