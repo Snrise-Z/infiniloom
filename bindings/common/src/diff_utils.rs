@@ -185,6 +185,12 @@ pub fn find_call_site_in_body<P: AsRef<Path>>(
 /// # Returns
 /// Optional column position where call starts
 pub fn find_call_in_line(line: &str, callee_name: &str) -> Option<usize> {
+    // Early return for empty callee_name - searching for empty string is meaningless
+    // and would cause an infinite loop
+    if callee_name.is_empty() {
+        return None;
+    }
+
     let mut search_pos = 0;
 
     while let Some(pos) = line[search_pos..].find(callee_name) {
@@ -242,6 +248,13 @@ pub fn find_call_in_line(line: &str, callee_name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use infiniloom_engine::git::{DiffLine, DiffLineType};
+    use std::fs;
+    use tempfile::tempdir;
+
+    // ============================================================================
+    // reconstruct_diff_from_hunks tests
+    // ============================================================================
 
     #[test]
     fn test_reconstruct_diff_empty() {
@@ -250,26 +263,415 @@ mod tests {
     }
 
     #[test]
-    fn test_find_call_in_line() {
-        // Simple function call
+    fn test_reconstruct_diff_no_matching_file() {
+        let hunks = vec![DiffHunk {
+            file: "other.rs".to_string(),
+            old_start: 1,
+            old_count: 3,
+            new_start: 1,
+            new_count: 4,
+            header: "@@ -1,3 +1,4 @@".to_string(),
+            lines: vec![],
+        }];
+        let result = reconstruct_diff_from_hunks(&hunks, "test.rs");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_reconstruct_diff_with_additions() {
+        let hunks = vec![DiffHunk {
+            file: "test.rs".to_string(),
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 2,
+            header: "@@ -1,1 +1,2 @@".to_string(),
+            lines: vec![
+                DiffLine {
+                    change_type: DiffLineType::Context,
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    content: "fn main() {}".to_string(),
+                },
+                DiffLine {
+                    change_type: DiffLineType::Add,
+                    old_line: None,
+                    new_line: Some(2),
+                    content: "fn helper() {}".to_string(),
+                },
+            ],
+        }];
+        let result = reconstruct_diff_from_hunks(&hunks, "test.rs");
+        assert!(result.contains("diff --git"));
+        assert!(result.contains("--- a/test.rs"));
+        assert!(result.contains("+++ b/test.rs"));
+        assert!(result.contains("+fn helper()"));
+    }
+
+    #[test]
+    fn test_reconstruct_diff_with_deletions() {
+        let hunks = vec![DiffHunk {
+            file: "test.rs".to_string(),
+            old_start: 1,
+            old_count: 2,
+            new_start: 1,
+            new_count: 1,
+            header: "@@ -1,2 +1,1 @@".to_string(),
+            lines: vec![
+                DiffLine {
+                    change_type: DiffLineType::Context,
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    content: "fn main() {}".to_string(),
+                },
+                DiffLine {
+                    change_type: DiffLineType::Remove,
+                    old_line: Some(2),
+                    new_line: None,
+                    content: "fn old() {}".to_string(),
+                },
+            ],
+        }];
+        let result = reconstruct_diff_from_hunks(&hunks, "test.rs");
+        assert!(result.contains("-fn old()"));
+    }
+
+    #[test]
+    fn test_reconstruct_diff_multiple_hunks() {
+        let hunks = vec![
+            DiffHunk {
+                file: "test.rs".to_string(),
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+                header: "@@ -1,1 +1,1 @@".to_string(),
+                lines: vec![DiffLine {
+                    change_type: DiffLineType::Add,
+                    old_line: None,
+                    new_line: Some(1),
+                    content: "line1".to_string(),
+                }],
+            },
+            DiffHunk {
+                file: "test.rs".to_string(),
+                old_start: 10,
+                old_count: 1,
+                new_start: 10,
+                new_count: 1,
+                header: "@@ -10,1 +10,1 @@".to_string(),
+                lines: vec![DiffLine {
+                    change_type: DiffLineType::Add,
+                    old_line: None,
+                    new_line: Some(10),
+                    content: "line10".to_string(),
+                }],
+            },
+        ];
+        let result = reconstruct_diff_from_hunks(&hunks, "test.rs");
+        assert!(result.contains("line1"));
+        assert!(result.contains("line10"));
+        assert!(result.contains("@@ -1,1 +1,1 @@"));
+        assert!(result.contains("@@ -10,1 +10,1 @@"));
+    }
+
+    // ============================================================================
+    // load_file_lines tests
+    // ============================================================================
+
+    #[test]
+    fn test_load_file_lines_basic() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3").unwrap();
+
+        let mut cache = FileCache::new();
+        let lines = load_file_lines(dir.path(), "test.rs", &mut cache);
+
+        assert!(lines.is_some());
+        let lines = lines.unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "line1");
+        assert_eq!(lines[1], "line2");
+        assert_eq!(lines[2], "line3");
+    }
+
+    #[test]
+    fn test_load_file_lines_uses_cache() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "original").unwrap();
+
+        let mut cache = FileCache::new();
+
+        // First load
+        let _ = load_file_lines(dir.path(), "test.rs", &mut cache);
+
+        // Modify file
+        fs::write(&file_path, "modified").unwrap();
+
+        // Second load should return cached content
+        let lines = load_file_lines(dir.path(), "test.rs", &mut cache);
+        assert_eq!(lines.unwrap()[0], "original");
+    }
+
+    #[test]
+    fn test_load_file_lines_nonexistent() {
+        let dir = tempdir().unwrap();
+        let mut cache = FileCache::new();
+        let lines = load_file_lines(dir.path(), "nonexistent.rs", &mut cache);
+        assert!(lines.is_none());
+    }
+
+    #[test]
+    fn test_load_file_lines_empty() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("empty.rs");
+        fs::write(&file_path, "").unwrap();
+
+        let mut cache = FileCache::new();
+        let lines = load_file_lines(dir.path(), "empty.rs", &mut cache);
+
+        assert!(lines.is_some());
+        assert!(lines.unwrap().is_empty());
+    }
+
+    // ============================================================================
+    // get_line_context tests
+    // ============================================================================
+
+    #[test]
+    fn test_get_line_context_basic() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3\nline4\nline5").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, start, end) = get_line_context(dir.path(), "test.rs", 3, 1, 1, &mut cache);
+
+        assert!(context.is_some());
+        let ctx = context.unwrap();
+        assert!(ctx.contains("line2"));
+        assert!(ctx.contains("line3"));
+        assert!(ctx.contains("line4"));
+        assert_eq!(start, Some(2));
+        assert_eq!(end, Some(4));
+    }
+
+    #[test]
+    fn test_get_line_context_marks_target_line() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, _, _) = get_line_context(dir.path(), "test.rs", 2, 0, 0, &mut cache);
+
+        assert!(context.is_some());
+        let ctx = context.unwrap();
+        assert!(ctx.contains(">")); // Target line marker
+        assert!(ctx.contains("line2"));
+    }
+
+    #[test]
+    fn test_get_line_context_at_start() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, start, _) = get_line_context(dir.path(), "test.rs", 1, 2, 1, &mut cache);
+
+        assert!(context.is_some());
+        assert_eq!(start, Some(1)); // Can't go before line 1
+    }
+
+    #[test]
+    fn test_get_line_context_at_end() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, _, end) = get_line_context(dir.path(), "test.rs", 3, 1, 2, &mut cache);
+
+        assert!(context.is_some());
+        assert_eq!(end, Some(3)); // Can't go past line 3
+    }
+
+    #[test]
+    fn test_get_line_context_nonexistent_file() {
+        let dir = tempdir().unwrap();
+        let mut cache = FileCache::new();
+        let (context, start, end) =
+            get_line_context(dir.path(), "nonexistent.rs", 1, 1, 1, &mut cache);
+
+        assert!(context.is_none());
+        assert!(start.is_none());
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn test_get_line_context_empty_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("empty.rs");
+        fs::write(&file_path, "").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, start, end) = get_line_context(dir.path(), "empty.rs", 1, 1, 1, &mut cache);
+
+        assert!(context.is_none());
+        assert!(start.is_none());
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn test_get_line_context_line_beyond_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2").unwrap();
+
+        let mut cache = FileCache::new();
+        let (context, start, end) = get_line_context(dir.path(), "test.rs", 100, 1, 1, &mut cache);
+
+        assert!(context.is_none());
+        assert!(start.is_none());
+        assert!(end.is_none());
+    }
+
+    // ============================================================================
+    // find_call_site_in_body tests
+    // ============================================================================
+
+    #[test]
+    fn test_find_call_site_in_body_found() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "fn caller() {\n    foo();\n    bar();\n}").unwrap();
+
+        let mut cache = FileCache::new();
+        let (line, col) = find_call_site_in_body(dir.path(), "test.rs", 1, 4, "foo", &mut cache);
+
+        assert_eq!(line, 2);
+        assert!(col.is_some());
+    }
+
+    #[test]
+    fn test_find_call_site_in_body_not_found() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "fn caller() {\n    bar();\n}").unwrap();
+
+        let mut cache = FileCache::new();
+        let (line, col) = find_call_site_in_body(dir.path(), "test.rs", 1, 3, "foo", &mut cache);
+
+        assert_eq!(line, 1); // Returns start_line when not found
+        assert!(col.is_none());
+    }
+
+    #[test]
+    fn test_find_call_site_in_body_nonexistent_file() {
+        let dir = tempdir().unwrap();
+        let mut cache = FileCache::new();
+        let (line, col) =
+            find_call_site_in_body(dir.path(), "nonexistent.rs", 1, 10, "foo", &mut cache);
+
+        assert_eq!(line, 1); // Returns start_line
+        assert!(col.is_none());
+    }
+
+    // ============================================================================
+    // find_call_in_line tests - comprehensive coverage
+    // ============================================================================
+
+    #[test]
+    fn test_find_call_in_line_simple() {
         assert_eq!(find_call_in_line("foo()", "foo"), Some(0));
         assert_eq!(find_call_in_line("  foo()", "foo"), Some(2));
         assert_eq!(find_call_in_line("bar.foo()", "foo"), Some(4));
+    }
 
-        // Function call with whitespace before paren
+    #[test]
+    fn test_find_call_in_line_with_args() {
+        assert_eq!(find_call_in_line("foo(1, 2, 3)", "foo"), Some(0));
+        assert_eq!(find_call_in_line("foo(bar())", "foo"), Some(0));
+        assert_eq!(find_call_in_line("foo(bar())", "bar"), Some(4));
+    }
+
+    #[test]
+    fn test_find_call_in_line_whitespace_before_paren() {
         assert_eq!(find_call_in_line("foo ()", "foo"), Some(0));
+        assert_eq!(find_call_in_line("foo  ()", "foo"), Some(0));
+        assert_eq!(find_call_in_line("foo\t()", "foo"), Some(0));
+    }
 
-        // Not a call - definition
+    #[test]
+    fn test_find_call_in_line_definitions_excluded() {
+        // Rust
         assert_eq!(find_call_in_line("fn foo()", "foo"), None);
-        assert_eq!(find_call_in_line("def foo():", "foo"), None);
         assert_eq!(find_call_in_line("pub fn foo()", "foo"), None);
         assert_eq!(find_call_in_line("async fn foo()", "foo"), None);
 
-        // Not a call - part of larger word
-        assert_eq!(find_call_in_line("foobar()", "foo"), None);
-        assert_eq!(find_call_in_line("_foo()", "foo"), None);
+        // Python
+        assert_eq!(find_call_in_line("def foo():", "foo"), None);
+        assert_eq!(find_call_in_line("async def foo():", "foo"), None);
 
-        // Multiple occurrences - find the call, not the definition
-        assert!(find_call_in_line("fn foo() { foo(); }", "foo").is_some());
+        // JavaScript/TypeScript
+        assert_eq!(find_call_in_line("function foo()", "foo"), None);
+
+        // Go
+        assert_eq!(find_call_in_line("func foo()", "foo"), None);
+    }
+
+    #[test]
+    fn test_find_call_in_line_not_part_of_word() {
+        // Should not match if part of larger identifier
+        assert_eq!(find_call_in_line("foobar()", "foo"), None);
+        assert_eq!(find_call_in_line("barfoo()", "foo"), None);
+        assert_eq!(find_call_in_line("_foo()", "foo"), None);
+        assert_eq!(find_call_in_line("foo_()", "foo"), None);
+    }
+
+    #[test]
+    fn test_find_call_in_line_multiple_occurrences() {
+        // Should find the call, not the definition
+        let result = find_call_in_line("fn foo() { foo(); }", "foo");
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        // Should be at the call site (position of second foo), not the definition
+        assert!(pos > 3); // Past "fn foo"
+    }
+
+    #[test]
+    fn test_find_call_in_line_method_chains() {
+        assert!(find_call_in_line("obj.foo().bar()", "foo").is_some());
+        assert!(find_call_in_line("obj.foo().bar()", "bar").is_some());
+    }
+
+    #[test]
+    fn test_find_call_in_line_no_parens() {
+        // No parenthesis means not a call
+        assert_eq!(find_call_in_line("let x = foo", "foo"), None);
+        assert_eq!(find_call_in_line("foo = 5", "foo"), None);
+    }
+
+    #[test]
+    fn test_find_call_in_line_empty() {
+        assert_eq!(find_call_in_line("", "foo"), None);
+        assert_eq!(find_call_in_line("foo()", ""), None);
+    }
+
+    #[test]
+    fn test_find_call_in_line_special_chars() {
+        // Names with underscores
+        assert!(find_call_in_line("my_function()", "my_function").is_some());
+        assert!(find_call_in_line("_private()", "_private").is_some());
+    }
+
+    #[test]
+    fn test_find_call_in_line_with_receiver() {
+        assert!(find_call_in_line("self.foo()", "foo").is_some());
+        assert!(find_call_in_line("this.foo()", "foo").is_some());
+        assert!(find_call_in_line("obj->foo()", "foo").is_some());
     }
 }

@@ -555,8 +555,29 @@ fn is_leap_year(year: i32) -> bool {
 mod tests {
     use super::*;
 
+    // Helper function to create a test Symbol with common defaults
+    fn test_symbol(
+        name: &str,
+        kind: SymbolKind,
+        visibility: Visibility,
+        start_line: u32,
+        end_line: u32,
+        signature: Option<&str>,
+    ) -> Symbol {
+        let mut s = Symbol::new(name, kind);
+        s.visibility = visibility;
+        s.start_line = start_line;
+        s.end_line = end_line;
+        s.signature = signature.map(|s| s.to_string());
+        s
+    }
+
+    // ============================================================================
+    // parse_format tests - comprehensive coverage
+    // ============================================================================
+
     #[test]
-    fn test_parse_format() {
+    fn test_parse_format_basic() {
         assert!(matches!(parse_format(Some("xml")), Ok(OutputFormat::Xml)));
         assert!(matches!(parse_format(Some("markdown")), Ok(OutputFormat::Markdown)));
         assert!(matches!(parse_format(Some("md")), Ok(OutputFormat::Markdown)));
@@ -565,23 +586,145 @@ mod tests {
         assert!(matches!(parse_format(Some("yml")), Ok(OutputFormat::Yaml)));
         assert!(matches!(parse_format(Some("toon")), Ok(OutputFormat::Toon)));
         assert!(matches!(parse_format(Some("plain")), Ok(OutputFormat::Plain)));
+        assert!(matches!(parse_format(Some("text")), Ok(OutputFormat::Plain)));
+        assert!(matches!(parse_format(Some("txt")), Ok(OutputFormat::Plain)));
         assert!(matches!(parse_format(None), Ok(OutputFormat::Xml))); // default
-        assert!(parse_format(Some("invalid")).is_err());
     }
 
     #[test]
-    fn test_parse_model() {
+    fn test_parse_format_case_insensitive() {
+        assert!(matches!(parse_format(Some("XML")), Ok(OutputFormat::Xml)));
+        assert!(matches!(parse_format(Some("Xml")), Ok(OutputFormat::Xml)));
+        assert!(matches!(parse_format(Some("MARKDOWN")), Ok(OutputFormat::Markdown)));
+        assert!(matches!(parse_format(Some("Json")), Ok(OutputFormat::Json)));
+        assert!(matches!(parse_format(Some("YAML")), Ok(OutputFormat::Yaml)));
+        assert!(matches!(parse_format(Some("YML")), Ok(OutputFormat::Yaml)));
+        assert!(matches!(parse_format(Some("TOON")), Ok(OutputFormat::Toon)));
+        assert!(matches!(parse_format(Some("PLAIN")), Ok(OutputFormat::Plain)));
+        assert!(matches!(parse_format(Some("TEXT")), Ok(OutputFormat::Plain)));
+        assert!(matches!(parse_format(Some("TXT")), Ok(OutputFormat::Plain)));
+    }
+
+    #[test]
+    fn test_parse_format_invalid() {
+        assert!(parse_format(Some("invalid")).is_err());
+        assert!(parse_format(Some("")).is_err());
+        assert!(parse_format(Some(" ")).is_err());
+        assert!(parse_format(Some("xml ")).is_err()); // trailing space
+        assert!(parse_format(Some(" xml")).is_err()); // leading space
+        assert!(parse_format(Some("xmlx")).is_err());
+    }
+
+    #[test]
+    fn test_parse_format_error_message() {
+        let err = parse_format(Some("foobar")).unwrap_err();
+        assert!(err.to_string().contains("foobar"));
+        assert!(err.to_string().contains("xml"));
+    }
+
+    // ============================================================================
+    // parse_model tests - comprehensive coverage for all 27+ models
+    // ============================================================================
+
+    #[test]
+    fn test_parse_model_basic() {
         assert!(matches!(parse_model(Some("claude")), Ok(TokenizerModel::Claude)));
+        assert!(matches!(parse_model(None), Ok(TokenizerModel::Claude))); // default
+    }
+
+    #[test]
+    fn test_parse_model_gpt5_series() {
+        // GPT-5.2
+        assert!(matches!(parse_model(Some("gpt-5.2")), Ok(TokenizerModel::Gpt52)));
+        assert!(matches!(parse_model(Some("gpt5.2")), Ok(TokenizerModel::Gpt52)));
+        assert!(matches!(parse_model(Some("gpt52")), Ok(TokenizerModel::Gpt52)));
+        assert!(matches!(parse_model(Some("gpt-5.2-pro")), Ok(TokenizerModel::Gpt52Pro)));
+        assert!(matches!(parse_model(Some("gpt52-pro")), Ok(TokenizerModel::Gpt52Pro)));
+
+        // GPT-5.1
+        assert!(matches!(parse_model(Some("gpt-5.1")), Ok(TokenizerModel::Gpt51)));
+        assert!(matches!(parse_model(Some("gpt5.1")), Ok(TokenizerModel::Gpt51)));
+        assert!(matches!(parse_model(Some("gpt51")), Ok(TokenizerModel::Gpt51)));
+        assert!(matches!(parse_model(Some("gpt-5.1-mini")), Ok(TokenizerModel::Gpt51Mini)));
+        assert!(matches!(parse_model(Some("gpt51-mini")), Ok(TokenizerModel::Gpt51Mini)));
+        assert!(matches!(parse_model(Some("gpt-5.1-codex")), Ok(TokenizerModel::Gpt51Codex)));
+        assert!(matches!(parse_model(Some("gpt51-codex")), Ok(TokenizerModel::Gpt51Codex)));
+
+        // GPT-5
+        assert!(matches!(parse_model(Some("gpt-5")), Ok(TokenizerModel::Gpt5)));
+        assert!(matches!(parse_model(Some("gpt5")), Ok(TokenizerModel::Gpt5)));
+        assert!(matches!(parse_model(Some("gpt-5-mini")), Ok(TokenizerModel::Gpt5Mini)));
+        assert!(matches!(parse_model(Some("gpt5-mini")), Ok(TokenizerModel::Gpt5Mini)));
+        assert!(matches!(parse_model(Some("gpt-5-nano")), Ok(TokenizerModel::Gpt5Nano)));
+        assert!(matches!(parse_model(Some("gpt5-nano")), Ok(TokenizerModel::Gpt5Nano)));
+    }
+
+    #[test]
+    fn test_parse_model_o_series() {
+        assert!(matches!(parse_model(Some("o4-mini")), Ok(TokenizerModel::O4Mini)));
+        assert!(matches!(parse_model(Some("o3")), Ok(TokenizerModel::O3)));
+        assert!(matches!(parse_model(Some("o3-mini")), Ok(TokenizerModel::O3Mini)));
+        assert!(matches!(parse_model(Some("o1")), Ok(TokenizerModel::O1)));
+        assert!(matches!(parse_model(Some("o1-mini")), Ok(TokenizerModel::O1Mini)));
+        assert!(matches!(parse_model(Some("o1-preview")), Ok(TokenizerModel::O1Preview)));
+    }
+
+    #[test]
+    fn test_parse_model_gpt4_series() {
         assert!(matches!(parse_model(Some("gpt-4o")), Ok(TokenizerModel::Gpt4o)));
         assert!(matches!(parse_model(Some("gpt4o")), Ok(TokenizerModel::Gpt4o)));
-        assert!(matches!(parse_model(Some("gpt-5.2")), Ok(TokenizerModel::Gpt52)));
-        assert!(matches!(parse_model(Some("o3")), Ok(TokenizerModel::O3)));
-        assert!(matches!(parse_model(None), Ok(TokenizerModel::Claude))); // default
-        assert!(parse_model(Some("invalid")).is_err());
+        assert!(matches!(parse_model(Some("gpt-4o-mini")), Ok(TokenizerModel::Gpt4oMini)));
+        assert!(matches!(parse_model(Some("gpt4o-mini")), Ok(TokenizerModel::Gpt4oMini)));
+        assert!(matches!(parse_model(Some("gpt")), Ok(TokenizerModel::Gpt4)));
+        assert!(matches!(parse_model(Some("gpt-4")), Ok(TokenizerModel::Gpt4)));
+        assert!(matches!(parse_model(Some("gpt4")), Ok(TokenizerModel::Gpt4)));
+        assert!(matches!(parse_model(Some("gpt-3.5-turbo")), Ok(TokenizerModel::Gpt35Turbo)));
+        assert!(matches!(parse_model(Some("gpt35-turbo")), Ok(TokenizerModel::Gpt35Turbo)));
+        assert!(matches!(parse_model(Some("gpt35turbo")), Ok(TokenizerModel::Gpt35Turbo)));
     }
 
     #[test]
-    fn test_parse_compression() {
+    fn test_parse_model_other_vendors() {
+        assert!(matches!(parse_model(Some("gemini")), Ok(TokenizerModel::Gemini)));
+        assert!(matches!(parse_model(Some("llama")), Ok(TokenizerModel::Llama)));
+        assert!(matches!(parse_model(Some("codellama")), Ok(TokenizerModel::CodeLlama)));
+        assert!(matches!(parse_model(Some("mistral")), Ok(TokenizerModel::Mistral)));
+        assert!(matches!(parse_model(Some("deepseek")), Ok(TokenizerModel::DeepSeek)));
+        assert!(matches!(parse_model(Some("qwen")), Ok(TokenizerModel::Qwen)));
+        assert!(matches!(parse_model(Some("cohere")), Ok(TokenizerModel::Cohere)));
+        assert!(matches!(parse_model(Some("grok")), Ok(TokenizerModel::Grok)));
+    }
+
+    #[test]
+    fn test_parse_model_case_insensitive() {
+        assert!(matches!(parse_model(Some("CLAUDE")), Ok(TokenizerModel::Claude)));
+        assert!(matches!(parse_model(Some("Claude")), Ok(TokenizerModel::Claude)));
+        assert!(matches!(parse_model(Some("GPT-4O")), Ok(TokenizerModel::Gpt4o)));
+        assert!(matches!(parse_model(Some("GEMINI")), Ok(TokenizerModel::Gemini)));
+        assert!(matches!(parse_model(Some("LLAMA")), Ok(TokenizerModel::Llama)));
+    }
+
+    #[test]
+    fn test_parse_model_invalid() {
+        assert!(parse_model(Some("invalid")).is_err());
+        assert!(parse_model(Some("")).is_err());
+        assert!(parse_model(Some("gpt-6")).is_err());
+        assert!(parse_model(Some("claude2")).is_err());
+    }
+
+    #[test]
+    fn test_parse_model_error_message() {
+        let err = parse_model(Some("nonexistent")).unwrap_err();
+        assert!(err.to_string().contains("nonexistent"));
+        assert!(err.to_string().contains("gpt"));
+    }
+
+    // ============================================================================
+    // parse_compression tests - comprehensive coverage
+    // ============================================================================
+
+    #[test]
+    fn test_parse_compression_basic() {
         assert!(matches!(parse_compression(Some("none")), Ok(CompressionLevel::None)));
         assert!(matches!(parse_compression(Some("minimal")), Ok(CompressionLevel::Minimal)));
         assert!(matches!(parse_compression(Some("balanced")), Ok(CompressionLevel::Balanced)));
@@ -589,12 +732,43 @@ mod tests {
         assert!(matches!(parse_compression(Some("extreme")), Ok(CompressionLevel::Extreme)));
         assert!(matches!(parse_compression(Some("focused")), Ok(CompressionLevel::Focused)));
         assert!(matches!(parse_compression(Some("semantic")), Ok(CompressionLevel::Semantic)));
-        assert!(matches!(parse_compression(None), Ok(CompressionLevel::Balanced))); // default
-        assert!(parse_compression(Some("invalid")).is_err());
+        assert!(matches!(parse_compression(None), Ok(CompressionLevel::Balanced)));
+        // default
     }
 
     #[test]
-    fn test_signature_lines() {
+    fn test_parse_compression_case_insensitive() {
+        assert!(matches!(parse_compression(Some("NONE")), Ok(CompressionLevel::None)));
+        assert!(matches!(parse_compression(Some("None")), Ok(CompressionLevel::None)));
+        assert!(matches!(parse_compression(Some("MINIMAL")), Ok(CompressionLevel::Minimal)));
+        assert!(matches!(parse_compression(Some("BALANCED")), Ok(CompressionLevel::Balanced)));
+        assert!(matches!(parse_compression(Some("AGGRESSIVE")), Ok(CompressionLevel::Aggressive)));
+        assert!(matches!(parse_compression(Some("EXTREME")), Ok(CompressionLevel::Extreme)));
+        assert!(matches!(parse_compression(Some("FOCUSED")), Ok(CompressionLevel::Focused)));
+        assert!(matches!(parse_compression(Some("SEMANTIC")), Ok(CompressionLevel::Semantic)));
+    }
+
+    #[test]
+    fn test_parse_compression_invalid() {
+        assert!(parse_compression(Some("invalid")).is_err());
+        assert!(parse_compression(Some("")).is_err());
+        assert!(parse_compression(Some("light")).is_err());
+        assert!(parse_compression(Some("heavy")).is_err());
+    }
+
+    #[test]
+    fn test_parse_compression_error_message() {
+        let err = parse_compression(Some("wrong")).unwrap_err();
+        assert!(err.to_string().contains("wrong"));
+        assert!(err.to_string().contains("balanced"));
+    }
+
+    // ============================================================================
+    // signature_lines tests - comprehensive edge cases
+    // ============================================================================
+
+    #[test]
+    fn test_signature_lines_basic() {
         let code = r#"
 fn main() {
     println!("hello");
@@ -618,7 +792,199 @@ class MyClass:
     }
 
     #[test]
-    fn test_file_priority_score() {
+    fn test_signature_lines_async() {
+        let code = "async fn fetch() {}\nasync def async_method():\n    pass";
+        let sigs = signature_lines(code);
+        assert!(sigs.contains("async fn fetch()"));
+        assert!(sigs.contains("async def async_method():"));
+    }
+
+    #[test]
+    fn test_signature_lines_rust_specifics() {
+        let code = r#"
+struct Point { x: i32, y: i32 }
+enum Color { Red, Green, Blue }
+trait Drawable { fn draw(&self); }
+impl Drawable for Point {
+    fn draw(&self) {}
+}
+"#;
+        let sigs = signature_lines(code);
+        assert!(sigs.contains("struct Point"));
+        assert!(sigs.contains("enum Color"));
+        assert!(sigs.contains("trait Drawable"));
+        assert!(sigs.contains("impl Drawable"));
+    }
+
+    #[test]
+    fn test_signature_lines_typescript() {
+        let code = r#"
+interface User { name: string; }
+function greet(name: string) {}
+export const API_URL = "http://api.example.com";
+const x = 5;
+type UserId = string;
+"#;
+        let sigs = signature_lines(code);
+        assert!(sigs.contains("interface User"));
+        assert!(sigs.contains("function greet"));
+        assert!(sigs.contains("export const API_URL"));
+        assert!(sigs.contains("const x = 5"));
+        assert!(sigs.contains("type UserId = string"));
+    }
+
+    #[test]
+    fn test_signature_lines_empty() {
+        assert_eq!(signature_lines(""), "");
+    }
+
+    #[test]
+    fn test_signature_lines_no_signatures() {
+        let code = "let x = 5;\nlet y = 10;\nprint(x + y)";
+        let sigs = signature_lines(code);
+        assert!(sigs.is_empty());
+    }
+
+    #[test]
+    fn test_signature_lines_indented() {
+        let code = "    fn indented() {}\n        class DeepIndented:";
+        let sigs = signature_lines(code);
+        assert!(sigs.contains("fn indented()"));
+        assert!(sigs.contains("class DeepIndented:"));
+    }
+
+    #[test]
+    fn test_signature_lines_preserves_order() {
+        let code = "fn first() {}\nfn second() {}\nfn third() {}";
+        let sigs = signature_lines(code);
+        let first_pos = sigs.find("first").unwrap();
+        let second_pos = sigs.find("second").unwrap();
+        let third_pos = sigs.find("third").unwrap();
+        assert!(first_pos < second_pos);
+        assert!(second_pos < third_pos);
+    }
+
+    // ============================================================================
+    // focused_symbol_context tests - comprehensive edge cases
+    // ============================================================================
+
+    #[test]
+    fn test_focused_symbol_context_empty_symbols() {
+        let content = "fn main() {}\nfn helper() {}";
+        let result = focused_symbol_context(content, &[]);
+        // Should fall back to signature_lines
+        assert!(result.contains("fn main()"));
+        assert!(result.contains("fn helper()"));
+    }
+
+    #[test]
+    fn test_focused_symbol_context_empty_content() {
+        let symbols = vec![test_symbol(
+            "test",
+            SymbolKind::Function,
+            Visibility::Public,
+            1,
+            5,
+            Some("fn test()"),
+        )];
+        let result = focused_symbol_context("", &symbols);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_focused_symbol_context_with_public_symbol() {
+        let content = "line1\nline2\npub fn test() {\n    body\n}\nline6\nline7";
+        let symbols = vec![test_symbol(
+            "test",
+            SymbolKind::Function,
+            Visibility::Public,
+            3,
+            5,
+            Some("pub fn test()"),
+        )];
+        let result = focused_symbol_context(content, &symbols);
+        assert!(result.contains("test"));
+    }
+
+    #[test]
+    fn test_focused_symbol_context_private_symbols_filtered() {
+        let content = "fn private_func() {}\npub fn public_func() {}";
+        let symbols = vec![
+            test_symbol(
+                "private_func",
+                SymbolKind::Function,
+                Visibility::Private,
+                1,
+                1,
+                Some("fn private_func()"),
+            ),
+            test_symbol(
+                "public_func",
+                SymbolKind::Function,
+                Visibility::Public,
+                2,
+                2,
+                Some("pub fn public_func()"),
+            ),
+        ];
+        let result = focused_symbol_context(content, &symbols);
+        assert!(result.contains("public_func"));
+    }
+
+    #[test]
+    fn test_focused_symbol_context_imports_excluded() {
+        let content = "use std::io;\nfn main() {}";
+        let symbols = vec![test_symbol(
+            "io",
+            SymbolKind::Import,
+            Visibility::Public,
+            1,
+            1,
+            Some("use std::io"),
+        )];
+        let result = focused_symbol_context(content, &symbols);
+        // Should fall back to non-import symbols or signature_lines
+        assert!(result.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_focused_symbol_context_invalid_line_range() {
+        let content = "line1\nline2";
+        let symbols = vec![test_symbol(
+            "invalid",
+            SymbolKind::Function,
+            Visibility::Public,
+            100, // Beyond content
+            105,
+            Some("fn invalid()"),
+        )];
+        let result = focused_symbol_context(content, &symbols);
+        // Should include signature as fallback
+        assert!(result.contains("fn invalid()"));
+    }
+
+    #[test]
+    fn test_focused_symbol_context_zero_start_line() {
+        let content = "line1\nline2\nline3";
+        let symbols = vec![test_symbol(
+            "zero",
+            SymbolKind::Function,
+            Visibility::Public,
+            0, // Invalid - lines are 1-indexed
+            2,
+            Some("fn zero()"),
+        )];
+        let result = focused_symbol_context(content, &symbols);
+        // Should handle gracefully
+        assert!(result.contains("fn zero()"));
+    }
+
+    // ============================================================================
+    // file_priority_score tests - comprehensive edge cases
+    // ============================================================================
+
+    #[test]
+    fn test_file_priority_score_basic() {
         assert_eq!(file_priority_score("src/main.rs"), 1.0);
         assert_eq!(file_priority_score("src/index.ts"), 1.0);
         assert_eq!(file_priority_score("lib/app.py"), 1.0);
@@ -630,41 +996,232 @@ class MyClass:
     }
 
     #[test]
-    fn test_parse_security_threshold() {
+    fn test_file_priority_score_case_insensitive() {
+        // src/ and lib/ detection is case-insensitive
+        assert_eq!(file_priority_score("SRC/main.rs"), 1.0);
+        assert_eq!(file_priority_score("Src/Main.rs"), 1.0);
+        assert_eq!(file_priority_score("LIB/app.py"), 1.0);
+    }
+
+    #[test]
+    fn test_file_priority_score_nested_paths() {
+        assert_eq!(file_priority_score("project/src/main.rs"), 1.0);
+        assert_eq!(file_priority_score("deep/nested/src/index.ts"), 1.0);
+        assert_eq!(file_priority_score("project/lib/utils.js"), 0.8);
+    }
+
+    #[test]
+    fn test_file_priority_score_config_variants() {
+        assert_eq!(file_priority_score("package.json"), 0.6);
+        assert_eq!(file_priority_score("tsconfig.json"), 0.6);
+        assert_eq!(file_priority_score("config.yaml"), 0.6);
+        assert_eq!(file_priority_score("settings.toml"), 0.6);
+    }
+
+    #[test]
+    fn test_file_priority_score_test_variants() {
+        assert_eq!(file_priority_score("test_utils.py"), 0.3);
+        assert_eq!(file_priority_score("utils.test.ts"), 0.3);
+        assert_eq!(file_priority_score("spec/helper_spec.rb"), 0.3);
+    }
+
+    #[test]
+    fn test_file_priority_score_docs() {
+        assert_eq!(file_priority_score("README.md"), 0.2);
+        assert_eq!(file_priority_score("CHANGELOG.md"), 0.2);
+        assert_eq!(file_priority_score("docs/api.md"), 0.2);
+        assert_eq!(file_priority_score("doc/guide.rst"), 0.2);
+    }
+
+    #[test]
+    fn test_file_priority_score_empty_path() {
+        // Empty path should return default
+        assert_eq!(file_priority_score(""), 0.5);
+    }
+
+    // ============================================================================
+    // parse_security_threshold tests - comprehensive coverage
+    // ============================================================================
+
+    #[test]
+    fn test_parse_security_threshold_basic() {
         assert!(matches!(parse_security_threshold(Some("critical")), Ok(Severity::Critical)));
         assert!(matches!(parse_security_threshold(Some("high")), Ok(Severity::High)));
         assert!(matches!(parse_security_threshold(Some("medium")), Ok(Severity::Medium)));
         assert!(matches!(parse_security_threshold(Some("low")), Ok(Severity::Low)));
-        assert!(matches!(parse_security_threshold(None), Ok(Severity::Critical))); // default
-        assert!(parse_security_threshold(Some("invalid")).is_err());
+        assert!(matches!(parse_security_threshold(None), Ok(Severity::Critical)));
+        // default
     }
 
     #[test]
-    fn test_severity_at_or_above() {
+    fn test_parse_security_threshold_case_insensitive() {
+        assert!(matches!(parse_security_threshold(Some("CRITICAL")), Ok(Severity::Critical)));
+        assert!(matches!(parse_security_threshold(Some("Critical")), Ok(Severity::Critical)));
+        assert!(matches!(parse_security_threshold(Some("HIGH")), Ok(Severity::High)));
+        assert!(matches!(parse_security_threshold(Some("MEDIUM")), Ok(Severity::Medium)));
+        assert!(matches!(parse_security_threshold(Some("LOW")), Ok(Severity::Low)));
+    }
+
+    #[test]
+    fn test_parse_security_threshold_invalid() {
+        assert!(parse_security_threshold(Some("invalid")).is_err());
+        assert!(parse_security_threshold(Some("")).is_err());
+        assert!(parse_security_threshold(Some("severe")).is_err());
+        assert!(parse_security_threshold(Some("info")).is_err());
+    }
+
+    #[test]
+    fn test_parse_security_threshold_error_message() {
+        let err = parse_security_threshold(Some("wrong")).unwrap_err();
+        assert!(err.to_string().contains("wrong"));
+        assert!(err.to_string().contains("critical"));
+    }
+
+    // ============================================================================
+    // severity_at_or_above tests - all combinations
+    // ============================================================================
+
+    #[test]
+    fn test_severity_at_or_above_all_combinations() {
+        // Critical >= all thresholds
         assert!(severity_at_or_above(&Severity::Critical, &Severity::Critical));
         assert!(severity_at_or_above(&Severity::Critical, &Severity::High));
+        assert!(severity_at_or_above(&Severity::Critical, &Severity::Medium));
         assert!(severity_at_or_above(&Severity::Critical, &Severity::Low));
+
+        // High >= High, Medium, Low but not Critical
+        assert!(!severity_at_or_above(&Severity::High, &Severity::Critical));
         assert!(severity_at_or_above(&Severity::High, &Severity::High));
         assert!(severity_at_or_above(&Severity::High, &Severity::Medium));
-        assert!(!severity_at_or_above(&Severity::Low, &Severity::High));
+        assert!(severity_at_or_above(&Severity::High, &Severity::Low));
+
+        // Medium >= Medium, Low but not Critical, High
         assert!(!severity_at_or_above(&Severity::Medium, &Severity::Critical));
+        assert!(!severity_at_or_above(&Severity::Medium, &Severity::High));
+        assert!(severity_at_or_above(&Severity::Medium, &Severity::Medium));
+        assert!(severity_at_or_above(&Severity::Medium, &Severity::Low));
+
+        // Low >= Low only
+        assert!(!severity_at_or_above(&Severity::Low, &Severity::Critical));
+        assert!(!severity_at_or_above(&Severity::Low, &Severity::High));
+        assert!(!severity_at_or_above(&Severity::Low, &Severity::Medium));
+        assert!(severity_at_or_above(&Severity::Low, &Severity::Low));
     }
 
+    // ============================================================================
+    // format_timestamp tests - comprehensive edge cases
+    // ============================================================================
+
     #[test]
-    fn test_format_timestamp() {
+    fn test_format_timestamp_epoch() {
         // Unix epoch - 1970-01-01T00:00:00Z
         let ts = format_timestamp(0);
         assert_eq!(ts, "1970-01-01T00:00:00Z");
+    }
 
+    #[test]
+    fn test_format_timestamp_recent() {
         // Test a recent timestamp (2024-01-01 00:00:00 UTC = 1704067200)
-        let ts2 = format_timestamp(1704067200);
-        assert_eq!(ts2, "2024-01-01T00:00:00Z");
+        let ts = format_timestamp(1704067200);
+        assert_eq!(ts, "2024-01-01T00:00:00Z");
+    }
 
+    #[test]
+    fn test_format_timestamp_with_time() {
         // Test with time components (2024-06-15 14:10:45 UTC)
-        let ts3 = format_timestamp(1718460645);
-        assert_eq!(ts3, "2024-06-15T14:10:45Z");
+        let ts = format_timestamp(1718460645);
+        assert_eq!(ts, "2024-06-15T14:10:45Z");
+    }
 
+    #[test]
+    fn test_format_timestamp_leap_year() {
+        // Test leap year date: 2024-02-29 00:00:00 UTC = 1709164800
+        let ts = format_timestamp(1709164800);
+        assert_eq!(ts, "2024-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_timestamp_non_leap_year() {
+        // Test non-leap year: 2023-03-01 00:00:00 UTC = 1677628800
+        let ts = format_timestamp(1677628800);
+        assert_eq!(ts, "2023-03-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_timestamp_century_year() {
+        // 2000 is a leap year (divisible by 400)
+        // 2000-02-29 00:00:00 UTC = 951782400
+        let ts = format_timestamp(951782400);
+        assert_eq!(ts, "2000-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_timestamp_end_of_year() {
+        // 2023-12-31 23:59:59 UTC = 1704067199
+        let ts = format_timestamp(1704067199);
+        assert_eq!(ts, "2023-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn test_format_timestamp_far_future() {
+        // Test far future: 2100-01-01 00:00:00 UTC = 4102444800
+        let ts = format_timestamp(4102444800);
+        assert_eq!(ts, "2100-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_timestamp_uniqueness() {
         // Different timestamps should produce different output
-        assert_ne!(ts, ts2);
+        assert_ne!(format_timestamp(0), format_timestamp(1));
+        assert_ne!(format_timestamp(1704067200), format_timestamp(1704067201));
+    }
+
+    // ============================================================================
+    // is_leap_year tests - all cases
+    // ============================================================================
+
+    #[test]
+    fn test_is_leap_year() {
+        // Regular leap years (divisible by 4)
+        assert!(is_leap_year(2024));
+        assert!(is_leap_year(2020));
+        assert!(is_leap_year(2016));
+
+        // Non-leap years
+        assert!(!is_leap_year(2023));
+        assert!(!is_leap_year(2019));
+        assert!(!is_leap_year(2021));
+
+        // Century years (divisible by 100 but not 400)
+        assert!(!is_leap_year(1900));
+        assert!(!is_leap_year(2100));
+
+        // Century leap years (divisible by 400)
+        assert!(is_leap_year(2000));
+        assert!(is_leap_year(1600));
+        assert!(is_leap_year(2400));
+    }
+
+    // ============================================================================
+    // Error Display tests
+    // ============================================================================
+
+    #[test]
+    fn test_parse_error_display() {
+        let err = ParseError::InvalidFormat("bad".to_string());
+        assert!(err.to_string().contains("bad"));
+
+        let err = ParseError::InvalidModel("unknown".to_string());
+        assert!(err.to_string().contains("unknown"));
+
+        let err = ParseError::InvalidCompression("wrong".to_string());
+        assert!(err.to_string().contains("wrong"));
+    }
+
+    #[test]
+    fn test_security_error_display() {
+        let err = SecurityError::InvalidThreshold("bad".to_string());
+        assert!(err.to_string().contains("bad"));
+        assert!(err.to_string().contains("critical"));
     }
 }

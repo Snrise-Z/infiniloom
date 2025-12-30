@@ -68,6 +68,12 @@ pub fn scan_repository(path: &Path, config: ScanConfig) -> Result<Repository> {
 
 /// Simple glob pattern matching for include/exclude patterns
 pub fn matches_pattern(path: &str, pattern: &str) -> bool {
+    // Empty patterns shouldn't match anything - this is a defensive check
+    // to avoid unexpected behavior with empty include/exclude patterns
+    if pattern.is_empty() {
+        return false;
+    }
+
     if let Ok(glob) = glob::Pattern::new(pattern) {
         if glob.matches(path) {
             return true;
@@ -106,6 +112,10 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    // ============================================================================
+    // scan_repository tests - comprehensive coverage
+    // ============================================================================
+
     #[test]
     fn test_scan_empty_dir() {
         let dir = tempdir().unwrap();
@@ -129,6 +139,40 @@ mod tests {
     }
 
     #[test]
+    fn test_scan_multiple_files() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
+        fs::write(dir.path().join("lib.rs"), "pub fn lib() {}").unwrap();
+        fs::write(dir.path().join("utils.py"), "def utils(): pass").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 3);
+    }
+
+    #[test]
+    fn test_scan_nested_directories() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src/utils")).unwrap();
+        fs::write(dir.path().join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(dir.path().join("src/utils/helper.rs"), "pub fn help() {}").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 2);
+        assert!(repo
+            .files
+            .iter()
+            .any(|f| f.relative_path.contains("main.rs")));
+        assert!(repo
+            .files
+            .iter()
+            .any(|f| f.relative_path.contains("helper.rs")));
+    }
+
+    #[test]
     fn test_skip_binary_files() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("binary.exe"), "not really binary").unwrap();
@@ -142,19 +186,94 @@ mod tests {
     }
 
     #[test]
-    fn test_matches_pattern() {
-        assert!(matches_pattern("src/main.rs", "*.rs"));
-        assert!(matches_pattern("src/main.rs", "**/*.rs"));
-        assert!(matches_pattern("src/test/main.rs", "**/main.rs"));
-        assert!(!matches_pattern("src/main.ts", "*.rs"));
+    fn test_skip_binary_extensions() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("image.png"), "fake image").unwrap();
+        fs::write(dir.path().join("archive.zip"), "fake archive").unwrap();
+        fs::write(dir.path().join("lib.dll"), "fake dll").unwrap();
+        fs::write(dir.path().join("app.exe"), "fake exe").unwrap();
+        fs::write(dir.path().join("source.rs"), "fn main() {}").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].relative_path.contains("source.rs"));
     }
 
     #[test]
-    fn test_matches_any_pattern() {
-        let patterns = vec!["*.rs", "*.ts"];
-        assert!(matches_any_pattern("main.rs", &patterns));
-        assert!(matches_any_pattern("main.ts", &patterns));
-        assert!(!matches_any_pattern("main.py", &patterns));
+    fn test_scan_with_hidden_files() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".hidden.rs"), "fn hidden() {}").unwrap();
+        fs::write(dir.path().join("visible.rs"), "fn visible() {}").unwrap();
+
+        // Default: skip hidden
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].relative_path.contains("visible.rs"));
+
+        // Include hidden
+        let config = ScanConfig { include_hidden: true, ..Default::default() };
+        let repo = scan_repository(dir.path(), config).unwrap();
+        assert_eq!(repo.files.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_skip_symbols() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
+
+        let config = ScanConfig { skip_symbols: true, ..Default::default() };
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].symbols.is_empty());
+    }
+
+    #[test]
+    fn test_scan_without_contents() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
+
+        let config = ScanConfig { read_contents: false, ..Default::default() };
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].content.is_none());
+    }
+
+    #[test]
+    fn test_scan_respects_max_file_size() {
+        let dir = tempdir().unwrap();
+        // Create a file larger than max_file_size
+        let large_content = "x".repeat(2000);
+        fs::write(dir.path().join("large.rs"), &large_content).unwrap();
+        fs::write(dir.path().join("small.rs"), "fn small() {}").unwrap();
+
+        let config = ScanConfig { max_file_size: 1000, ..Default::default() };
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        // Large file should be skipped
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0].relative_path.contains("small.rs"));
+    }
+
+    #[test]
+    fn test_scan_nonexistent_directory() {
+        let result = scan_repository(Path::new("/nonexistent/path/12345"), ScanConfig::default());
+        // Should return error or empty repo
+        assert!(result.is_err() || result.unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn test_scan_config_defaults() {
+        let config = ScanConfig::default();
+        assert!(!config.include_hidden);
+        assert!(config.respect_gitignore);
+        assert!(config.read_contents);
+        assert_eq!(config.max_file_size, 50 * 1024 * 1024); // 50MB
+        assert!(!config.skip_symbols);
     }
 
     #[test]
@@ -178,15 +297,229 @@ mod tests {
         assert!(scanner_config.use_mmap);
     }
 
+    // ============================================================================
+    // matches_pattern tests - comprehensive coverage
+    // ============================================================================
+
     #[test]
-    fn test_scan_skip_symbols() {
+    fn test_matches_pattern_basic() {
+        assert!(matches_pattern("src/main.rs", "*.rs"));
+        assert!(matches_pattern("src/main.rs", "**/*.rs"));
+        assert!(matches_pattern("src/test/main.rs", "**/main.rs"));
+        assert!(!matches_pattern("src/main.ts", "*.rs"));
+    }
+
+    #[test]
+    fn test_matches_pattern_exact() {
+        assert!(matches_pattern("main.rs", "main.rs"));
+        assert!(matches_pattern("src/main.rs", "src/main.rs"));
+        assert!(!matches_pattern("main.rs", "main.ts"));
+    }
+
+    #[test]
+    fn test_matches_pattern_wildcard() {
+        assert!(matches_pattern("test.rs", "*.rs"));
+        assert!(matches_pattern("main.rs", "*.rs"));
+        assert!(matches_pattern("x.rs", "*.rs"));
+        assert!(!matches_pattern("test.ts", "*.rs"));
+    }
+
+    #[test]
+    fn test_matches_pattern_double_star() {
+        assert!(matches_pattern("main.rs", "**/*.rs"));
+        assert!(matches_pattern("src/main.rs", "**/*.rs"));
+        assert!(matches_pattern("deep/nested/path/main.rs", "**/*.rs"));
+        assert!(!matches_pattern("main.ts", "**/*.rs"));
+    }
+
+    #[test]
+    fn test_matches_pattern_double_star_prefix() {
+        assert!(matches_pattern("src/main.rs", "**/main.rs"));
+        assert!(matches_pattern("a/b/c/main.rs", "**/main.rs"));
+        assert!(matches_pattern("main.rs", "**/main.rs"));
+    }
+
+    #[test]
+    fn test_matches_pattern_character_class() {
+        assert!(matches_pattern("test.rs", "test.[rt]s"));
+        assert!(matches_pattern("test.ts", "test.[rt]s"));
+        assert!(!matches_pattern("test.js", "test.[rt]s"));
+    }
+
+    #[test]
+    fn test_matches_pattern_question_mark() {
+        assert!(matches_pattern("test.rs", "tes?.rs"));
+        assert!(matches_pattern("tesa.rs", "tes?.rs"));
+        assert!(!matches_pattern("testing.rs", "tes?.rs"));
+    }
+
+    #[test]
+    fn test_matches_pattern_empty() {
+        assert!(!matches_pattern("test.rs", ""));
+        assert!(!matches_pattern("", "*.rs"));
+        assert!(!matches_pattern("", ""));
+    }
+
+    #[test]
+    fn test_matches_pattern_special_chars() {
+        // Patterns with special characters
+        assert!(matches_pattern("file[1].rs", "file[[]1].rs"));
+    }
+
+    // ============================================================================
+    // matches_any_pattern tests - comprehensive coverage
+    // ============================================================================
+
+    #[test]
+    fn test_matches_any_pattern_basic() {
+        let patterns = vec!["*.rs", "*.ts"];
+        assert!(matches_any_pattern("main.rs", &patterns));
+        assert!(matches_any_pattern("main.ts", &patterns));
+        assert!(!matches_any_pattern("main.py", &patterns));
+    }
+
+    #[test]
+    fn test_matches_any_pattern_empty_patterns() {
+        let patterns: Vec<&str> = vec![];
+        assert!(!matches_any_pattern("main.rs", &patterns));
+    }
+
+    #[test]
+    fn test_matches_any_pattern_single_pattern() {
+        let patterns = vec!["*.rs"];
+        assert!(matches_any_pattern("main.rs", &patterns));
+        assert!(!matches_any_pattern("main.ts", &patterns));
+    }
+
+    #[test]
+    fn test_matches_any_pattern_multiple_matches() {
+        let patterns = vec!["*.rs", "main.*", "**/*.rs"];
+        // All patterns match "main.rs"
+        assert!(matches_any_pattern("main.rs", &patterns));
+    }
+
+    #[test]
+    fn test_matches_any_pattern_nested_paths() {
+        let patterns = vec!["**/*.test.ts", "**/spec.js"];
+        assert!(matches_any_pattern("src/foo.test.ts", &patterns));
+        assert!(matches_any_pattern("deep/nested/spec.js", &patterns));
+        assert!(!matches_any_pattern("src/main.ts", &patterns));
+    }
+
+    #[test]
+    fn test_matches_any_pattern_empty_path() {
+        let patterns = vec!["*.rs"];
+        assert!(!matches_any_pattern("", &patterns));
+    }
+
+    // ============================================================================
+    // Language detection tests
+    // ============================================================================
+
+    #[test]
+    fn test_scan_language_detection() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("test.rs"), "fn main() {}").unwrap();
+        fs::write(dir.path().join("test.py"), "def main(): pass").unwrap();
+        fs::write(dir.path().join("test.ts"), "function main() {}").unwrap();
+        fs::write(dir.path().join("test.js"), "function main() {}").unwrap();
+        fs::write(dir.path().join("test.go"), "func main() {}").unwrap();
 
-        let config = ScanConfig { skip_symbols: true, ..Default::default() };
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 5);
+
+        for file in &repo.files {
+            match file.relative_path.as_str() {
+                p if p.ends_with(".rs") => assert_eq!(file.language, Some("rust".to_string())),
+                p if p.ends_with(".py") => assert_eq!(file.language, Some("python".to_string())),
+                p if p.ends_with(".ts") => {
+                    assert_eq!(file.language, Some("typescript".to_string()))
+                },
+                p if p.ends_with(".js") => {
+                    assert_eq!(file.language, Some("javascript".to_string()))
+                },
+                p if p.ends_with(".go") => assert_eq!(file.language, Some("go".to_string())),
+                _ => panic!("Unexpected file"),
+            }
+        }
+    }
+
+    // ============================================================================
+    // Symbol extraction tests
+    // ============================================================================
+
+    #[test]
+    fn test_scan_extracts_symbols() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("test.rs"),
+            r#"
+pub fn public_function() {}
+fn private_function() {}
+pub struct MyStruct {
+    field: i32,
+}
+"#,
+        )
+        .unwrap();
+
+        let config = ScanConfig::default();
         let repo = scan_repository(dir.path(), config).unwrap();
 
         assert_eq!(repo.files.len(), 1);
-        assert!(repo.files[0].symbols.is_empty());
+        let symbols = &repo.files[0].symbols;
+        assert!(!symbols.is_empty());
+        assert!(symbols.iter().any(|s| s.name == "public_function"));
+    }
+
+    // ============================================================================
+    // Edge cases and error handling
+    // ============================================================================
+
+    #[test]
+    fn test_scan_file_with_special_name() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("file with spaces.rs"), "fn main() {}").unwrap();
+        fs::write(dir.path().join("file-with-dashes.rs"), "fn main() {}").unwrap();
+        fs::write(dir.path().join("file_with_underscores.rs"), "fn main() {}").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 3);
+    }
+
+    #[test]
+    fn test_scan_empty_file() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("empty.rs"), "").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0]
+            .content
+            .as_ref()
+            .map(|c| c.is_empty())
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn test_scan_unicode_content() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("unicode.py"), "def greet(): print('こんにちは世界')").unwrap();
+
+        let config = ScanConfig::default();
+        let repo = scan_repository(dir.path(), config).unwrap();
+
+        assert_eq!(repo.files.len(), 1);
+        assert!(repo.files[0]
+            .content
+            .as_ref()
+            .map(|c| c.contains("こんにちは"))
+            .unwrap_or(false));
     }
 }
