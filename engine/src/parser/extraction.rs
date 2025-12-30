@@ -209,7 +209,9 @@ pub fn extract_docstring(node: Node<'_>, source_code: &str, language: Language) 
         },
         Language::Rust => {
             let start_byte = node.start_byte();
-            let lines_before: Vec<_> = source_code[..start_byte]
+            // SAFETY: Use floor_char_boundary to avoid panics on multi-byte UTF-8 characters
+            let safe_boundary = source_code.floor_char_boundary(start_byte);
+            let lines_before: Vec<_> = source_code[..safe_boundary]
                 .lines()
                 .rev()
                 .take_while(|line| line.trim().starts_with("///") || line.trim().is_empty())
@@ -268,7 +270,9 @@ pub fn extract_docstring(node: Node<'_>, source_code: &str, language: Language) 
         },
         Language::CSharp => {
             let start_byte = node.start_byte();
-            let lines_before: Vec<_> = source_code[..start_byte]
+            // SAFETY: Use floor_char_boundary to avoid panics on multi-byte UTF-8 characters
+            let safe_boundary = source_code.floor_char_boundary(start_byte);
+            let lines_before: Vec<_> = source_code[..safe_boundary]
                 .lines()
                 .rev()
                 .take_while(|line| line.trim().starts_with("///") || line.trim().is_empty())

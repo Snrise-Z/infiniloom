@@ -5,6 +5,25 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2025-12-29
+
+### Fixed
+
+- **CRITICAL: UTF-8 Boundary Crash in Parser** - Fixed panic on large repos with multi-byte UTF-8 characters
+  - Fixed `byte index is not a char boundary` panic in parser/extraction.rs (lines 212, 271)
+  - Bug affected Rust and C# docstring extraction when special UTF-8 characters (©, °, —, ├) appeared before functions
+  - Crash occurred on: Linux kernel, Kubernetes, VSCode, Rust compiler, and any repo with special UTF-8 chars
+  - Fix: Use `floor_char_boundary()` to find safe UTF-8 boundary before string slicing
+  - **Node.js v0.5.3 users**: Update to v0.5.4 immediately - v0.5.3 crashes on most large repos
+  - All 790 engine tests pass with fix
+  - Root cause: `source_code[..start_byte]` sliced at byte index from tree-sitter without UTF-8 boundary check
+
+### Impact
+
+- **Before Fix (v0.5.3)**: Node.js bindings crashed on 4/6 large repos tested (67% failure rate)
+- **After Fix (v0.5.4)**: All repos process successfully
+- CLI and Python bindings were not affected (different code path)
+
 ## [0.5.3] - 2025-12-29
 
 ### Fixed
