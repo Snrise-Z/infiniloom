@@ -355,6 +355,8 @@ jobs:
         working-directory: bindings/node
         run: npm publish --provenance --access public --ignore-scripts
         continue-on-error: true  # May already be published from a previous run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================================================
   # Publish npm CLI package (for npm install -g infiniloom)
@@ -380,6 +382,8 @@ jobs:
         working-directory: packages/infiniloom
         run: npm publish --provenance --access public
         continue-on-error: true  # May already be published from a previous run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================================================
   # Update Homebrew tap (Formula and Cask)
