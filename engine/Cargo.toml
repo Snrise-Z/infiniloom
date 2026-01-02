@@ -113,13 +113,13 @@ dashmap = "6.1"
 tempfile = "3.10"
 
 # Optional: Local embeddings
-# Note: candle 0.8+ is required for compatibility with rand 0.9
+# Note: candle 0.9+ is required for compatibility with rand 0.9
 [dependencies.candle-core]
-version = "0.8"
+version = "0.9"
 optional = true
 
 [dependencies.candle-transformers]
-version = "0.8"
+version = "0.9"
 optional = true
 
 [features]

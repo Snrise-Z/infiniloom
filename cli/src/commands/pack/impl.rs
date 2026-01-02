@@ -849,9 +849,9 @@ pub fn cmd_pack(config: PackConfig) -> Result<()> {
     if copy_to_clipboard {
         #[cfg(feature = "clipboard")]
         {
-            use clipboard::{ClipboardContext, ClipboardProvider};
-            if let Ok(mut ctx) = ClipboardContext::new() {
-                let _ = ctx.set_contents(output_text.clone());
+            use arboard::Clipboard;
+            if let Ok(mut clipboard) = Clipboard::new() {
+                let _ = clipboard.set_text(output_text.clone());
                 if verbose {
                     eprintln!("{} Copied to clipboard", "✓".green());
                 }
