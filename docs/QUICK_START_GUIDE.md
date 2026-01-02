@@ -1,7 +1,7 @@
 # Infiniloom Quick Start Guide
 
-**Last Updated**: 2025-12-28
-**Version**: 0.5.0
+**Last Updated**: 2026-01-02
+**Version**: 0.6.0
 
 This guide will get you started with Infiniloom in 10 minutes. Perfect for first-time users!
 

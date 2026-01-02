@@ -21,7 +21,7 @@ Get embedding chunks in 3 steps:
 infiniloom embed ./my-repo -o chunks.json
 
 # 2. Check what changed (if manifest exists)
-infiniloom embed ./my-repo --diff-only -o changes.json
+infiniloom embed ./my-repo --diff -o changes.json
 
 # 3. Use chunks in your RAG pipeline
 # chunks.json contains content-addressable chunks ready for embedding
@@ -38,8 +38,8 @@ infiniloom embed ./my-repo --diff-only -o changes.json
 **Common use cases:**
 - `infiniloom embed` - Generate chunks for current directory
 - `infiniloom embed --max-tokens 1500` - Optimize for voyage-code-2/3
-- `infiniloom embed --security-scan --fail-on-secrets` - CI/CD mode
 - `infiniloom embed --include "*.py" -o python-chunks.json` - Python only
+- `infiniloom embed --diff -o changes.json` - Only output changed chunks
 
 ## Description
 
@@ -94,42 +94,44 @@ Chunks respect code structure:
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--output <PATH>` | `-o` | Write JSON output to file | stdout |
-| `--manifest-path <PATH>` | | Custom manifest file location | `.infiniloom-embed.bin` |
-| `--diff-only` | | Only output changed chunks (added + modified) | `false` |
+| `--manifest <PATH>` | `-m` | Custom manifest file location | `.infiniloom-embed.bin` |
+| `--diff` | | Only output changed chunks (added + modified) | `false` |
 
 ### Token Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--max-tokens <N>` | `-t` | Maximum tokens per chunk | `1000` |
+| `--max-tokens <N>` | | Maximum tokens per chunk | `1000` |
 | `--min-tokens <N>` | | Minimum tokens per chunk (smaller merged) | `50` |
 | `--context-lines <N>` | | Lines of context around symbols | `5` |
-| `--model <MODEL>` | `-m` | Token counting model | `claude` |
+| `--token-model <MODEL>` | | Token counting model | `claude` |
 
 ### Content Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--include <PATTERN>` | Include only files matching glob pattern (repeatable) | all |
-| `--exclude <PATTERN>` | Exclude files matching glob pattern (repeatable) | none |
-| `--include-imports` | Include import statements as chunks | `true` |
-| `--include-top-level` | Include top-level code outside symbols | `true` |
+| `--include <PATTERN>`, `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>`, `-e` | Exclude files matching glob pattern (repeatable) | none |
+| `--no-imports` | Exclude import statements from chunks | `false` |
+| `--no-top-level` | Exclude top-level code outside symbols | `false` |
 | `--include-tests` | Include test files | `false` |
 
 ### Security Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--security-scan` | Enable secret detection | `true` |
-| `--fail-on-secrets` | Exit with error if secrets detected (CI mode) | `false` |
-| `--redact-secrets` | Replace detected secrets with `[REDACTED]` | `true` |
+| `--no-security-scan` | Disable secret detection (enabled by default) | `false` |
+
+Note: Secret redaction is automatic when security scanning is enabled.
 
 ### Output Control
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--json` | Output in JSON format | `true` |
-| `--verbose` | Show progress and statistics | `false` |
+| `--format <FORMAT>` | Output format: `jsonl` or `json` | `jsonl` |
+| `--verbose`, `-v` | Show progress and statistics | `false` |
+| `--quiet`, `-q` | Suppress all output except chunk data | `false` |
+| `--json-stats` | Output statistics as JSON to stderr | `false` |
 
 ## Output Format
 
@@ -287,18 +289,19 @@ infiniloom embed -o chunks.json
 # Created manifest: .infiniloom-embed.bin
 
 # After code changes: only changed chunks
-infiniloom embed --diff-only -o changed-chunks.json
+infiniloom embed --diff -o changed-chunks.json
 # Output: Added: 2, Modified: 5, Removed: 1
 ```
 
 ### CI/CD Pipeline
 
 ```bash
-# Fail if secrets detected
-infiniloom embed --fail-on-secrets -o chunks.json
+# Security scanning is enabled by default
+# To disable it (not recommended):
+infiniloom embed --no-security-scan -o chunks.json
 
 # Custom manifest location (shared across builds)
-infiniloom embed --manifest-path .cache/embed-manifest.bin
+infiniloom embed -m .cache/embed-manifest.bin -o chunks.json
 ```
 
 ### Vector Database Integration
@@ -308,7 +311,7 @@ infiniloom embed --manifest-path .cache/embed-manifest.bin
 infiniloom embed --max-tokens 1000 -o chunks.json
 
 # Only get chunks that need to be updated
-infiniloom embed --diff-only -o upsert.json
+infiniloom embed --diff -o upsert.json
 ```
 
 ### Filtering
@@ -374,7 +377,7 @@ The scanner uses NFKC Unicode normalization to detect obfuscated secrets using l
 
 ## Language Support
 
-Embedding chunk generation supports all 21 languages from the Tree-sitter parser:
+Embedding chunk generation supports all 22 languages from the Tree-sitter parser:
 
 - **Systems**: Rust, C, C++, Go
 - **Web**: JavaScript, TypeScript, JSX, TSX

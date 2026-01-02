@@ -23,7 +23,7 @@ Yes! Infiniloom is open source under the MIT license. Use it freely for personal
 
 ### What languages does Infiniloom support?
 
-Infiniloom extracts symbols from 21 languages using Tree-sitter:
+Infiniloom extracts symbols from 22 languages using Tree-sitter:
 
 - **Systems**: Rust, C, C++, Go
 - **Web**: JavaScript, TypeScript

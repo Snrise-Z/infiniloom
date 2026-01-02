@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Infiniloom** is a high-performance repository context generator for Large Language Models. It transforms codebases into optimized formats for Claude, GPT-4o/GPT-5, Gemini, and other LLMs. Built in pure Rust for maximum performance and portability.
 
 Key capabilities:
-- AST-based symbol extraction using Tree-sitter (21 languages with full support)
+- AST-based symbol extraction using Tree-sitter (22 languages with full support)
 - PageRank-based symbol importance ranking
 - Model-specific output formats (XML for Claude, Markdown for GPT, YAML for Gemini)
 - Automatic secret detection and redaction with configurable patterns
@@ -176,7 +176,7 @@ infiniloom/
 │       ├── constants.rs        # Shared constants and magic numbers
 │       ├── newtypes.rs         # Type-safe wrappers (SymbolId, FileId, etc.)
 │       ├── error.rs            # Error types
-│       ├── parser/             # Tree-sitter AST parsing (21 languages)
+│       ├── parser/             # Tree-sitter AST parsing (22 languages)
 │       │   ├── mod.rs          # Parser module exports
 │       │   ├── core.rs         # Core Parser struct and methods
 │       │   ├── language.rs     # Language enum and detection

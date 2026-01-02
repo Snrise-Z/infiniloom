@@ -34,7 +34,13 @@
     "repository",
     "code-analysis",
     "napi-rs",
-    "rust"
+    "rust",
+    "rag",
+    "embeddings",
+    "vector-database",
+    "claude",
+    "gpt",
+    "ai-tools"
   ],
   "engines": {
     "node": ">= 16"

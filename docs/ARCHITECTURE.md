@@ -1,7 +1,7 @@
 # Infiniloom Architecture
 
-**Last Updated**: 2025-12-28
-**Version**: 0.5.0
+**Last Updated**: 2026-01-02
+**Version**: 0.6.0
 
 This document provides a comprehensive overview of Infiniloom's architecture, design patterns, and data flow.
 

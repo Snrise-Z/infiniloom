@@ -15,6 +15,23 @@
 
 ---
 
+## Try It Now
+
+```bash
+# Install
+npm install -g infiniloom
+
+# Generate AI-ready context in one command
+infiniloom pack . --output context.xml
+# → Paste into Claude, GPT, or any LLM
+
+# Generate chunks for your vector database
+infiniloom embed . -o chunks.jsonl
+# → Import into Pinecone, Weaviate, Qdrant, etc.
+```
+
+---
+
 ## The Problem
 
 When you ask an AI to help with code, quality depends almost entirely on what context you provide. Most approaches fail:
@@ -112,6 +129,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | `pack` | Analyze a repository and generate AI-ready context |
 | `scan` | Show repository statistics: files, tokens, languages |
 | `map` | Generate a ranked overview of key symbols |
+| `embed` | Generate chunks for vector databases / RAG systems |
 | `diff` | Build context focused on recent changes |
 | `index` | Create a symbol index for fast queries |
 | `impact` | Analyze what depends on a file or function |
@@ -119,6 +137,31 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | `init` | Create a configuration file |
 
 See the [Command Reference](docs/commands/) for detailed documentation.
+
+---
+
+## Why Infiniloom?
+
+| Feature | Benefit |
+|---------|---------|
+| 🎯 **Smart, Not Everything** | PageRank identifies what matters — core business logic, not utility functions |
+| 🔒 **Security-First** | Automatic secret detection prevents API key leaks to AI |
+| 📊 **27+ Model Support** | Exact token counting for GPT-5, Claude, Gemini, and more via tiktoken |
+| 🚀 **Blazing Fast** | Pure Rust, parallel processing — handles 100K+ file repos in seconds |
+| 🔬 **Code-Aware** | AST parsing understands code structure, not just text |
+| 🔄 **Incremental Updates** | Only re-process changed files with manifest-based diffing |
+
+---
+
+## How Infiniloom Compares
+
+| Tool | Approach | Best For |
+|------|----------|----------|
+| **Infiniloom** | AST + PageRank analysis | Production codebases, security-conscious teams, RAG systems |
+| Repomix | Simple concatenation | Quick prototypes, small projects |
+| Aider | Git-integrated coding | Interactive AI pair programming |
+| Continue.dev | IDE extension | In-editor code completion |
+| Cursor | Full AI IDE | Complete development environment |
 
 ---
 
@@ -164,7 +207,8 @@ Context quality beats context quantity. A smaller, well-structured context produ
 Infiniloom is **stable and actively maintained**.
 
 **What's solid today:**
-- Core packing workflow across 21 languages
+- Core packing workflow across 22 languages
+- **NEW in v0.6.0**: `embed` command for vector database chunking
 - All output formats (XML, Markdown, YAML, JSON)
 - Security scanning and secret redaction
 - Git-aware diff context

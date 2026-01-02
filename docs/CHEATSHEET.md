@@ -8,6 +8,7 @@ Quick reference for all Infiniloom commands, options, and common workflows.
 infiniloom pack    - Transform repository into LLM context
 infiniloom scan    - Show repository statistics
 infiniloom map     - Generate PageRank symbol map
+infiniloom embed   - Generate chunks for vector databases
 infiniloom index   - Build symbol index for fast queries
 infiniloom diff    - Get context for code changes
 infiniloom impact  - Analyze change impact
@@ -123,6 +124,71 @@ infiniloom pack . --cache                  # Enable incremental caching
 infiniloom pack github:owner/repo
 infiniloom pack github:owner/repo --remote-branch develop
 infiniloom pack github:owner/repo --sparse-path src --sparse-path lib
+```
+
+---
+
+## embed
+
+Generate content-addressable chunks for vector databases and RAG systems.
+
+### Basic Usage
+
+```bash
+infiniloom embed .                             # Current directory, jsonl output
+infiniloom embed /path/to/repo -o chunks.json  # Specific path, JSON output
+infiniloom embed . --format json               # JSON array format
+infiniloom embed . -v                          # Verbose output
+```
+
+### Incremental Updates
+
+```bash
+# First run creates manifest (.infiniloom-embed.bin)
+infiniloom embed -o chunks.json
+
+# Subsequent runs only output changed chunks
+infiniloom embed --diff -o changes.json
+```
+
+### Token Control
+
+```bash
+infiniloom embed --max-tokens 1500             # For voyage-code-2/3
+infiniloom embed --max-tokens 800              # For openai embeddings
+infiniloom embed --min-tokens 100              # Merge small chunks
+infiniloom embed --context-lines 10            # More context around symbols
+infiniloom embed --token-model gpt4o           # Token counting model
+```
+
+### Filtering
+
+```bash
+infiniloom embed -i "*.py" -o python.json      # Python only
+infiniloom embed -e "tests/*" -e "docs/*"      # Exclude patterns
+infiniloom embed --include-tests               # Include test files
+infiniloom embed --no-imports                  # Exclude import chunks
+infiniloom embed --no-top-level                # Exclude top-level code
+```
+
+### Hierarchical Chunking
+
+```bash
+infiniloom embed --hierarchy                   # Generate summary chunks
+infiniloom embed --hierarchy --hierarchy-min-children 3
+```
+
+### Security
+
+```bash
+infiniloom embed                               # Security scan on by default
+infiniloom embed --no-security-scan            # Disable (not recommended)
+```
+
+### Custom Manifest
+
+```bash
+infiniloom embed -m .cache/manifest.bin        # Custom manifest location
 ```
 
 ---
