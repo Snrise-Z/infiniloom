@@ -1,7 +1,7 @@
 {
   "name": "infiniloom-node",
   "version": "0.6.0",
-  "description": "Node.js bindings for infiniloom - Repository context engine for LLMs",
+  "description": "Node.js bindings for Infiniloom - AST-aware code context engine for RAG and vector databases. Tree-sitter parsing, PageRank ranking, BLAKE3 content-addressable chunks, 27+ tokenizers.",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -30,17 +30,30 @@
   "keywords": [
     "infiniloom",
     "llm",
-    "context",
-    "repository",
+    "rag",
+    "retrieval-augmented-generation",
+    "vector-database",
+    "pinecone",
+    "weaviate",
+    "qdrant",
+    "embeddings",
+    "code-context",
     "code-analysis",
+    "ast",
+    "tree-sitter",
+    "pagerank",
+    "content-addressable",
+    "blake3",
+    "claude",
+    "gpt4o",
+    "gpt5",
+    "gemini",
+    "llama",
     "napi-rs",
     "rust",
-    "rag",
-    "embeddings",
-    "vector-database",
-    "claude",
-    "gpt",
-    "ai-tools"
+    "ai-tools",
+    "tiktoken",
+    "code-chunking"
   ],
   "engines": {
     "node": ">= 16"

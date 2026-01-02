@@ -2,7 +2,9 @@
 
 # Infiniloom
 
-**Help AI understand your codebase by giving it the right context, not all the context.**
+**AST-aware code context engine for RAG, vector databases, and AI code assistants**
+
+A high-performance Rust library and CLI for generating intelligent code context for LLMs. Uses Tree-sitter AST parsing (22 languages), PageRank symbol ranking, and BLAKE3 content-addressable hashing. Integrates with Pinecone, Weaviate, Qdrant, ChromaDB, and any vector database. Optimized for Claude, GPT-5, GPT-4o, Gemini, Llama, and 27+ LLM tokenizers.
 
 [![CI](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml/badge.svg)](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Topos-Labs/infiniloom/graph/badge.svg)](https://codecov.io/gh/Topos-Labs/infiniloom)
@@ -88,6 +90,72 @@ The result is a context package that helps AI give you accurate, relevant answer
 
 ---
 
+## For RAG & Vector Databases
+
+Infiniloom's `embed` command generates deterministic, content-addressable code chunks designed specifically for retrieval-augmented generation:
+
+```bash
+# Generate chunks for your vector database
+infiniloom embed ./my-repo -o chunks.jsonl
+
+# Only get changed chunks (incremental updates)
+infiniloom embed ./my-repo --diff -o updates.jsonl
+```
+
+### Key Features for RAG
+
+| Feature | Benefit |
+|---------|---------|
+| **Content-Addressable IDs** | Same code anywhere produces same ID (`ec_a1b2c3d4...`) — enables cross-repo deduplication |
+| **AST-Aware Chunking** | Never splits mid-function or mid-class — preserves semantic boundaries |
+| **Incremental Updates** | Manifest-based diffing detects added/modified/removed chunks — only re-embed what changed |
+| **Hierarchical Chunks** | Parent-child relationships preserved — container summaries link to member chunks |
+| **Auto-Generated Tags** | Semantic tags (`async`, `security`, `database`, `http`) improve retrieval relevance |
+| **Call Graph Context** | `calls` and `called_by` fields enable dependency-aware retrieval |
+
+### Vector Database Integration
+
+Works with any vector database that accepts JSON/JSONL:
+
+```bash
+# Pinecone / Weaviate / Qdrant
+infiniloom embed . --max-tokens 1500 -o chunks.jsonl
+# Import chunks.jsonl using your vector DB's bulk import
+
+# ChromaDB / pgvector / Milvus
+infiniloom embed . --format json -o chunks.json
+# Parse JSON array and insert with your preferred client
+```
+
+### Chunk Output Format
+
+Each chunk includes rich metadata for filtering and retrieval:
+
+```json
+{
+  "id": "ec_a1b2c3d4e5f6g7h8",
+  "content": "async fn authenticate(token: &str) -> Result<User, AuthError> {...}",
+  "tokens": 245,
+  "kind": "function",
+  "source": {
+    "file": "src/auth.rs",
+    "symbol": "authenticate",
+    "fqn": "src::auth::authenticate",
+    "language": "Rust"
+  },
+  "context": {
+    "docstring": "Validates JWT token and returns authenticated user",
+    "calls": ["verify_jwt", "find_user_by_id"],
+    "called_by": ["login_handler", "refresh_token"],
+    "tags": ["async", "security", "public-api"]
+  }
+}
+```
+
+See the [embed command documentation](docs/commands/embed.md) for complete details.
+
+---
+
 ## Quick Start
 
 **Install:**
@@ -144,24 +212,46 @@ See the [Command Reference](docs/commands/) for detailed documentation.
 
 | Feature | Benefit |
 |---------|---------|
-| 🎯 **Smart, Not Everything** | PageRank identifies what matters — core business logic, not utility functions |
-| 🔒 **Security-First** | Automatic secret detection prevents API key leaks to AI |
-| 📊 **27+ Model Support** | Exact token counting for GPT-5, Claude, Gemini, and more via tiktoken |
-| 🚀 **Blazing Fast** | Pure Rust, parallel processing — handles 100K+ file repos in seconds |
-| 🔬 **Code-Aware** | AST parsing understands code structure, not just text |
-| 🔄 **Incremental Updates** | Only re-process changed files with manifest-based diffing |
+| 🎯 **Smart Ranking** | PageRank algorithm identifies important symbols — prioritizes core business logic over utilities |
+| 🔗 **Content-Addressable** | BLAKE3 hashing produces stable chunk IDs — same code anywhere = same ID for deduplication |
+| 🌳 **AST-Aware** | Tree-sitter parsing (22 languages) preserves semantic boundaries — never splits mid-function |
+| 🔒 **Security-First** | Automatic secret detection with regex + NFKC normalization prevents API key leaks |
+| 📊 **27+ Tokenizers** | Exact counts for GPT-5/4o via tiktoken, calibrated estimation for Claude/Gemini/Llama |
+| 🚀 **Blazing Fast** | Pure Rust + Rayon parallelism — handles 100K+ file repos in seconds |
+| 🔄 **Incremental** | Manifest-based diffing tracks added/modified/removed chunks — only re-embed what changed |
+| 📈 **Call Graphs** | `calls` and `called_by` fields enable dependency-aware retrieval |
 
 ---
 
 ## How Infiniloom Compares
 
-| Tool | Approach | Best For |
-|------|----------|----------|
-| **Infiniloom** | AST + PageRank analysis | Production codebases, security-conscious teams, RAG systems |
-| Repomix | Simple concatenation | Quick prototypes, small projects |
-| Aider | Git-integrated coding | Interactive AI pair programming |
-| Continue.dev | IDE extension | In-editor code completion |
-| Cursor | Full AI IDE | Complete development environment |
+### Feature Comparison Matrix
+
+| Feature | Infiniloom | Repomix | Aider | Continue | Cursor |
+|---------|:----------:|:-------:|:-----:|:--------:|:------:|
+| **AST Parsing (Tree-sitter)** | ✅ 22 languages | ❌ | ❌ | ❌ | ✅ |
+| **PageRank Symbol Ranking** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Content-Addressable Chunks** | ✅ BLAKE3 | ❌ | ❌ | ❌ | ❌ |
+| **Incremental Updates (Diffing)** | ✅ Manifest-based | ❌ | ✅ Git-based | ❌ | ✅ |
+| **Secret Detection/Redaction** | ✅ 15+ patterns | ❌ | ❌ | ❌ | ❌ |
+| **Multi-Model Token Counting** | ✅ 27 models | ❌ | ✅ Few models | ❌ | ❌ |
+| **Call Graph Extraction** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Vector DB Integration** | ✅ Native JSONL | ❌ | ❌ | ❌ | ❌ |
+| **Hierarchical Chunking** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **CLI Tool** | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Library (Rust/Python/Node)** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **IDE Integration** | 🔜 Coming | ❌ | ❌ | ✅ Native | ✅ Native |
+| **Price** | Free/OSS | Free/OSS | Free/OSS | Free tier | $20/mo |
+
+### When to Use What
+
+| Tool | Best For | Not Ideal For |
+|------|----------|---------------|
+| **Infiniloom** | RAG pipelines, vector DBs, security-conscious teams, large codebases, CI/CD automation | Real-time IDE completions |
+| **Repomix** | Quick one-off context dumps, small projects | Large repos, incremental updates, security |
+| **Aider** | Interactive pair programming, git-based workflows | Headless automation, RAG systems |
+| **Continue.dev** | IDE code completion, inline suggestions | Batch processing, RAG pipelines |
+| **Cursor** | Full AI-powered development environment | Headless/CLI workflows, custom pipelines |
 
 ---
 

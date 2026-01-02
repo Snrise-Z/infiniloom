@@ -12,6 +12,94 @@ infiniloom pack [PATH] [OPTIONS]
 
 **Default PATH**: Current directory (`.`)
 
+---
+
+## Quick Examples
+
+### Basic Usage
+
+```bash
+# Pack current directory to stdout (Claude-optimized XML)
+infiniloom pack
+
+# Pack specific directory to file
+infiniloom pack /path/to/repo -o context.xml
+
+# Pack with Markdown format for GPT
+infiniloom pack -f markdown -m gpt4o -o context.md
+```
+
+### Token Budget Control
+
+```bash
+# Limit to 50,000 tokens
+infiniloom pack --max-tokens 50000
+
+# Use TOON format for maximum efficiency
+infiniloom pack -f toon --max-tokens 30000
+```
+
+### Security-Conscious Usage
+
+```bash
+# Scan and report secrets
+infiniloom pack --security-check
+
+# Redact secrets in output
+infiniloom pack --redact-secrets -o safe-context.xml
+```
+
+### Remote Repository
+
+```bash
+# Pack a GitHub repository
+infiniloom pack github:user/repo
+
+# Pack specific branch
+infiniloom pack github:user/repo --remote-branch develop
+
+# Sparse checkout for monorepo
+infiniloom pack github:large/monorepo --sparse-path packages/core
+```
+
+### Advanced Analysis
+
+```bash
+# Full analysis with PageRank ranking
+infiniloom pack --full -o context.xml
+
+# Include git history
+infiniloom pack --include-logs --logs-count 100
+```
+
+### Incremental Workflow
+
+```bash
+# First run (builds cache)
+infiniloom pack --cache -o context.xml
+
+# Subsequent runs (fast, uses cache)
+infiniloom pack --cache -o context.xml
+
+# Watch mode for continuous updates
+infiniloom pack --cache --watch -o context.xml
+```
+
+### Filtering Files
+
+```bash
+# Only Rust and Python files
+infiniloom pack --include "*.rs" --include "*.py"
+
+# Exclude tests and vendor
+infiniloom pack --exclude "tests/*" --exclude "vendor/*"
+
+# Include test files (excluded by default)
+infiniloom pack --include-tests
+```
+
+---
+
 ## Description
 
 The `pack` command performs the following operations:
@@ -24,6 +112,8 @@ The `pack` command performs the following operations:
 6. **Compression**: Applies content transformations based on compression level
 7. **Output Generation**: Formats the repository in model-optimized format (XML, Markdown, JSON, YAML, TOON, Plain)
 8. **Budget Enforcement**: Truncates output to stay within token budget if specified
+
+---
 
 ## Options
 
@@ -278,77 +368,6 @@ When `--watch` is enabled:
 3. Full rescan on detected changes
 4. Outputs to specified file (required for watch mode)
 5. Skips changes to output file to avoid self-triggering
-
-## Examples
-
-### Basic Usage
-
-```bash
-# Pack current directory to stdout
-infiniloom pack
-
-# Pack specific directory to file
-infiniloom pack /path/to/repo -o context.xml
-
-# Pack with Markdown format for GPT
-infiniloom pack -f markdown -m gpt4o -o context.md
-```
-
-### Token Budget Control
-
-```bash
-# Limit to 50,000 tokens
-infiniloom pack --max-tokens 50000
-
-# Use TOON format for maximum efficiency
-infiniloom pack -f toon --max-tokens 30000
-```
-
-### Security-Conscious Usage
-
-```bash
-# Scan and report secrets
-infiniloom pack --security-check
-
-# Redact secrets in output
-infiniloom pack --redact-secrets -o safe-context.xml
-```
-
-### Remote Repository
-
-```bash
-# Pack a GitHub repository
-infiniloom pack github:user/repo
-
-# Pack specific branch
-infiniloom pack github:user/repo --remote-branch develop
-
-# Sparse checkout for monorepo
-infiniloom pack github:large/monorepo --sparse-path packages/core
-```
-
-### Advanced Analysis
-
-```bash
-# Full analysis with PageRank ranking
-infiniloom pack --full -o context.xml
-
-# Include git history
-infiniloom pack --include-logs --logs-count 100
-```
-
-### Incremental Workflow
-
-```bash
-# First run (builds cache)
-infiniloom pack --cache -o context.xml
-
-# Subsequent runs (fast, uses cache)
-infiniloom pack --cache -o context.xml
-
-# Watch mode for continuous updates
-infiniloom pack --cache --watch -o context.xml
-```
 
 ## Configuration File
 

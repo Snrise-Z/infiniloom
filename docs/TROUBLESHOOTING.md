@@ -2,6 +2,29 @@
 
 Solutions to common issues when using Infiniloom.
 
+---
+
+## Quick Error Reference
+
+Jump directly to solutions for common error messages:
+
+| Error Message | Solution |
+|--------------|----------|
+| `command not found: infiniloom` | [Installation Issues](#command-not-found-infiniloom) |
+| `Not a valid repository path` | [Runtime Issues](#not-a-valid-repository-path) |
+| `No files found` | [Runtime Issues](#no-files-found) |
+| `Binary file detected` | [Runtime Issues](#binary-file-detected-skipping) |
+| `Secrets detected` | [Security Issues](#secrets-detected-error) |
+| `Not a git repository` | [Git Issues](#not-a-git-repository) |
+| `Index not found` | [Git Issues](#index-not-found-for-diffimpact-commands) |
+| `Module not found` (Python) | [Language Bindings](#python-module-not-found) |
+| `Cannot find module` (Node.js) | [Language Bindings](#nodejs-cannot-find-module) |
+| `Invalid model` | [Language Bindings](#invalid-model-error) |
+| `Permission denied` (CI) | [CI/CD Issues](#permission-denied-in-ci) |
+| `Context too long` (LLM) | [Output Issues](#context-too-long-from-llm) |
+
+---
+
 ## Installation Issues
 
 ### "command not found: infiniloom"

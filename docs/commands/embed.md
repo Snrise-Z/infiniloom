@@ -387,6 +387,15 @@ Embedding chunk generation supports all 22 languages from the Tree-sitter parser
 - **Mobile**: Swift
 - **Data**: YAML, TOML
 
+### Known Limitations
+
+**F# (.fs, .fsx)**: F# files are detected by extension but have limited Tree-sitter support. Symbol extraction may be incomplete compared to other .NET languages like C#. For F# projects, consider:
+- Using `--include "*.fs"` to ensure F# files are included
+- Reviewing generated chunks for completeness
+- Falling back to file-level chunking if symbol extraction is insufficient
+
+**OCaml**: Similar ML-family syntax challenges apply. Symbol boundaries may not be perfectly detected for complex pattern matching expressions.
+
 ## API Usage
 
 ### Rust
