@@ -58,6 +58,11 @@ use infiniloom_engine::{
         ReferenceInfo as EngineReferenceInfo,
         SymbolInfo as EngineSymbolInfo,
     },
+    // Embedding module
+    embedding::{
+        EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings,
+        QuietProgress, ResourceLimits, MANIFEST_VERSION,
+    },
     tokenizer::TokenModel,
     ChunkStrategy,
     // Chunking module
@@ -2890,6 +2895,329 @@ fn get_call_sites_with_context(
     Ok(PyList::new(py, result).into())
 }
 
+// ============================================================================
+// Embedding API - Generate chunks for vector databases
+// ============================================================================
+
+/// Convert an EmbedChunk to a Python dict
+fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::types::PyDict {
+    let dict = PyDict::new(py);
+    dict.set_item("id", &chunk.id).unwrap();
+    dict.set_item("full_hash", &chunk.full_hash).unwrap();
+    dict.set_item("content", &chunk.content).unwrap();
+    dict.set_item("tokens", chunk.tokens).unwrap();
+    dict.set_item("kind", chunk.kind.name()).unwrap();
+
+    // Source metadata
+    let source = PyDict::new(py);
+    source.set_item("file", &chunk.source.file).unwrap();
+    source.set_item("lines", (chunk.source.lines.0, chunk.source.lines.1)).unwrap();
+    source.set_item("symbol", &chunk.source.symbol).unwrap();
+    if let Some(ref fqn) = chunk.source.fqn {
+        source.set_item("fqn", fqn).unwrap();
+    }
+    source.set_item("language", &chunk.source.language).unwrap();
+    if let Some(ref parent) = chunk.source.parent {
+        source.set_item("parent", parent).unwrap();
+    }
+    source.set_item("visibility", chunk.source.visibility.name()).unwrap();
+    source.set_item("is_test", chunk.source.is_test).unwrap();
+    dict.set_item("source", source).unwrap();
+
+    // Context metadata
+    let context = PyDict::new(py);
+    if let Some(ref docstring) = chunk.context.docstring {
+        context.set_item("docstring", docstring).unwrap();
+    }
+    if !chunk.context.comments.is_empty() {
+        context.set_item("comments", chunk.context.comments.clone()).unwrap();
+    }
+    if let Some(ref signature) = chunk.context.signature {
+        context.set_item("signature", signature).unwrap();
+    }
+    if !chunk.context.calls.is_empty() {
+        context.set_item("calls", chunk.context.calls.clone()).unwrap();
+    }
+    if !chunk.context.called_by.is_empty() {
+        context.set_item("called_by", chunk.context.called_by.clone()).unwrap();
+    }
+    if !chunk.context.imports.is_empty() {
+        context.set_item("imports", chunk.context.imports.clone()).unwrap();
+    }
+    if !chunk.context.tags.is_empty() {
+        context.set_item("tags", chunk.context.tags.clone()).unwrap();
+    }
+    dict.set_item("context", context).unwrap();
+
+    // Part information (for split chunks)
+    if let Some(ref part) = chunk.part {
+        let part_dict = PyDict::new(py);
+        part_dict.set_item("part", part.part).unwrap();
+        part_dict.set_item("of", part.of).unwrap();
+        part_dict.set_item("parent_id", &part.parent_id).unwrap();
+        part_dict.set_item("parent_signature", &part.parent_signature).unwrap();
+        dict.set_item("part", part_dict).unwrap();
+    }
+
+    dict
+}
+
+/// Generate embedding chunks for a repository
+///
+/// Creates deterministic, content-addressable code chunks optimized for
+/// vector database embeddings. Supports incremental updates via manifest.
+///
+/// Args:
+///     path: Path to the repository
+///     max_tokens: Maximum tokens per chunk (default: 1000)
+///     min_tokens: Minimum tokens per chunk (default: 50)
+///     context_lines: Lines of context around symbols (default: 5)
+///     include_imports: Include import statements (default: True)
+///     include_top_level: Include top-level code (default: True)
+///     include_tests: Include test files (default: False)
+///     security_scan: Enable secret scanning (default: True)
+///     include_patterns: Glob patterns for files to include
+///     exclude_patterns: Glob patterns for files to exclude
+///     manifest_path: Path to manifest file for incremental updates
+///     diff_only: Return only changed chunks (requires manifest)
+///
+/// Returns:
+///     Dictionary with:
+///         - chunks: List of embedding chunks
+///         - summary: Chunk statistics
+///         - diff: Changes if diff_only=True and manifest exists
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> result = infiniloom.embed("/path/to/repo")
+///     >>> for chunk in result["chunks"]:
+///     ...     print(f"{chunk['id']}: {chunk['source']['symbol']}")
+#[pyfunction]
+#[pyo3(signature = (
+    path,
+    max_tokens=1000,
+    min_tokens=50,
+    context_lines=5,
+    include_imports=true,
+    include_top_level=true,
+    include_tests=false,
+    security_scan=true,
+    include_patterns=None,
+    exclude_patterns=None,
+    manifest_path=None,
+    diff_only=false
+))]
+fn embed(
+    py: Python,
+    path: &str,
+    max_tokens: u32,
+    min_tokens: u32,
+    context_lines: u32,
+    include_imports: bool,
+    include_top_level: bool,
+    include_tests: bool,
+    security_scan: bool,
+    include_patterns: Option<Vec<String>>,
+    exclude_patterns: Option<Vec<String>>,
+    manifest_path: Option<&str>,
+    diff_only: bool,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+
+    // Validate path
+    if !path_buf.exists() {
+        return Err(InfiniloomError::new_err(format!("Path does not exist: {}", path)));
+    }
+
+    // Build settings
+    let settings = EmbedSettings {
+        max_tokens,
+        min_tokens,
+        context_lines,
+        include_imports,
+        include_top_level,
+        include_tests,
+        scan_secrets: security_scan,
+        redact_secrets: security_scan,
+        include_patterns: include_patterns.unwrap_or_default(),
+        exclude_patterns: exclude_patterns.unwrap_or_default(),
+        ..Default::default()
+    };
+
+    // Validate settings
+    settings.validate().map_err(to_py_err)?;
+
+    // Create chunker
+    let limits = ResourceLimits::default();
+    let chunker = EmbedChunker::new(settings.clone(), limits);
+
+    // Generate chunks using quiet progress reporter
+    let progress = QuietProgress;
+    let chunks = chunker
+        .chunk_repository(&path_buf, &progress)
+        .map_err(to_py_err)?;
+
+    // Handle manifest and diff
+    let manifest_path_buf = manifest_path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| path_buf.join(".infiniloom-embed.bin"));
+
+    let existing_manifest = EmbedManifest::load_if_exists(&manifest_path_buf)
+        .map_err(to_py_err)?;
+
+    let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
+
+    // Build result
+    let dict = PyDict::new(py);
+
+    // Version and settings
+    dict.set_item("version", MANIFEST_VERSION)?;
+    let settings_dict = PyDict::new(py);
+    settings_dict.set_item("max_tokens", settings.max_tokens)?;
+    settings_dict.set_item("min_tokens", settings.min_tokens)?;
+    settings_dict.set_item("context_lines", settings.context_lines)?;
+    settings_dict.set_item("include_imports", settings.include_imports)?;
+    settings_dict.set_item("include_top_level", settings.include_top_level)?;
+    settings_dict.set_item("include_tests", settings.include_tests)?;
+    settings_dict.set_item("security_scan", settings.scan_secrets)?;
+    dict.set_item("settings", settings_dict)?;
+
+    // Chunks (or diff)
+    if diff_only {
+        if let Some(ref d) = diff {
+            // Return only changed chunks
+            let added = PyList::new(py, d.added.iter().map(|c| embed_chunk_to_py(py, c)));
+            let modified = PyList::new(py, d.modified.iter().map(|m| {
+                let chunk_dict = embed_chunk_to_py(py, &m.chunk);
+                chunk_dict.set_item("old_id", &m.old_id).unwrap();
+                chunk_dict
+            }));
+            let removed = PyList::new(py, d.removed.iter().map(|r| {
+                let rem_dict = PyDict::new(py);
+                rem_dict.set_item("id", &r.id).unwrap();
+                rem_dict.set_item("location_key", &r.location_key).unwrap();
+                rem_dict
+            }));
+
+            let diff_dict = PyDict::new(py);
+            diff_dict.set_item("added", added)?;
+            diff_dict.set_item("modified", modified)?;
+            diff_dict.set_item("removed", removed)?;
+            diff_dict.set_item("unchanged_count", d.unchanged.len())?;
+            dict.set_item("diff", diff_dict)?;
+            dict.set_item("chunks", PyList::empty(py))?;
+        } else {
+            // No existing manifest, return all chunks
+            let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)));
+            dict.set_item("chunks", chunks_list)?;
+        }
+    } else {
+        let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)));
+        dict.set_item("chunks", chunks_list)?;
+    }
+
+    // Summary statistics
+    let summary = PyDict::new(py);
+    summary.set_item("total_chunks", chunks.len())?;
+    summary.set_item("total_tokens", chunks.iter().map(|c| c.tokens as u64).sum::<u64>())?;
+
+    if let Some(ref d) = diff {
+        summary.set_item("added", d.summary.added)?;
+        summary.set_item("modified", d.summary.modified)?;
+        summary.set_item("removed", d.summary.removed)?;
+        summary.set_item("unchanged", d.summary.unchanged)?;
+        summary.set_item("has_changes", d.has_changes())?;
+    }
+    dict.set_item("summary", summary)?;
+
+    // Update and save manifest
+    let mut manifest = existing_manifest.unwrap_or_else(|| {
+        EmbedManifest::new(
+            path_buf.to_string_lossy().to_string(),
+            settings,
+        )
+    });
+    manifest.update(&chunks).map_err(to_py_err)?;
+    manifest.save(&manifest_path_buf).map_err(to_py_err)?;
+
+    Ok(dict.into())
+}
+
+/// Load an embedding manifest
+///
+/// Manifests track all chunks for incremental updates.
+///
+/// Args:
+///     path: Path to manifest file
+///
+/// Returns:
+///     Dictionary with manifest metadata or None if not found
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> manifest = infiniloom.load_embed_manifest("/path/to/.infiniloom-embed.bin")
+///     >>> if manifest:
+///     ...     print(f"Chunks: {manifest['chunk_count']}")
+#[pyfunction]
+fn load_embed_manifest(py: Python, path: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+
+    match EmbedManifest::load_if_exists(&path_buf) {
+        Ok(Some(manifest)) => {
+            let dict = PyDict::new(py);
+            dict.set_item("version", manifest.version)?;
+            dict.set_item("repo_path", &manifest.repo_path)?;
+            dict.set_item("chunk_count", manifest.chunk_count())?;
+            if let Some(commit) = &manifest.commit_hash {
+                dict.set_item("commit_hash", commit)?;
+            }
+            if let Some(updated_at) = manifest.updated_at {
+                dict.set_item("updated_at", updated_at)?;
+            }
+            if let Some(checksum) = &manifest.checksum {
+                dict.set_item("checksum", checksum)?;
+            }
+
+            // Settings
+            let settings = PyDict::new(py);
+            settings.set_item("max_tokens", manifest.settings.max_tokens)?;
+            settings.set_item("min_tokens", manifest.settings.min_tokens)?;
+            settings.set_item("context_lines", manifest.settings.context_lines)?;
+            dict.set_item("settings", settings)?;
+
+            Ok(dict.into())
+        }
+        Ok(None) => Ok(py.None()),
+        Err(e) => Err(to_py_err(e)),
+    }
+}
+
+/// Delete an embedding manifest
+///
+/// Removes the manifest file to force a full rebuild on next embed.
+///
+/// Args:
+///     path: Path to manifest file
+///
+/// Returns:
+///     True if deleted, False if not found
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.delete_embed_manifest("/path/to/.infiniloom-embed.bin")
+#[pyfunction]
+fn delete_embed_manifest(path: &str) -> PyResult<bool> {
+    let path_buf = PathBuf::from(path);
+    if path_buf.exists() {
+        std::fs::remove_file(&path_buf).map_err(|e| {
+            InfiniloomError::new_err(format!("Failed to delete manifest: {}", e))
+        })?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 /// Python module definition
 #[pymodule]
 fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -2931,6 +3259,11 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_changed_symbols_filtered, m)?)?;
     m.add_function(wrap_pyfunction!(get_transitive_callers, m)?)?;
     m.add_function(wrap_pyfunction!(get_call_sites_with_context, m)?)?;
+
+    // Embedding API
+    m.add_function(wrap_pyfunction!(embed, m)?)?;
+    m.add_function(wrap_pyfunction!(load_embed_manifest, m)?)?;
+    m.add_function(wrap_pyfunction!(delete_embed_manifest, m)?)?;
 
     // Classes
     m.add_class::<Infiniloom>()?;

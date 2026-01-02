@@ -2,6 +2,7 @@
 //!
 //! Provides efficient re-scanning by caching results and only processing changed files.
 
+use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use thiserror::Error;
 
+use crate::bincode_safe::deserialize_with_limit;
 use crate::tokenizer::TokenCounts;
 use crate::types::Symbol;
 
@@ -123,7 +125,7 @@ impl RepoCache {
     pub fn load(cache_path: &Path) -> Result<Self, CacheError> {
         let content = fs::read(cache_path).map_err(|e| CacheError::IoError(e.to_string()))?;
 
-        let cache: Self = bincode::deserialize(&content)
+        let cache: Self = deserialize_with_limit(&content)
             .map_err(|e| CacheError::DeserializeError(e.to_string()))?;
 
         // Check version compatibility
@@ -144,8 +146,10 @@ impl RepoCache {
             fs::create_dir_all(parent).map_err(|e| CacheError::IoError(e.to_string()))?;
         }
 
-        let content =
-            bincode::serialize(self).map_err(|e| CacheError::SerializeError(e.to_string()))?;
+        // Note: Must use bincode::options() to match deserialize_with_limit() in load()
+        let content = bincode::options()
+            .serialize(self)
+            .map_err(|e| CacheError::SerializeError(e.to_string()))?;
 
         fs::write(cache_path, content).map_err(|e| CacheError::IoError(e.to_string()))?;
 

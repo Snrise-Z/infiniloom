@@ -12,6 +12,10 @@ pub enum CliError {
     #[error("Engine error: {0}")]
     Engine(#[from] infiniloom_engine::InfiniloomError),
 
+    /// Embed errors (wrapped from infiniloom_engine::embedding::EmbedError)
+    #[error("{0}")]
+    Embed(#[from] infiniloom_engine::embedding::EmbedError),
+
     /// I/O errors
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -228,8 +232,37 @@ impl CliError {
     /// Get the exit code for this error
     ///
     /// Different error types map to different exit codes for shell scripting.
+    ///
+    /// # Exit Code Ranges
+    ///
+    /// | Range | Category |
+    /// |-------|----------|
+    /// | 1-9 | General CLI errors |
+    /// | 10-19 | Engine/system errors |
+    /// | 20-99 | Embed command errors (see EmbedError::exit_code for details) |
+    ///
+    /// # Embed Command Exit Codes
+    ///
+    /// The embed command uses semantic exit codes (20-99 range) for shell scripting:
+    ///
+    /// | Code | Category | Description |
+    /// |------|----------|-------------|
+    /// | 21 | User Error | Invalid settings, patterns, or arguments |
+    /// | 22 | Input Error | No chunks generated, no data to process |
+    /// | 23 | Security | Secrets detected (use --redact-secrets) |
+    /// | 24 | Security | Path traversal attempt blocked |
+    /// | 30 | Manifest | Version mismatch, corruption |
+    /// | 31 | Resource | Too many chunks/files, recursion limit |
+    /// | 32 | System | I/O errors, serialization failures |
+    /// | 33 | Internal | Hash collision (extremely rare) |
+    /// | 34 | Parse | Source code parse errors |
+    /// | 35 | Multiple | Multiple errors encountered |
     pub fn exit_code(&self) -> i32 {
         match self {
+            // Embed errors: use semantic exit codes in 20-99 range
+            // Add 20 to avoid conflicts with general CLI exit codes
+            Self::Embed(e) => 20 + e.exit_code(),
+
             // User errors: exit code 1
             Self::InvalidArgument(_)
             | Self::MissingArgument(_)
@@ -432,5 +465,92 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let cli_err: CliError = io_err.into();
         assert!(matches!(cli_err, CliError::Io(_)));
+    }
+
+    #[test]
+    fn test_embed_error_exit_codes() {
+        use infiniloom_engine::embedding::EmbedError;
+        use std::path::PathBuf;
+
+        // User error: 21 (20 + 1)
+        let err: CliError = EmbedError::InvalidSettings {
+            field: "max_tokens".to_string(),
+            reason: "too high".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 21);
+
+        // Input error: 22 (20 + 2)
+        let err: CliError = EmbedError::NoChunksGenerated {
+            include_patterns: "*.xyz".to_string(),
+            exclude_patterns: "".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 22);
+
+        // Security - secrets: 23 (20 + 3)
+        let err: CliError = EmbedError::SecretsDetected {
+            count: 5,
+            files: "config.py".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 23);
+
+        // Security - path traversal: 24 (20 + 4)
+        let err: CliError = EmbedError::PathTraversal {
+            path: PathBuf::from("../../../etc/passwd"),
+            repo_root: PathBuf::from("/repo"),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 24);
+
+        // Manifest error: 30 (20 + 10)
+        let err: CliError = EmbedError::ManifestVersionTooNew {
+            found: 99,
+            max_supported: 2,
+        }
+        .into();
+        assert_eq!(err.exit_code(), 30);
+
+        // Resource limit: 31 (20 + 11)
+        let err: CliError = EmbedError::TooManyChunks {
+            count: 100000,
+            max: 50000,
+        }
+        .into();
+        assert_eq!(err.exit_code(), 31);
+
+        // System error: 32 (20 + 12)
+        let err: CliError = EmbedError::IoError {
+            path: PathBuf::from("/tmp"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 32);
+
+        // Internal error: 33 (20 + 13)
+        let err: CliError = EmbedError::HashCollision {
+            id: "ec_123".to_string(),
+            hash1: "abc".to_string(),
+            hash2: "def".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 33);
+
+        // Parse error: 34 (20 + 14)
+        let err: CliError = EmbedError::ParseError {
+            file: "bad.rs".to_string(),
+            line: 42,
+            message: "syntax error".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 34);
+
+        // Multiple errors: 35 (20 + 15)
+        let err: CliError = EmbedError::MultipleErrors {
+            errors: "error1\nerror2".to_string(),
+        }
+        .into();
+        assert_eq!(err.exit_code(), 35);
     }
 }

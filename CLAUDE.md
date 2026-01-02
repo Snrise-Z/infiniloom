@@ -127,6 +127,23 @@ infiniloom chunk . --strategy module            # Group by module/directory
 infiniloom chunk . --max-tokens 4000            # Smaller chunks
 infiniloom chunk . --overlap 500                # Overlap for context continuity
 infiniloom chunk . -i "src/**" --include-tests  # With patterns
+
+# Generate embedding chunks for vector databases (RAG)
+infiniloom embed /path/to/repo                  # Generate JSONL output to stdout
+infiniloom embed . -o chunks.jsonl              # Output to file
+infiniloom embed . --format json                # Single JSON array format
+infiniloom embed . --diff-only                  # Only output changed chunks
+infiniloom embed . --max-tokens 512             # Token limit per chunk
+infiniloom embed . --min-tokens 50              # Minimum tokens per chunk
+infiniloom embed . --context-lines 2            # Context lines around symbols
+infiniloom embed . --token-model claude         # Token counting model
+infiniloom embed . --no-imports                 # Exclude import statements
+infiniloom embed . --no-top-level               # Exclude top-level code
+infiniloom embed . --no-security-scan           # Disable secret scanning
+infiniloom embed . -i "src/**" -e "tests/*"     # Include/exclude patterns
+infiniloom embed . --include-tests              # Include test files
+infiniloom embed . -v                           # Verbose output with stats
+infiniloom embed . --json-stats                 # JSON statistics output
 ```
 
 ## Code Architecture
@@ -149,6 +166,7 @@ infiniloom/
 │           ├── diff.rs         # Diff command (context-aware diffs)
 │           ├── index.rs        # Index command (build symbol index)
 │           ├── impact.rs       # Impact command (change analysis)
+│           ├── embed.rs        # Embed command (vector DB chunks)
 │           ├── init.rs         # Init command (config file creation)
 │           └── info.rs         # Info command (version/config display)
 ├── engine/                     # Core Rust engine library
@@ -183,6 +201,16 @@ infiniloom/
 │       │   ├── mod.rs          # Chunker struct
 │       │   ├── strategies.rs   # ChunkStrategy implementations
 │       │   └── types.rs        # Chunk types
+│       ├── embedding/          # Embedding chunks for vector DBs
+│       │   ├── mod.rs          # Module exports
+│       │   ├── chunker.rs      # EmbedChunker with parallel processing
+│       │   ├── types.rs        # EmbedChunk, EmbedSettings, ChunkKind
+│       │   ├── manifest.rs     # Manifest for incremental updates
+│       │   ├── hasher.rs       # BLAKE3 content-addressable hashing
+│       │   ├── normalizer.rs   # Cross-platform content normalization
+│       │   ├── limits.rs       # Resource limits (DoS protection)
+│       │   ├── progress.rs     # Progress reporting
+│       │   └── error.rs        # Embedding-specific errors
 │       ├── index/              # Symbol index for fast diff context
 │       │   ├── mod.rs          # Module exports
 │       │   ├── builder/        # Index building
@@ -267,6 +295,26 @@ High-level functions for querying symbol relationships:
 - `get_references_by_name(index, graph, name)` - Get all references (calls + imports)
 - `get_call_graph(index, graph)` - Get complete call graph
 - `get_call_graph_filtered(index, graph, max_nodes, max_edges)` - Get filtered graph
+
+### Embedding Types (`engine/src/embedding/`)
+
+Types for generating deterministic, content-addressable chunks for vector databases:
+
+- **`EmbedChunk`**: Single chunk with content-addressable ID (BLAKE3 hash), content, tokens, kind, source location, and context
+- **`EmbedSettings`**: Configuration for chunk generation (max_tokens, min_tokens, context_lines, security options)
+- **`EmbedManifest`**: Tracks all chunks for incremental updates (bincode serialized with integrity checksum)
+- **`EmbedDiff`**: Result of diffing current chunks against manifest (added, modified, removed, unchanged)
+- **`ChunkKind`**: Function, Method, Class, Struct, Enum, Interface, Trait, Module, etc.
+- **`ChunkSource`**: Source location metadata (file, lines, symbol name, language, parent, visibility)
+- **`ChunkContext`**: Semantic context (docstring, signature, calls, imports, auto-generated tags)
+- **`ResourceLimits`**: DoS protection limits (max files, file size, chunks, recursion depth)
+
+**Key Features**:
+- Deterministic output (same input = same output) via sorted processing and BTreeMap
+- Content-addressable IDs: `ec_` + 32 hex chars (128-bit BLAKE3 truncation)
+- Cross-platform normalization (Unicode NFC, line endings, whitespace)
+- Secret scanning with redaction support
+- Incremental updates via manifest diffing
 
 ### Data Flow
 
@@ -500,3 +548,203 @@ File-level caching with change detection:
 2. **Parallel by default**: Rayon auto-scales to available CPU cores
 3. **Binary detection**: First 8KB checked, binary files automatically skipped
 4. **Gitignore caching**: Patterns compiled once per directory tree
+
+## Embedding Workflow for Vector Databases
+
+The `embed` command generates deterministic, content-addressable code chunks optimized for RAG (Retrieval-Augmented Generation) applications.
+
+### Design Philosophy
+
+**The embed command is a library/CLI tool, not a full-fledged enterprise solution.**
+
+It is designed to be a building block that integrates into your existing data pipelines:
+
+| What it IS | What it is NOT |
+|------------|----------------|
+| Deterministic chunk generator | Multi-tenant SaaS platform |
+| Content-addressable ID system | Access control / RBAC system |
+| Incremental diff calculator | Distributed job queue |
+| JSONL/JSON output producer | Vector database |
+| Secret scanner/redactor | Compliance management system |
+
+**Intended Usage Pattern:**
+```bash
+# Process repos sequentially in your pipeline
+for repo in repos/*; do
+    infiniloom embed "$repo" -o "chunks/${repo##*/}.jsonl"
+done
+
+# Then ingest into your vector DB of choice
+python ingest_to_pinecone.py chunks/*.jsonl
+```
+
+**Key Guarantees:**
+- **Deterministic**: Same code → same chunk IDs (enables cross-repo deduplication)
+- **Semantically correct**: AST-aware chunking respects function/class boundaries
+- **Incremental**: Manifest-based diffing for efficient updates
+- **Portable**: JSONL output works with any vector DB or pipeline
+
+**Not Provided (build your own or use existing tools):**
+- User authentication / authorization
+- Multi-tenant isolation enforcement
+- Distributed processing coordination
+- Vector embedding generation (use OpenAI, Voyage, Cohere, etc.)
+- Vector database storage (use Pinecone, Weaviate, Qdrant, etc.)
+- Monitoring dashboards
+
+### Quick Start
+
+```bash
+# Generate chunks for current repository
+infiniloom embed -o chunks.json
+
+# Incremental update (only changed chunks)
+infiniloom embed --diff-only -o updates.json
+
+# CI/CD mode (fail on secrets)
+infiniloom embed --fail-on-secrets -o chunks.json
+```
+
+### Content-Addressable IDs
+
+Each chunk has a stable ID based on BLAKE3 hash of normalized content:
+
+```
+ec_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+**Key Property**: Same code anywhere = same ID. This enables:
+- Cross-repository deduplication
+- Incremental vector DB updates
+- Stable references for retrieval
+
+### Incremental Update Pattern
+
+```bash
+# First run: full generation, creates manifest
+infiniloom embed -o chunks.json
+# Creates .infiniloom-embed.bin manifest
+
+# After code changes: only changed chunks
+infiniloom embed --diff-only -o updates.json
+# Output includes: added, modified, removed, unchanged counts
+
+# Vector DB workflow:
+# 1. Upsert chunks from updates.json
+# 2. Delete IDs from diff.removed
+```
+
+### Chunk Structure
+
+```json
+{
+  "id": "ec_...",
+  "content": "fn calculate(a: i32, b: i32) -> i32 { ... }",
+  "tokens": 25,
+  "kind": "function",
+  "source": {
+    "file": "src/math.rs",
+    "lines": [10, 15],
+    "symbol": "calculate",
+    "language": "Rust"
+  },
+  "context": {
+    "signature": "fn calculate(a: i32, b: i32) -> i32",
+    "docstring": "Adds two numbers",
+    "calls": ["add", "validate"],
+    "called_by": ["main", "process"],
+    "tags": ["public-api"],
+    "lines_of_code": 5,
+    "max_nesting_depth": 2
+  }
+}
+```
+
+### Embedding Model Presets
+
+```bash
+# For Voyage Code (1500 token context)
+infiniloom embed --max-tokens 1500
+
+# For Cohere (400 token context)
+infiniloom embed --max-tokens 400
+
+# For sentence-transformers (384 token context)
+infiniloom embed --max-tokens 384
+```
+
+### Security Integration
+
+The embed command integrates with the security scanner:
+
+```bash
+# Default: scan and redact secrets
+infiniloom embed -o chunks.json
+
+# CI mode: fail if secrets detected
+infiniloom embed --fail-on-secrets
+
+# Skip scanning (trusted input only)
+infiniloom embed --no-security-scan
+```
+
+### Auto-Generated Semantic Tags
+
+Chunks are automatically tagged for better retrieval:
+
+| Tag | Triggers |
+|-----|----------|
+| `async` | async/await keywords, Kotlin suspend |
+| `concurrency` | threads, mutex, channels, Go goroutines |
+| `security` | auth, password, token, crypto |
+| `database` | query, sql, transaction |
+| `http` | request, response, endpoint |
+| `error-handling` | Error, Result, exception |
+| `test` | test_, _test, mock, stub |
+
+### Determinism Guarantees
+
+The embedding system provides strong determinism for CI/CD:
+
+1. Files processed in sorted lexicographic order
+2. Symbols sorted by (line, name) within each file
+3. Output chunks sorted by (file, line, id)
+4. All hash computations use integer-only math
+5. Cross-platform identical output (Windows/Linux/macOS)
+
+### API Usage
+
+**Rust:**
+```rust
+use infiniloom_engine::embedding::{EmbedChunker, EmbedSettings, ResourceLimits};
+
+let chunker = EmbedChunker::new(EmbedSettings::default(), ResourceLimits::default());
+let chunks = chunker.chunk_repository(Path::new("./repo"))?;
+```
+
+**Node.js:**
+```javascript
+const { embed } = require('infiniloom-node');
+const result = embed('./repo', { maxTokens: 1000, securityScan: true });
+console.log(`Generated ${result.chunks.length} chunks`);
+```
+
+**Python:**
+```python
+from infiniloom import embed
+result = embed("./repo", max_tokens=1000)
+print(f"Generated {len(result.chunks)} chunks")
+```
+
+### Resource Limits
+
+Default limits protect against DoS:
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `max_file_size` | 10 MB | Files larger are skipped |
+| `max_line_length` | 10,000 | Detects minified files |
+| `max_total_chunks` | 1,000,000 | Enterprise scale |
+| `max_files` | 500,000 | Large monorepo scale |
+
+See [docs/commands/embed.md](docs/commands/embed.md) for complete documentation.

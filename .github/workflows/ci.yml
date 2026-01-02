@@ -11,6 +11,26 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # Security Audit (runs first, fast)
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo-audit
+        run: cargo audit --deny warnings
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo-deny
+        run: cargo deny check
+        continue-on-error: true  # Advisory only until deny.toml is configured
+
   # Rust Engine Build & Test
   rust-build:
     name: Rust (${{ matrix.os }})
@@ -18,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -271,7 +291,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [rust-build]
+    needs: [rust-build, security-audit]
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
@@ -283,8 +303,26 @@ jobs:
       - name: Build Release
         run: cargo build --workspace --release
 
+      - name: Generate SBOM
+        run: |
+          cargo install cargo-sbom --locked
+          cargo sbom --output-format spdx_json_2_3 > sbom.spdx.json
+          cargo sbom --output-format cyclonedx_json_1_4 > sbom.cyclonedx.json
+
+      - name: Generate checksums
+        run: |
+          cd target/release
+          sha256sum infiniloom > SHA256SUMS.txt 2>/dev/null || true
+          sha512sum infiniloom > SHA512SUMS.txt 2>/dev/null || true
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
           generate_release_notes: true
+          files: |
+            target/release/infiniloom
+            target/release/SHA256SUMS.txt
+            target/release/SHA512SUMS.txt
+            sbom.spdx.json
+            sbom.cyclonedx.json

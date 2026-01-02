@@ -20,6 +20,7 @@ mod call_graph;
 mod symbols;
 mod diff;
 mod impact;
+mod embed;
 
 // Re-export all public types
 pub use types::*;
@@ -46,6 +47,10 @@ pub use symbols::{
     get_changed_symbols_filtered, get_changed_symbols_filtered_async, get_symbol_source,
     get_symbol_source_async, get_symbols_in_file, get_symbols_in_file_async, get_tests_for_file,
     get_tests_for_file_async, get_transitive_callers, get_transitive_callers_async,
+};
+pub use embed::{
+    delete_embed_manifest, delete_embed_manifest_async, embed, embed_async, load_embed_manifest,
+    load_embed_manifest_async,
 };
 
 use infiniloom_bindings_common::{

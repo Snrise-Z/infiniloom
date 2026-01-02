@@ -533,6 +533,90 @@ enum Commands {
         include_tests: bool,
     },
 
+    /// Generate embedding chunks for vector databases
+    Embed {
+        /// Path to repository (default: current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output format (jsonl or json)
+        #[arg(short, long, value_enum, default_value = "jsonl")]
+        format: EmbedFormat,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Manifest file path (default: .infiniloom-embed.bin)
+        #[arg(short, long, default_value = ".infiniloom-embed.bin")]
+        manifest: PathBuf,
+
+        /// Only output changed chunks (diff mode)
+        #[arg(long)]
+        diff: bool,
+
+        /// Maximum tokens per chunk (default: 1000, matches embedding model recommendations)
+        #[arg(long, default_value = "1000")]
+        max_tokens: u32,
+
+        /// Minimum tokens for a chunk (default: 50)
+        #[arg(long, default_value = "50")]
+        min_tokens: u32,
+
+        /// Lines of context around symbols (default: 5)
+        #[arg(long, default_value = "5")]
+        context_lines: u32,
+
+        /// Token counting model
+        #[arg(long, default_value = "claude")]
+        token_model: String,
+
+        /// Exclude imports from chunks (imports included by default)
+        #[arg(long)]
+        no_imports: bool,
+
+        /// Exclude top-level code (top-level included by default)
+        #[arg(long)]
+        no_top_level: bool,
+
+        /// Disable secret scanning (enabled by default for safety)
+        #[arg(long)]
+        no_security_scan: bool,
+
+        /// Include only files matching glob pattern (can be repeated)
+        #[arg(long = "include", short = 'i')]
+        include_patterns: Vec<String>,
+
+        /// Exclude files matching glob pattern (can be repeated)
+        #[arg(long = "exclude", short = 'e')]
+        exclude_patterns: Vec<String>,
+
+        /// Include test files (excluded by default)
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Enable hierarchical chunking for improved RAG recall
+        /// Generates summary chunks for classes/structs with member listings
+        #[arg(long)]
+        hierarchy: bool,
+
+        /// Minimum children required to generate a summary chunk (default: 2)
+        #[arg(long, default_value = "2")]
+        hierarchy_min_children: usize,
+
+        /// Verbose output (show progress and detailed stats)
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Quiet mode (suppress all non-error output except chunk data)
+        #[arg(short, long, conflicts_with = "verbose")]
+        quiet: bool,
+
+        /// Output statistics as JSON (to stderr)
+        #[arg(long)]
+        json_stats: bool,
+    },
+
     /// Generate shell completions for infiniloom
     #[command(hide = true)]
     Completions {
@@ -718,6 +802,24 @@ enum Shell {
     Elvish,
 }
 
+#[derive(ValueEnum, Clone, Copy, Default)]
+enum EmbedFormat {
+    /// JSONL envelope format (header, chunks, footer)
+    #[default]
+    Jsonl,
+    /// Single JSON object
+    Json,
+}
+
+impl From<EmbedFormat> for commands::EmbedOutputFormat {
+    fn from(f: EmbedFormat) -> Self {
+        match f {
+            EmbedFormat::Jsonl => commands::EmbedOutputFormat::Jsonl,
+            EmbedFormat::Json => commands::EmbedOutputFormat::Json,
+        }
+    }
+}
+
 impl From<Shell> for ClapShell {
     fn from(s: Shell) -> Self {
         match s {
@@ -730,7 +832,7 @@ impl From<Shell> for ClapShell {
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
     // Initialize logging
     let default_filter = if std::env::var("INFINILOOM_TIMING").is_ok() {
         "info"
@@ -743,6 +845,23 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    let result = run_command(cli);
+
+    if let Err(e) = result {
+        // Check if it's a CliError with a semantic exit code
+        if let Some(cli_err) = e.downcast_ref::<error::CliError>() {
+            let exit_code = cli_err.exit_code();
+            eprintln!("Error: {cli_err}");
+            std::process::exit(exit_code);
+        }
+
+        // For other errors, use generic exit code 1
+        eprintln!("Error: {e:?}");
+        std::process::exit(1);
+    }
+}
+
+fn run_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Pack {
             path,
@@ -997,6 +1116,60 @@ fn main() -> Result<()> {
             include_patterns,
             include_tests,
         ),
+        Commands::Embed {
+            path,
+            format,
+            output,
+            manifest,
+            diff,
+            max_tokens,
+            min_tokens,
+            context_lines,
+            token_model,
+            no_imports,
+            no_top_level,
+            no_security_scan,
+            include_patterns,
+            exclude_patterns,
+            include_tests,
+            hierarchy,
+            hierarchy_min_children,
+            verbose,
+            quiet,
+            json_stats,
+        } => {
+            let config = commands::EmbedConfig {
+                path,
+                output_format: format.into(),
+                output_file: output,
+                manifest_path: manifest,
+                diff_only: diff,
+                max_tokens,
+                min_tokens,
+                context_lines,
+                token_model,
+                include_imports: !no_imports,
+                include_top_level: !no_top_level,
+                security_scan: !no_security_scan,
+                include_patterns,
+                exclude_patterns,
+                include_tests,
+                enable_hierarchy: hierarchy,
+                hierarchy_min_children,
+                verbose,
+                quiet,
+                json_stats,
+            };
+            // Map embed errors to CliError for semantic exit codes
+            commands::cmd_embed(config).map_err(|e| {
+                // Try to extract EmbedError from the anyhow chain
+                if let Some(embed_err) = e.downcast_ref::<infiniloom_engine::embedding::EmbedError>() {
+                    anyhow::anyhow!(error::CliError::Embed(embed_err.clone()))
+                } else {
+                    e
+                }
+            })
+        },
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_string();

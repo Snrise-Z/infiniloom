@@ -106,6 +106,7 @@
 //! | [`budget`] | Token budget enforcement |
 //! | [`incremental`] | Caching and incremental scanning |
 //! | [`semantic`] | Heuristic-based compression (char-frequency, NOT neural) |
+//! | [`embedding`] | Deterministic code chunks for vector databases |
 //! | [`error`] | Unified error types |
 
 // Core modules
@@ -146,8 +147,23 @@ pub mod budget;
 // Incremental scanning and caching
 pub mod incremental;
 
+// Safe bincode deserialization with size limits
+pub mod bincode_safe;
+
 // Unified error types
 pub mod error;
+
+// Embedding chunk generation for vector databases
+pub mod embedding;
+
+// Audit logging for SOC2/GDPR/HIPAA compliance
+pub mod audit;
+
+// Semantic exit codes for CI/CD integration
+pub mod exit_codes;
+
+// License detection for compliance scanning
+pub mod license;
 
 // Re-exports from core modules
 pub use chunking::{Chunk, ChunkStrategy, Chunker};
@@ -201,6 +217,50 @@ pub use tokenizer::Tokenizer;
 // Note: IncrementalScanner is available via incremental:: module but not re-exported
 // at top level since CLI uses RepoCache directly
 pub use error::{InfiniloomError, Result as InfiniloomResult};
+pub use embedding::{
+    // Core types
+    EmbedChunk, EmbedChunker, EmbedSettings, ChunkKind, ChunkSource, ChunkContext, ChunkPart,
+    Visibility as EmbedVisibility,
+    // Manifest and diffing
+    EmbedManifest, EmbedDiff, DiffSummary, DiffBatch, BatchOperation, ManifestEntry,
+    ModifiedChunk, RemovedChunk, MANIFEST_VERSION,
+    // Error and limits
+    EmbedError, ResourceLimits,
+    // Hashing
+    hash_content, HashResult,
+    // Normalization
+    normalize_for_hash, needs_normalization,
+    // Progress reporting
+    ProgressReporter, QuietProgress, TerminalProgress,
+    // Repository identifier
+    RepoIdentifier,
+    // Hierarchical chunking
+    HierarchyBuilder, HierarchyConfig, HierarchySummary, ChildReference,
+    get_hierarchy_summary,
+    // Streaming API
+    ChunkStream, StreamConfig, StreamStats, CancellationHandle,
+    BatchIterator, Batches,
+};
+pub use audit::{
+    // Core types
+    AuditEvent, AuditEventKind, AuditSeverity, AuditLogger,
+    // Logger implementations
+    FileAuditLogger, MemoryAuditLogger, NullAuditLogger, MultiAuditLogger,
+    // Global logger functions
+    set_global_logger, get_global_logger, log_event,
+    // Convenience functions
+    log_scan_started, log_scan_completed, log_secret_detected, log_pii_detected,
+};
+pub use exit_codes::{
+    // Core types
+    ExitCode, ExitCodeCategory, ExitResult,
+    // Trait for error conversion
+    ToExitCode,
+};
+pub use license::{
+    // Core types
+    License, LicenseRisk, LicenseFinding, LicenseScanConfig, LicenseScanner, LicenseSummary,
+};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -741,3 +741,156 @@ pub struct TransitiveCallersOptions {
     /// Maximum number of results (default: 100)
     pub max_results: Option<u32>,
 }
+
+// ============================================================================
+// Embedding Types
+// ============================================================================
+
+/// Options for embedding chunk generation
+#[napi(object)]
+pub struct EmbedOptions {
+    /// Maximum tokens per chunk (default: 1000)
+    pub max_tokens: Option<u32>,
+    /// Minimum tokens for a chunk (default: 50)
+    pub min_tokens: Option<u32>,
+    /// Lines of context around symbols (default: 5)
+    pub context_lines: Option<u32>,
+    /// Include imports in chunks (default: true)
+    pub include_imports: Option<bool>,
+    /// Include top-level code (default: true)
+    pub include_top_level: Option<bool>,
+    /// Include test files (default: false)
+    pub include_tests: Option<bool>,
+    /// Enable secret scanning (default: true)
+    pub security_scan: Option<bool>,
+    /// Include patterns (glob)
+    pub include_patterns: Option<Vec<String>>,
+    /// Exclude patterns (glob)
+    pub exclude_patterns: Option<Vec<String>>,
+    /// Path to manifest file (default: .infiniloom-embed.bin)
+    pub manifest_path: Option<String>,
+    /// Only return changed chunks (diff mode)
+    pub diff_only: Option<bool>,
+}
+
+/// Source information for a chunk
+#[napi(object)]
+pub struct EmbedChunkSource {
+    /// File path
+    pub file: String,
+    /// Line range (start, end) - 1-indexed
+    pub lines_start: u32,
+    pub lines_end: u32,
+    /// Symbol name
+    pub symbol: String,
+    /// Fully qualified name (if available)
+    pub fqn: Option<String>,
+    /// Programming language
+    pub language: String,
+    /// Parent symbol (if any)
+    pub parent: Option<String>,
+    /// Visibility: "public", "private", "protected", "internal"
+    pub visibility: String,
+    /// Whether this is test code
+    pub is_test: bool,
+}
+
+/// Context information for a chunk
+#[napi(object)]
+pub struct EmbedChunkContext {
+    /// Extracted docstring for natural language retrieval
+    pub docstring: Option<String>,
+    /// Extracted comments within the chunk
+    pub comments: Vec<String>,
+    /// Function/class signature (always included, even in split parts)
+    pub signature: Option<String>,
+    /// Symbols this chunk calls
+    pub calls: Vec<String>,
+    /// Symbols that call this chunk
+    pub called_by: Vec<String>,
+    /// Imports in this chunk
+    pub imports: Vec<String>,
+    /// Auto-generated semantic tags (async, security, database, etc.)
+    pub tags: Vec<String>,
+    /// Lines of code (excluding blank lines and comments)
+    pub lines_of_code: u32,
+    /// Maximum nesting depth (control flow, blocks)
+    pub max_nesting_depth: u32,
+}
+
+/// Chunk part info for split chunks
+#[napi(object)]
+pub struct EmbedChunkPart {
+    /// Part number (1-indexed)
+    pub part: u32,
+    /// Total number of parts
+    pub of: u32,
+    /// ID of the logical parent (full symbol hash)
+    pub parent_id: String,
+    /// Signature repeated for context
+    pub parent_signature: Option<String>,
+}
+
+/// A single embedding chunk
+#[napi(object)]
+pub struct EmbedChunk {
+    /// Content-addressable chunk ID (ec_ prefix + 32 hex chars)
+    pub id: String,
+    /// Full content hash for collision detection
+    pub full_hash: String,
+    /// Chunk content (code)
+    pub content: String,
+    /// Token count
+    pub tokens: u32,
+    /// Chunk kind: "function", "class", "struct", "method", etc.
+    pub kind: String,
+    /// Source information
+    pub source: EmbedChunkSource,
+    /// Context information
+    pub context: EmbedChunkContext,
+    /// Part info (for multi-part chunks)
+    pub part: Option<EmbedChunkPart>,
+}
+
+/// Diff summary statistics
+#[napi(object)]
+pub struct EmbedDiffSummary {
+    /// Number of added chunks
+    pub added: u32,
+    /// Number of modified chunks
+    pub modified: u32,
+    /// Number of removed chunks
+    pub removed: u32,
+    /// Number of unchanged chunks
+    pub unchanged: u32,
+    /// Total chunks in current state
+    pub total_chunks: u32,
+}
+
+/// Result from embedding operation
+#[napi(object)]
+pub struct EmbedResult {
+    /// Generated chunks
+    pub chunks: Vec<EmbedChunk>,
+    /// Diff summary (if manifest existed)
+    pub diff: Option<EmbedDiffSummary>,
+    /// Manifest version
+    pub manifest_version: u32,
+    /// Processing time in milliseconds
+    pub elapsed_ms: f64,
+}
+
+/// Manifest status information
+#[napi(object)]
+pub struct EmbedManifestStatus {
+    /// Whether manifest exists
+    pub exists: bool,
+    /// Number of chunks in manifest
+    pub chunk_count: Option<u32>,
+    /// Repository path stored in manifest
+    pub repo_path: Option<String>,
+    /// Last update timestamp (Unix seconds)
+    pub updated_at: Option<f64>,
+    /// Manifest format version
+    pub version: Option<u32>,
+}

@@ -4,6 +4,8 @@
 //! using bincode for fast binary serialization.
 
 use super::types::{DepGraph, SymbolIndex};
+use bincode::Options;
+use crate::bincode_safe::deserialize_from_with_limit;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -103,9 +105,10 @@ impl IndexStorage {
         let tmp_path = self.index_dir.join(format!("{}.tmp", INDEX_FILE));
 
         // Write to temp file first for atomicity
+        // Note: Must use bincode::options() to match deserialize_from_with_limit() in load()
         let file = File::create(&tmp_path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serialize_into(&mut writer, index)?;
+        bincode::options().serialize_into(&mut writer, index)?;
         writer.flush()?;
 
         // Atomic rename
@@ -122,9 +125,10 @@ impl IndexStorage {
             return Err(StorageError::NotFound(path));
         }
 
+        let file_size = fs::metadata(&path)?.len();
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        let mut index: SymbolIndex = bincode::deserialize_from(reader)?;
+        let mut index: SymbolIndex = deserialize_from_with_limit(reader, file_size)?;
 
         // Check version compatibility
         if index.version != SymbolIndex::CURRENT_VERSION {
@@ -147,9 +151,10 @@ impl IndexStorage {
         let path = self.index_dir.join(GRAPH_FILE);
         let tmp_path = self.index_dir.join(format!("{}.tmp", GRAPH_FILE));
 
+        // Note: Must use bincode::options() to match deserialize_from_with_limit() in load()
         let file = File::create(&tmp_path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serialize_into(&mut writer, graph)?;
+        bincode::options().serialize_into(&mut writer, graph)?;
         writer.flush()?;
 
         fs::rename(&tmp_path, &path)?;
@@ -165,9 +170,10 @@ impl IndexStorage {
             return Err(StorageError::NotFound(path));
         }
 
+        let file_size = fs::metadata(&path)?.len();
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        let graph: DepGraph = bincode::deserialize_from(reader)?;
+        let graph: DepGraph = deserialize_from_with_limit(reader, file_size)?;
 
         Ok(graph)
     }

@@ -1,6 +1,6 @@
 [package]
 name = "infiniloom-engine"
-version = "0.5.4"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.91"
 description = "High-performance repository context engine for LLMs - AST parsing, token counting, and secret detection"
@@ -53,6 +53,7 @@ ignore = "0.4"
 
 # Unicode handling
 unicode-segmentation = "1.10"
+unicode-normalization = "0.1"
 
 # Tree-sitter for AST parsing (21 languages)
 # Using tree-sitter 0.25 with compatible grammar versions
