@@ -121,9 +121,7 @@ impl Default for HierarchyBuilder {
 impl HierarchyBuilder {
     /// Create a new hierarchy builder with default config
     pub fn new() -> Self {
-        Self {
-            config: HierarchyConfig::default(),
-        }
+        Self { config: HierarchyConfig::default() }
     }
 
     /// Create with custom configuration
@@ -237,7 +235,11 @@ impl HierarchyBuilder {
                 file: container.source.file.clone(),
                 lines: container.source.lines,
                 symbol: format!("{}_summary", container.source.symbol),
-                fqn: container.source.fqn.as_ref().map(|f| format!("{}_summary", f)),
+                fqn: container
+                    .source
+                    .fqn
+                    .as_ref()
+                    .map(|f| format!("{}_summary", f)),
                 language: container.source.language.clone(),
                 parent: container.source.parent.clone(),
                 visibility: container.source.visibility,
@@ -305,10 +307,7 @@ impl HierarchyBuilder {
         }
 
         if total_children > child_refs.len() {
-            content.push_str(&format!(
-                " * ... and {} more\n",
-                total_children - child_refs.len()
-            ));
+            content.push_str(&format!(" * ... and {} more\n", total_children - child_refs.len()));
         }
 
         content.push_str(" */\n");
@@ -365,17 +364,17 @@ pub fn get_hierarchy_summary(
     // Find children
     let children: Vec<ChildReference> = chunks
         .iter()
-        .filter(|c| {
-            c.source.parent.as_deref() == Some(container_symbol) && c.source.file == file
-        })
+        .filter(|c| c.source.parent.as_deref() == Some(container_symbol) && c.source.file == file)
         .map(|c| ChildReference {
             id: c.id.clone(),
             name: c.source.symbol.clone(),
             kind: c.kind,
             signature: c.context.signature.clone(),
-            brief: c.context.docstring.as_ref().and_then(|d| {
-                d.lines().next().map(|s| s.trim().to_string())
-            }),
+            brief: c
+                .context
+                .docstring
+                .as_ref()
+                .and_then(|d| d.lines().next().map(|s| s.trim().to_string())),
         })
         .collect();
 
@@ -515,22 +514,8 @@ mod tests {
     fn test_hierarchy_enrich_chunks() {
         let mut chunks = vec![
             create_test_chunk("c1", "MyClass", ChunkKind::Class, None, None, None),
-            create_test_chunk(
-                "c2",
-                "method1",
-                ChunkKind::Method,
-                Some("MyClass"),
-                None,
-                None,
-            ),
-            create_test_chunk(
-                "c3",
-                "method2",
-                ChunkKind::Method,
-                Some("MyClass"),
-                None,
-                None,
-            ),
+            create_test_chunk("c2", "method1", ChunkKind::Method, Some("MyClass"), None, None),
+            create_test_chunk("c3", "method2", ChunkKind::Method, Some("MyClass"), None, None),
         ];
 
         let builder = HierarchyBuilder::new();
@@ -559,14 +544,7 @@ mod tests {
                 Some("struct MyStruct"),
                 None,
             ),
-            create_test_chunk(
-                "c2",
-                "field1",
-                ChunkKind::Variable,
-                Some("MyStruct"),
-                None,
-                None,
-            ),
+            create_test_chunk("c2", "field1", ChunkKind::Variable, Some("MyStruct"), None, None),
             create_test_chunk(
                 "c3",
                 "new",

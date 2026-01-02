@@ -293,9 +293,7 @@ impl Default for LicenseScanner {
 impl LicenseScanner {
     /// Create a new license scanner with default config
     pub fn new() -> Self {
-        Self {
-            config: LicenseScanConfig::default(),
-        }
+        Self { config: LicenseScanConfig::default() }
     }
 
     /// Create with custom configuration
@@ -324,7 +322,8 @@ impl LicenseScanner {
         findings
             .into_iter()
             .filter(|f| {
-                f.confidence >= self.config.min_confidence && f.license.risk() >= self.config.min_risk
+                f.confidence >= self.config.min_confidence
+                    && f.license.risk() >= self.config.min_risk
             })
             .collect()
     }
@@ -363,42 +362,22 @@ impl LicenseScanner {
         // Check for specific license texts (in order of specificity)
         let detections: Vec<(License, f32, &str)> = vec![
             // AGPL (must check before GPL due to substring match)
-            (
-                License::Agpl3,
-                0.95,
-                "gnu affero general public license",
-            ),
+            (License::Agpl3, 0.95, "gnu affero general public license"),
             (License::Agpl3, 0.9, "agpl-3.0"),
             (License::Agpl3, 0.85, "agpl version 3"),
             // LGPL (must check before GPL)
-            (
-                License::Lgpl3,
-                0.95,
-                "gnu lesser general public license version 3",
-            ),
+            (License::Lgpl3, 0.95, "gnu lesser general public license version 3"),
             (License::Lgpl3, 0.9, "lgpl-3.0"),
-            (
-                License::Lgpl21,
-                0.95,
-                "gnu lesser general public license version 2.1",
-            ),
+            (License::Lgpl21, 0.95, "gnu lesser general public license version 2.1"),
             (License::Lgpl21, 0.9, "lgpl-2.1"),
             (License::Lgpl21, 0.9, "lgpl version 2.1"),
             // GPL
-            (
-                License::Gpl3,
-                0.95,
-                "gnu general public license version 3",
-            ),
+            (License::Gpl3, 0.95, "gnu general public license version 3"),
             // Canonical GPL3 header: "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007"
             (License::Gpl3, 0.95, "version 3, 29 june 2007"),
             (License::Gpl3, 0.9, "gpl-3.0"),
             (License::Gpl3, 0.85, "gplv3"),
-            (
-                License::Gpl2,
-                0.95,
-                "gnu general public license version 2",
-            ),
+            (License::Gpl2, 0.95, "gnu general public license version 2"),
             // Canonical GPL2 header: "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991"
             (License::Gpl2, 0.95, "version 2, june 1991"),
             (License::Gpl2, 0.9, "gpl-2.0"),
@@ -417,11 +396,7 @@ impl LicenseScanner {
             // MIT
             (License::Mit, 0.95, "mit license"),
             (License::Mit, 0.9, "permission is hereby granted, free of charge"),
-            (
-                License::Mit,
-                0.85,
-                "the software is provided \"as is\", without warranty",
-            ),
+            (License::Mit, 0.85, "the software is provided \"as is\", without warranty"),
             // BSD
             (License::Bsd3Clause, 0.95, "3-clause bsd license"),
             (License::Bsd3Clause, 0.9, "bsd-3-clause"),
@@ -481,8 +456,7 @@ impl LicenseScanner {
             }
 
             // Check for license comments
-            if let Some(finding) =
-                self.check_license_comment(&line_lower, file_path, line_num + 1)
+            if let Some(finding) = self.check_license_comment(&line_lower, file_path, line_num + 1)
             {
                 findings.push(finding);
             }
@@ -586,10 +560,7 @@ impl LicenseScanner {
     }
 
     /// Scan a repository for license information
-    pub fn scan_repository(
-        &self,
-        repo_path: &Path,
-    ) -> Result<Vec<LicenseFinding>, std::io::Error> {
+    pub fn scan_repository(&self, repo_path: &Path) -> Result<Vec<LicenseFinding>, std::io::Error> {
         use ignore::WalkBuilder;
 
         let mut all_findings = Vec::new();
@@ -709,7 +680,11 @@ impl LicenseSummary {
 
     /// Get total number of findings
     pub fn total(&self) -> usize {
-        self.critical_count + self.high_count + self.medium_count + self.low_count + self.unknown_count
+        self.critical_count
+            + self.high_count
+            + self.medium_count
+            + self.low_count
+            + self.unknown_count
     }
 }
 

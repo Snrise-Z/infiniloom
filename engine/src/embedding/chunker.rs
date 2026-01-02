@@ -180,13 +180,13 @@ impl EmbedChunker {
                                 Ordering::AcqRel,
                                 Ordering::Acquire,
                             ) {
-                                Ok(_) => break, // Successfully updated
+                                Ok(_) => break,     // Successfully updated
                                 Err(_) => continue, // Another thread updated, retry
                             }
                         }
 
                         Ok(chunks)
-                    }
+                    },
                     Err(e) => Err((file.clone(), e)),
                 }
             })
@@ -368,10 +368,7 @@ impl EmbedChunker {
                         .map(|f| format!("  {}:{} - {}", f.file, f.line, f.kind.name()))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    return Err(EmbedError::SecretsDetected {
-                        count: findings.len(),
-                        files,
-                    });
+                    return Err(EmbedError::SecretsDetected { count: findings.len(), files });
                 }
 
                 // Redact secrets if configured
@@ -458,7 +455,9 @@ impl EmbedChunker {
 
         // Handle top-level code if configured
         if self.settings.include_top_level && !symbols.is_empty() {
-            if let Some(top_level) = self.extract_top_level(&lines, &symbols, &relative_path, &language) {
+            if let Some(top_level) =
+                self.extract_top_level(&lines, &symbols, &relative_path, &language)
+            {
                 chunks.push(top_level);
             }
         }
@@ -485,11 +484,7 @@ impl EmbedChunker {
         let content = lines[context_start..context_end].join("\n");
 
         // Return 1-indexed line numbers
-        (
-            content,
-            (context_start + 1) as u32,
-            context_end as u32,
-        )
+        (content, (context_start + 1) as u32, context_end as u32)
     }
 
     /// Split a large symbol into multiple chunks at line boundaries
@@ -535,7 +530,9 @@ impl EmbedChunker {
         // Estimate: overlap_lines = (total_lines * overlap_tokens) / total_tokens
         let overlap_tokens = self.settings.overlap_tokens as usize;
         let overlap_lines = if overlap_tokens > 0 && total_tokens > 0 {
-            ((total_lines * overlap_tokens) / total_tokens).max(1).min(target_lines / 2)
+            ((total_lines * overlap_tokens) / total_tokens)
+                .max(1)
+                .min(target_lines / 2)
         } else {
             0
         };
@@ -755,11 +752,11 @@ impl EmbedChunker {
                 '{' | '(' | '[' => {
                     current_depth += 1;
                     max_depth = max_depth.max(current_depth as u32);
-                }
+                },
                 '}' | ')' | ']' => {
                     current_depth = (current_depth - 1).max(0);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -814,7 +811,8 @@ impl EmbedChunker {
         // Kotlin: suspend, Go: goroutines (go keyword detected in signature)
         if signature.contains("async")
             || signature.contains("await")
-            || signature.contains("suspend")  // Kotlin coroutines
+            || signature.contains("suspend")
+        // Kotlin coroutines
         {
             tags.push("async".to_string());
         }
@@ -832,7 +830,8 @@ impl EmbedChunker {
             || signature.contains("<-chan")     // Go receive-only channel
             || signature.contains("chan<-")     // Go send-only channel
             || signature.contains("sync.")      // Go sync package
-            || signature.contains("WaitGroup")  // Go WaitGroup
+            || signature.contains("WaitGroup")
+        // Go WaitGroup
         {
             tags.push("concurrency".to_string());
         }
@@ -1126,9 +1125,7 @@ impl EmbedChunker {
         let path_str = path.to_string_lossy().to_lowercase();
 
         // Path-based detection
-        if path_str.contains("test")
-            || path_str.contains("spec")
-            || path_str.contains("__tests__")
+        if path_str.contains("test") || path_str.contains("spec") || path_str.contains("__tests__")
         {
             return true;
         }
@@ -1150,9 +1147,7 @@ impl EmbedChunker {
 
         // Ensure it's a directory
         if !canonical.is_dir() {
-            return Err(EmbedError::NotADirectory {
-                path: path.to_path_buf(),
-            });
+            return Err(EmbedError::NotADirectory { path: path.to_path_buf() });
         }
 
         Ok(canonical)
@@ -1197,7 +1192,7 @@ impl EmbedChunker {
                         pattern: pattern_str.clone(),
                         reason: e.to_string(),
                     });
-                }
+                },
             }
         }
 
@@ -1211,7 +1206,7 @@ impl EmbedChunker {
                         pattern: pattern_str.clone(),
                         reason: e.to_string(),
                     });
-                }
+                },
             }
         }
 
@@ -1224,8 +1219,10 @@ impl EmbedChunker {
             .build();
 
         for entry in walker {
-            let entry =
-                entry.map_err(|e| EmbedError::IoError { path: repo_root.to_path_buf(), source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) })?;
+            let entry = entry.map_err(|e| EmbedError::IoError {
+                path: repo_root.to_path_buf(),
+                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            })?;
 
             let path = entry.path();
 
@@ -1242,9 +1239,7 @@ impl EmbedChunker {
 
             // Check include patterns (if any, file must match at least one)
             if !include_patterns.is_empty()
-                && !include_patterns
-                    .iter()
-                    .any(|p| p.matches(&relative_path))
+                && !include_patterns.iter().any(|p| p.matches(&relative_path))
             {
                 continue;
             }
@@ -1367,7 +1362,9 @@ fn goodbye() {
         let chunker = EmbedChunker::with_defaults(settings);
         let progress = QuietProgress;
 
-        let chunks = chunker.chunk_repository(temp_dir.path(), &progress).unwrap();
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
 
         // Should have at least 2 chunks (hello and goodbye functions)
         assert!(!chunks.is_empty());
@@ -1390,7 +1387,9 @@ fn goodbye() {
         let results: Vec<Vec<EmbedChunk>> = (0..3)
             .map(|_| {
                 let chunker = EmbedChunker::with_defaults(settings.clone());
-                chunker.chunk_repository(temp_dir.path(), &progress).unwrap()
+                chunker
+                    .chunk_repository(temp_dir.path(), &progress)
+                    .unwrap()
             })
             .collect();
 
@@ -1440,18 +1439,9 @@ fn goodbye() {
     fn test_language_detection() {
         let chunker = EmbedChunker::with_defaults(EmbedSettings::default());
 
-        assert_eq!(
-            chunker.detect_language(Path::new("test.rs")),
-            "Rust"
-        );
-        assert_eq!(
-            chunker.detect_language(Path::new("test.py")),
-            "Python"
-        );
-        assert_eq!(
-            chunker.detect_language(Path::new("test.unknown")),
-            "unknown"
-        );
+        assert_eq!(chunker.detect_language(Path::new("test.rs")), "Rust");
+        assert_eq!(chunker.detect_language(Path::new("test.py")), "Python");
+        assert_eq!(chunker.detect_language(Path::new("test.unknown")), "unknown");
     }
 
     #[test]
@@ -1499,7 +1489,10 @@ fn goodbye() {
         symbol.signature = Some("func processMessages(ch chan string)".to_string());
 
         let tags = chunker.generate_tags(&symbol);
-        assert!(tags.contains(&"concurrency".to_string()), "Go channels should be tagged as concurrency");
+        assert!(
+            tags.contains(&"concurrency".to_string()),
+            "Go channels should be tagged as concurrency"
+        );
     }
 
     #[test]
@@ -1516,7 +1509,10 @@ fn goodbye() {
         let mut symbol2 = Symbol::new("forward_pass", crate::types::SymbolKind::Function);
         symbol2.signature = Some("def forward_pass(self, x: torch.Tensor)".to_string());
         let tags2 = chunker.generate_tags(&symbol2);
-        assert!(tags2.contains(&"ml".to_string()), "torch.Tensor in signature should be tagged as ml");
+        assert!(
+            tags2.contains(&"ml".to_string()),
+            "torch.Tensor in signature should be tagged as ml"
+        );
 
         // Test classifier
         let mut symbol3 = Symbol::new("ImageClassifier", crate::types::SymbolKind::Class);
@@ -1533,18 +1529,27 @@ fn goodbye() {
         let mut symbol = Symbol::new("preprocess_dataframe", crate::types::SymbolKind::Function);
         symbol.signature = Some("def preprocess_dataframe(df: pd.DataFrame)".to_string());
         let tags = chunker.generate_tags(&symbol);
-        assert!(tags.contains(&"data-science".to_string()), "DataFrame should be tagged as data-science");
+        assert!(
+            tags.contains(&"data-science".to_string()),
+            "DataFrame should be tagged as data-science"
+        );
 
         // Test numpy array
         let mut symbol2 = Symbol::new("normalize_array", crate::types::SymbolKind::Function);
         symbol2.signature = Some("def normalize_array(arr: np.ndarray)".to_string());
         let tags2 = chunker.generate_tags(&symbol2);
-        assert!(tags2.contains(&"data-science".to_string()), "np.ndarray should be tagged as data-science");
+        assert!(
+            tags2.contains(&"data-science".to_string()),
+            "np.ndarray should be tagged as data-science"
+        );
 
         // Test ETL pipeline
         let symbol3 = Symbol::new("run_etl_pipeline", crate::types::SymbolKind::Function);
         let tags3 = chunker.generate_tags(&symbol3);
-        assert!(tags3.contains(&"data-science".to_string()), "etl should be tagged as data-science");
+        assert!(
+            tags3.contains(&"data-science".to_string()),
+            "etl should be tagged as data-science"
+        );
     }
 
     #[test]
@@ -1672,10 +1677,7 @@ impl User {
         create_test_file(temp_dir.path(), "user.rs", rust_code);
 
         // Test WITHOUT hierarchy
-        let settings_no_hierarchy = EmbedSettings {
-            enable_hierarchy: false,
-            ..Default::default()
-        };
+        let settings_no_hierarchy = EmbedSettings { enable_hierarchy: false, ..Default::default() };
         let chunker_no_hierarchy = EmbedChunker::with_defaults(settings_no_hierarchy);
         let progress = QuietProgress;
         let chunks_no_hierarchy = chunker_no_hierarchy
@@ -1712,10 +1714,7 @@ impl User {
         if !summary_chunks.is_empty() {
             // Summary chunks should have content referencing children
             for summary in &summary_chunks {
-                assert!(
-                    !summary.content.is_empty(),
-                    "Summary chunk should have content"
-                );
+                assert!(!summary.content.is_empty(), "Summary chunk should have content");
             }
         }
 
@@ -1728,7 +1727,10 @@ impl User {
             chunks_with_hierarchy_2.len(),
             "Hierarchical chunking should be deterministic"
         );
-        for (c1, c2) in chunks_with_hierarchy.iter().zip(chunks_with_hierarchy_2.iter()) {
+        for (c1, c2) in chunks_with_hierarchy
+            .iter()
+            .zip(chunks_with_hierarchy_2.iter())
+        {
             assert_eq!(c1.id, c2.id, "Chunk IDs should be identical across runs");
         }
     }

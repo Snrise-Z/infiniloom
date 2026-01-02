@@ -41,8 +41,8 @@ use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 
 use super::error::EmbedError;
-use crate::bincode_safe::deserialize_with_limit;
 use super::types::{EmbedChunk, EmbedSettings, RepoIdentifier};
+use crate::bincode_safe::deserialize_with_limit;
 
 /// Current checkpoint format version
 pub const CHECKPOINT_VERSION: u32 = 1;
@@ -89,9 +89,21 @@ impl From<&CheckpointRepoId> for RepoIdentifier {
         Self {
             namespace: cp.namespace.clone(),
             name: cp.name.clone(),
-            version: if cp.version.is_empty() { None } else { Some(cp.version.clone()) },
-            branch: if cp.branch.is_empty() { None } else { Some(cp.branch.clone()) },
-            commit: if cp.commit.is_empty() { None } else { Some(cp.commit.clone()) },
+            version: if cp.version.is_empty() {
+                None
+            } else {
+                Some(cp.version.clone())
+            },
+            branch: if cp.branch.is_empty() {
+                None
+            } else {
+                Some(cp.branch.clone())
+            },
+            commit: if cp.commit.is_empty() {
+                None
+            } else {
+                Some(cp.commit.clone())
+            },
         }
     }
 }
@@ -251,7 +263,8 @@ impl EmbedCheckpoint {
     /// Record that a file failed processing
     pub fn mark_file_failed(&mut self, file: &str, error: &str) {
         self.remaining_files.retain(|f| f != file);
-        self.failed_files.insert(file.to_string(), error.to_string());
+        self.failed_files
+            .insert(file.to_string(), error.to_string());
         self.update_timestamp();
     }
 
@@ -273,7 +286,8 @@ impl EmbedCheckpoint {
 
     /// Get progress as a percentage (0-100)
     pub fn progress_percent(&self) -> u32 {
-        let total = self.processed_files.len() + self.remaining_files.len() + self.failed_files.len();
+        let total =
+            self.processed_files.len() + self.remaining_files.len() + self.failed_files.len();
         if total == 0 {
             return 0;
         }
@@ -298,7 +312,11 @@ impl EmbedCheckpoint {
     }
 
     /// Validate that this checkpoint matches the given settings and repo
-    pub fn validate(&self, repo_path: &Path, settings: &EmbedSettings) -> Result<(), CheckpointError> {
+    pub fn validate(
+        &self,
+        repo_path: &Path,
+        settings: &EmbedSettings,
+    ) -> Result<(), CheckpointError> {
         // Check version compatibility
         if self.version > CHECKPOINT_VERSION {
             return Err(CheckpointError::VersionMismatch {
@@ -369,20 +387,11 @@ impl EmbedCheckpoint {
 #[derive(Debug, Clone)]
 pub enum CheckpointError {
     /// Checkpoint version is newer than current
-    VersionMismatch {
-        checkpoint_version: u32,
-        current_version: u32,
-    },
+    VersionMismatch { checkpoint_version: u32, current_version: u32 },
     /// Repository path doesn't match
-    RepoMismatch {
-        checkpoint_repo: String,
-        current_repo: String,
-    },
+    RepoMismatch { checkpoint_repo: String, current_repo: String },
     /// Settings hash doesn't match
-    SettingsMismatch {
-        checkpoint_hash: String,
-        current_hash: String,
-    },
+    SettingsMismatch { checkpoint_hash: String, current_hash: String },
     /// Checkpoint integrity verification failed
     IntegrityFailed,
     /// Checkpoint file corrupted
@@ -398,23 +407,23 @@ impl std::fmt::Display for CheckpointError {
                     "Checkpoint version {} is newer than current version {}",
                     checkpoint_version, current_version
                 )
-            }
+            },
             Self::RepoMismatch { checkpoint_repo, current_repo } => {
                 write!(
                     f,
                     "Checkpoint repo '{}' doesn't match current repo '{}'",
                     checkpoint_repo, current_repo
                 )
-            }
+            },
             Self::SettingsMismatch { .. } => {
                 write!(f, "Checkpoint settings don't match current settings")
-            }
+            },
             Self::IntegrityFailed => {
                 write!(f, "Checkpoint integrity verification failed")
-            }
+            },
             Self::Corrupted(reason) => {
                 write!(f, "Checkpoint corrupted: {}", reason)
-            }
+            },
         }
     }
 }
@@ -449,10 +458,8 @@ impl CheckpointManager {
             return Ok(None);
         }
 
-        let bytes = std::fs::read(&self.path).map_err(|e| EmbedError::IoError {
-            path: self.path.clone(),
-            source: e,
-        })?;
+        let bytes = std::fs::read(&self.path)
+            .map_err(|e| EmbedError::IoError { path: self.path.clone(), source: e })?;
 
         let checkpoint: EmbedCheckpoint =
             deserialize_with_limit(&bytes).map_err(|e| EmbedError::DeserializationError {
@@ -476,24 +483,20 @@ impl CheckpointManager {
         // Compute integrity hash before saving
         checkpoint.compute_integrity();
 
-        let bytes = bincode::options()
-            .serialize(checkpoint)
-            .map_err(|e| EmbedError::SerializationError {
+        let bytes = bincode::options().serialize(checkpoint).map_err(|e| {
+            EmbedError::SerializationError {
                 reason: format!("Failed to serialize checkpoint: {}", e),
-            })?;
+            }
+        })?;
 
         // Write atomically via temp file
         let temp_path = self.path.with_extension("tmp");
 
-        std::fs::write(&temp_path, &bytes).map_err(|e| EmbedError::IoError {
-            path: temp_path.clone(),
-            source: e,
-        })?;
+        std::fs::write(&temp_path, &bytes)
+            .map_err(|e| EmbedError::IoError { path: temp_path.clone(), source: e })?;
 
-        std::fs::rename(&temp_path, &self.path).map_err(|e| EmbedError::IoError {
-            path: self.path.clone(),
-            source: e,
-        })?;
+        std::fs::rename(&temp_path, &self.path)
+            .map_err(|e| EmbedError::IoError { path: self.path.clone(), source: e })?;
 
         Ok(())
     }
@@ -501,10 +504,8 @@ impl CheckpointManager {
     /// Delete the checkpoint file
     pub fn delete(&self) -> Result<(), EmbedError> {
         if self.path.exists() {
-            std::fs::remove_file(&self.path).map_err(|e| EmbedError::IoError {
-                path: self.path.clone(),
-                source: e,
-            })?;
+            std::fs::remove_file(&self.path)
+                .map_err(|e| EmbedError::IoError { path: self.path.clone(), source: e })?;
         }
         Ok(())
     }
@@ -526,14 +527,12 @@ impl CheckpointManager {
             Err(CheckpointError::SettingsMismatch { .. }) => {
                 // Settings changed, can't resume - return None so fresh start happens
                 Ok(None)
-            }
+            },
             Err(CheckpointError::RepoMismatch { .. }) => {
                 // Different repo, can't resume
                 Ok(None)
-            }
-            Err(e) => Err(EmbedError::DeserializationError {
-                reason: e.to_string(),
-            }),
+            },
+            Err(e) => Err(EmbedError::DeserializationError { reason: e.to_string() }),
         }
     }
 }
@@ -618,7 +617,8 @@ mod tests {
     #[test]
     fn test_checkpoint_creation() {
         let settings = test_settings();
-        let cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         assert_eq!(cp.version, CHECKPOINT_VERSION);
         assert_eq!(cp.phase, CheckpointPhase::Discovery);
@@ -630,14 +630,11 @@ mod tests {
     #[test]
     fn test_checkpoint_file_tracking() {
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         // Set files to process
-        cp.set_files(vec![
-            "a.rs".to_string(),
-            "b.rs".to_string(),
-            "c.rs".to_string(),
-        ]);
+        cp.set_files(vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()]);
 
         assert_eq!(cp.files_remaining(), 3);
         assert_eq!(cp.files_processed(), 0);
@@ -661,7 +658,8 @@ mod tests {
     #[test]
     fn test_checkpoint_integrity() {
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
         cp.set_files(vec!["test.rs".to_string()]);
         cp.mark_file_processed("test.rs", &[]);
 
@@ -678,7 +676,8 @@ mod tests {
     #[test]
     fn test_checkpoint_validation() {
         let settings = test_settings();
-        let cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         // Should validate against same settings and path
         assert!(cp.validate(Path::new("/test/repo"), &settings).is_ok());
@@ -689,7 +688,9 @@ mod tests {
         // Should fail for different settings
         let mut different_settings = settings.clone();
         different_settings.max_tokens = 9999;
-        assert!(cp.validate(Path::new("/test/repo"), &different_settings).is_err());
+        assert!(cp
+            .validate(Path::new("/test/repo"), &different_settings)
+            .is_err());
     }
 
     #[test]
@@ -698,7 +699,8 @@ mod tests {
         let checkpoint_path = temp_dir.path().join("checkpoint.bin");
 
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
         cp.set_files(vec!["test.rs".to_string()]);
         cp.mark_file_processed("test.rs", &[]);
 
@@ -739,7 +741,8 @@ mod tests {
     #[test]
     fn test_checkpoint_phases() {
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         assert_eq!(cp.phase, CheckpointPhase::Discovery);
 
@@ -756,7 +759,8 @@ mod tests {
     #[test]
     fn test_checkpoint_stats() {
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
         cp.set_files(vec!["a.rs".to_string(), "b.rs".to_string()]);
         cp.mark_file_processed("a.rs", &[]);
 
@@ -786,7 +790,8 @@ mod tests {
         let checkpoint_path = temp_dir.path().join("checkpoint.bin");
 
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         let manager = CheckpointManager::new(&checkpoint_path);
         manager.save(&mut cp).unwrap();
@@ -799,7 +804,8 @@ mod tests {
     #[test]
     fn test_is_chunking_complete() {
         let settings = test_settings();
-        let mut cp = EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
+        let mut cp =
+            EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         // Not complete in discovery phase
         assert!(!cp.is_chunking_complete());
@@ -815,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_chunk_reference_from_embed_chunk() {
-        use super::super::types::{ChunkKind, ChunkSource, ChunkContext};
+        use super::super::types::{ChunkContext, ChunkKind, ChunkSource};
 
         let chunk = EmbedChunk {
             id: "ec_abc123".to_string(),

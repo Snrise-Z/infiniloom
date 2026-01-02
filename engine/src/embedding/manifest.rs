@@ -180,7 +180,7 @@ impl EmbedManifest {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
-                .unwrap_or(0)
+                .unwrap_or(0),
         );
 
         // Compute checksum (excludes timestamp for deterministic checksums across saves)
@@ -262,18 +262,17 @@ impl EmbedManifest {
             }
             id_to_hash.insert(&chunk.id, &chunk.full_hash);
 
-            let key = Self::location_key(
-                &chunk.source.file,
-                &chunk.source.symbol,
-                chunk.kind,
-            );
+            let key = Self::location_key(&chunk.source.file, &chunk.source.symbol, chunk.kind);
 
-            self.chunks.insert(key, ManifestEntry {
-                chunk_id: chunk.id.clone(),
-                full_hash: chunk.full_hash.clone(),
-                tokens: chunk.tokens,
-                lines: chunk.source.lines,
-            });
+            self.chunks.insert(
+                key,
+                ManifestEntry {
+                    chunk_id: chunk.id.clone(),
+                    full_hash: chunk.full_hash.clone(),
+                    tokens: chunk.tokens,
+                    lines: chunk.source.lines,
+                },
+            );
         }
 
         Ok(())
@@ -307,10 +306,8 @@ impl EmbedManifest {
                 }
             } else {
                 // In manifest but not in current = removed
-                removed.push(RemovedChunk {
-                    id: entry.chunk_id.clone(),
-                    location_key: key.clone(),
-                });
+                removed
+                    .push(RemovedChunk { id: entry.chunk_id.clone(), location_key: key.clone() });
             }
         }
 
@@ -514,8 +511,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::embedding::types::{ChunkContext, ChunkSource, RepoIdentifier, Visibility};
     use tempfile::TempDir;
-    use crate::embedding::types::{ChunkSource, ChunkContext, Visibility, RepoIdentifier};
 
     fn create_test_chunk(id: &str, file: &str, symbol: &str) -> EmbedChunk {
         EmbedChunk {
@@ -542,10 +539,7 @@ mod tests {
 
     #[test]
     fn test_new_manifest() {
-        let manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
         assert_eq!(manifest.version, MANIFEST_VERSION);
         assert_eq!(manifest.repo_path, "my-repo");
@@ -564,10 +558,7 @@ mod tests {
         let manifest_path = temp_dir.path().join("test.bin");
 
         // Create and save manifest
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
         let chunks = vec![
             create_test_chunk("ec_123", "src/foo.rs", "foo"),
@@ -588,10 +579,7 @@ mod tests {
         let manifest_path = temp_dir.path().join("test.bin");
 
         // Create and save manifest
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
         manifest.save(&manifest_path).unwrap();
 
         // Tamper with file
@@ -604,19 +592,18 @@ mod tests {
 
         // Should detect tampering
         let result = EmbedManifest::load(&manifest_path);
-        assert!(matches!(result, Err(EmbedError::ManifestCorrupted { .. }) | Err(EmbedError::DeserializationError { .. })));
+        assert!(matches!(
+            result,
+            Err(EmbedError::ManifestCorrupted { .. })
+                | Err(EmbedError::DeserializationError { .. })
+        ));
     }
 
     #[test]
     fn test_diff_added() {
-        let manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
-        let chunks = vec![
-            create_test_chunk("ec_123", "src/foo.rs", "foo"),
-        ];
+        let chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
 
         let diff = manifest.diff(&chunks);
         assert_eq!(diff.summary.added, 1);
@@ -626,20 +613,13 @@ mod tests {
 
     #[test]
     fn test_diff_modified() {
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
-        let old_chunks = vec![
-            create_test_chunk("ec_old", "src/foo.rs", "foo"),
-        ];
+        let old_chunks = vec![create_test_chunk("ec_old", "src/foo.rs", "foo")];
         manifest.update(&old_chunks).unwrap();
 
         // Same location, different ID = modified
-        let new_chunks = vec![
-            create_test_chunk("ec_new", "src/foo.rs", "foo"),
-        ];
+        let new_chunks = vec![create_test_chunk("ec_new", "src/foo.rs", "foo")];
 
         let diff = manifest.diff(&new_chunks);
         assert_eq!(diff.summary.added, 0);
@@ -651,14 +631,9 @@ mod tests {
 
     #[test]
     fn test_diff_removed() {
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
-        let old_chunks = vec![
-            create_test_chunk("ec_123", "src/foo.rs", "foo"),
-        ];
+        let old_chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
         manifest.update(&old_chunks).unwrap();
 
         // Empty current = all removed
@@ -670,14 +645,9 @@ mod tests {
 
     #[test]
     fn test_diff_unchanged() {
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
-        let chunks = vec![
-            create_test_chunk("ec_123", "src/foo.rs", "foo"),
-        ];
+        let chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
         manifest.update(&chunks).unwrap();
 
         // Same chunks = unchanged
@@ -688,13 +658,12 @@ mod tests {
 
     #[test]
     fn test_batches() {
-        let manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
         let chunks: Vec<_> = (0..5)
-            .map(|i| create_test_chunk(&format!("ec_{i}"), &format!("src/f{i}.rs"), &format!("f{i}")))
+            .map(|i| {
+                create_test_chunk(&format!("ec_{i}"), &format!("src/f{i}.rs"), &format!("f{i}"))
+            })
             .collect();
 
         let diff = manifest.diff(&chunks);
@@ -726,10 +695,7 @@ mod tests {
 
     #[test]
     fn test_collision_detection() {
-        let mut manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
         // Create two chunks with same ID but different hashes
         let mut chunk1 = create_test_chunk("ec_same", "src/foo.rs", "foo");
@@ -743,10 +709,7 @@ mod tests {
 
     #[test]
     fn test_settings_match() {
-        let manifest = EmbedManifest::new(
-            "my-repo".to_string(),
-            EmbedSettings::default()
-        );
+        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
 
         assert!(manifest.settings_match(&EmbedSettings::default()));
 

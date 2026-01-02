@@ -149,9 +149,7 @@ impl IncrementalHasher {
     /// Create a new incremental hasher
     #[inline]
     pub fn new() -> Self {
-        Self {
-            hasher: blake3::Hasher::new(),
-        }
+        Self { hasher: blake3::Hasher::new() }
     }
 
     /// Update the hash with additional data
@@ -242,10 +240,7 @@ mod tests {
         let hashes: Vec<_> = variants.iter().map(|c| hash_content(c)).collect();
 
         for i in 1..hashes.len() {
-            assert_eq!(
-                hashes[0].short_id, hashes[i].short_id,
-                "Hash mismatch for variant {i}"
-            );
+            assert_eq!(hashes[0].short_id, hashes[i].short_id, "Hash mismatch for variant {i}");
         }
     }
 

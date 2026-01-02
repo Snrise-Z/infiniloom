@@ -64,20 +64,13 @@ pub enum EmbedError {
     ManifestVersionTooNew { found: u32, max_supported: u32 },
 
     #[error("Manifest corrupted or tampered\n  Path: {path}\n  Expected checksum: {expected}\n  Actual checksum: {actual}\n\nFix: Delete manifest and rebuild:\n  rm {path} && infiniloom embed", path = path.display())]
-    ManifestCorrupted {
-        path: PathBuf,
-        expected: String,
-        actual: String,
-    },
+    ManifestCorrupted { path: PathBuf, expected: String, actual: String },
 
     #[error("Settings changed since last run\n\nPrevious: {previous}\nCurrent:  {current}\n\nImpact: All chunk IDs may change\n\nFix: Run with --full to rebuild, or restore original settings")]
     SettingsChanged { previous: String, current: String },
 
     #[error("No code chunks found\n\nPossible causes:\n  - Include patterns too restrictive: {include_patterns}\n  - Exclude patterns too broad: {exclude_patterns}\n  - No supported languages in repository\n\nFix: Check -i/--include and -e/--exclude patterns")]
-    NoChunksGenerated {
-        include_patterns: String,
-        exclude_patterns: String,
-    },
+    NoChunksGenerated { include_patterns: String, exclude_patterns: String },
 
     #[error("Secrets detected in {count} chunks\n\nFiles with secrets:\n{files}\n\nFix: Either:\n  1. Remove secrets from code\n  2. Use --redact-secrets to mask them\n  3. Use --no-scan-secrets to skip scanning (not recommended)")]
     SecretsDetected { count: usize, files: String },
@@ -86,22 +79,14 @@ pub enum EmbedError {
     InvalidPattern { pattern: String, reason: String },
 
     #[error("Hash collision detected!\n  Chunk ID: {id}\n  Hash 1: {hash1}\n  Hash 2: {hash2}\n\nThis is extremely rare. Please report at https://github.com/infiniloom/issues")]
-    HashCollision {
-        id: String,
-        hash1: String,
-        hash2: String,
-    },
+    HashCollision { id: String, hash1: String, hash2: String },
 
     // === Resource Limit Errors ===
     #[error("File too large: {path} ({size} bytes, max: {max})\n\nFix: Exclude large files with -e/--exclude pattern, or increase --max-file-size", path = path.display())]
     FileTooLarge { path: PathBuf, size: u64, max: u64 },
 
     #[error("Line too long in file: {path} ({length} chars, max: {max})\n\nThis is likely a minified file.\n\nFix: Exclude minified files with -e/--exclude pattern (e.g., '*.min.js'), or increase --max-line-length", path = path.display())]
-    LineTooLong {
-        path: PathBuf,
-        length: usize,
-        max: usize,
-    },
+    LineTooLong { path: PathBuf, length: usize, max: usize },
 
     #[error(
         "Too many chunks generated ({count}, max: {max})\n\nFix: Use more restrictive include patterns, or increase --max-chunks limit"
@@ -112,11 +97,7 @@ pub enum EmbedError {
     TooManyFiles { count: usize, max: usize },
 
     #[error("Recursion limit exceeded while parsing\n  Depth: {depth}, Max: {max}\n  Context: {context}\n\nFix: File may have unusual nesting. Exclude it with -e pattern")]
-    RecursionLimitExceeded {
-        depth: u32,
-        max: u32,
-        context: String,
-    },
+    RecursionLimitExceeded { depth: u32, max: u32, context: String },
 
     #[error("Path traversal detected\n  Path: {path}\n  Repo root: {repo_root}\n\nFix: Remove symlinks pointing outside repository, or use --no-follow-symlinks", path = path.display(), repo_root = repo_root.display())]
     PathTraversal { path: PathBuf, repo_root: PathBuf },
@@ -130,11 +111,7 @@ pub enum EmbedError {
     },
 
     #[error("Parse error in {file} at line {line}\n  {message}\n\nFix: Fix syntax error or exclude file with -e pattern")]
-    ParseError {
-        file: String,
-        line: u32,
-        message: String,
-    },
+    ParseError { file: String, line: u32, message: String },
 
     #[error("Serialization error: {reason}")]
     SerializationError { reason: String },
@@ -307,107 +284,68 @@ impl EmbedError {
 impl Clone for EmbedError {
     fn clone(&self) -> Self {
         match self {
-            Self::InvalidSettings { field, reason } => Self::InvalidSettings {
-                field: field.clone(),
-                reason: reason.clone(),
+            Self::InvalidSettings { field, reason } => {
+                Self::InvalidSettings { field: field.clone(), reason: reason.clone() }
             },
-            Self::ManifestVersionTooNew { found, max_supported } => Self::ManifestVersionTooNew {
-                found: *found,
-                max_supported: *max_supported,
+            Self::ManifestVersionTooNew { found, max_supported } => {
+                Self::ManifestVersionTooNew { found: *found, max_supported: *max_supported }
             },
-            Self::ManifestCorrupted {
-                path,
-                expected,
-                actual,
-            } => Self::ManifestCorrupted {
+            Self::ManifestCorrupted { path, expected, actual } => Self::ManifestCorrupted {
                 path: path.clone(),
                 expected: expected.clone(),
                 actual: actual.clone(),
             },
-            Self::SettingsChanged { previous, current } => Self::SettingsChanged {
-                previous: previous.clone(),
-                current: current.clone(),
+            Self::SettingsChanged { previous, current } => {
+                Self::SettingsChanged { previous: previous.clone(), current: current.clone() }
             },
-            Self::NoChunksGenerated {
-                include_patterns,
-                exclude_patterns,
-            } => Self::NoChunksGenerated {
-                include_patterns: include_patterns.clone(),
-                exclude_patterns: exclude_patterns.clone(),
+            Self::NoChunksGenerated { include_patterns, exclude_patterns } => {
+                Self::NoChunksGenerated {
+                    include_patterns: include_patterns.clone(),
+                    exclude_patterns: exclude_patterns.clone(),
+                }
             },
-            Self::SecretsDetected { count, files } => Self::SecretsDetected {
-                count: *count,
-                files: files.clone(),
+            Self::SecretsDetected { count, files } => {
+                Self::SecretsDetected { count: *count, files: files.clone() }
             },
-            Self::HashCollision { id, hash1, hash2 } => Self::HashCollision {
-                id: id.clone(),
-                hash1: hash1.clone(),
-                hash2: hash2.clone(),
+            Self::HashCollision { id, hash1, hash2 } => {
+                Self::HashCollision { id: id.clone(), hash1: hash1.clone(), hash2: hash2.clone() }
             },
-            Self::FileTooLarge { path, size, max } => Self::FileTooLarge {
-                path: path.clone(),
-                size: *size,
-                max: *max,
+            Self::FileTooLarge { path, size, max } => {
+                Self::FileTooLarge { path: path.clone(), size: *size, max: *max }
             },
-            Self::LineTooLong { path, length, max } => Self::LineTooLong {
-                path: path.clone(),
-                length: *length,
-                max: *max,
+            Self::LineTooLong { path, length, max } => {
+                Self::LineTooLong { path: path.clone(), length: *length, max: *max }
             },
-            Self::TooManyChunks { count, max } => Self::TooManyChunks {
-                count: *count,
-                max: *max,
+            Self::TooManyChunks { count, max } => Self::TooManyChunks { count: *count, max: *max },
+            Self::TooManyFiles { count, max } => Self::TooManyFiles { count: *count, max: *max },
+            Self::RecursionLimitExceeded { depth, max, context } => {
+                Self::RecursionLimitExceeded { depth: *depth, max: *max, context: context.clone() }
             },
-            Self::TooManyFiles { count, max } => Self::TooManyFiles {
-                count: *count,
-                max: *max,
-            },
-            Self::RecursionLimitExceeded { depth, max, context } => Self::RecursionLimitExceeded {
-                depth: *depth,
-                max: *max,
-                context: context.clone(),
-            },
-            Self::PathTraversal { path, repo_root } => Self::PathTraversal {
-                path: path.clone(),
-                repo_root: repo_root.clone(),
+            Self::PathTraversal { path, repo_root } => {
+                Self::PathTraversal { path: path.clone(), repo_root: repo_root.clone() }
             },
             Self::IoError { path, source } => Self::IoError {
                 path: path.clone(),
                 source: std::io::Error::new(source.kind(), source.to_string()),
             },
-            Self::ParseError {
-                file,
-                line,
-                message,
-            } => Self::ParseError {
-                file: file.clone(),
-                line: *line,
-                message: message.clone(),
+            Self::ParseError { file, line, message } => {
+                Self::ParseError { file: file.clone(), line: *line, message: message.clone() }
             },
-            Self::SerializationError { reason } => Self::SerializationError {
-                reason: reason.clone(),
+            Self::SerializationError { reason } => {
+                Self::SerializationError { reason: reason.clone() }
             },
-            Self::DeserializationError { reason } => Self::DeserializationError {
-                reason: reason.clone(),
+            Self::DeserializationError { reason } => {
+                Self::DeserializationError { reason: reason.clone() }
             },
             Self::UnsupportedAlgorithmVersion { found, max_supported } => {
-                Self::UnsupportedAlgorithmVersion {
-                    found: *found,
-                    max_supported: *max_supported,
-                }
-            }
-            Self::MultipleErrors { errors } => Self::MultipleErrors {
-                errors: errors.clone(),
+                Self::UnsupportedAlgorithmVersion { found: *found, max_supported: *max_supported }
             },
+            Self::MultipleErrors { errors } => Self::MultipleErrors { errors: errors.clone() },
             Self::NotADirectory { path } => Self::NotADirectory { path: path.clone() },
-            Self::InvalidPattern { pattern, reason } => Self::InvalidPattern {
-                pattern: pattern.clone(),
-                reason: reason.clone(),
+            Self::InvalidPattern { pattern, reason } => {
+                Self::InvalidPattern { pattern: pattern.clone(), reason: reason.clone() }
             },
-            Self::TooManyErrors { count, max } => Self::TooManyErrors {
-                count: *count,
-                max: *max,
-            },
+            Self::TooManyErrors { count, max } => Self::TooManyErrors { count: *count, max: *max },
         }
     }
 }
@@ -462,22 +400,14 @@ mod tests {
             repo_root: PathBuf::from("/home/user/repo"),
         }
         .is_critical());
-        assert!(!EmbedError::FileTooLarge {
-            path: PathBuf::from("big.bin"),
-            size: 100,
-            max: 50,
-        }
-        .is_critical());
+        assert!(!EmbedError::FileTooLarge { path: PathBuf::from("big.bin"), size: 100, max: 50 }
+            .is_critical());
     }
 
     #[test]
     fn test_is_skippable() {
-        assert!(EmbedError::FileTooLarge {
-            path: PathBuf::from("big.bin"),
-            size: 100,
-            max: 50,
-        }
-        .is_skippable());
+        assert!(EmbedError::FileTooLarge { path: PathBuf::from("big.bin"), size: 100, max: 50 }
+            .is_skippable());
         assert!(EmbedError::ParseError {
             file: "bad.rs".to_string(),
             line: 1,
@@ -528,20 +458,13 @@ mod tests {
             2
         );
         assert_eq!(
-            EmbedError::NotADirectory {
-                path: PathBuf::from("/tmp/file.txt")
-            }
-            .exit_code(),
+            EmbedError::NotADirectory { path: PathBuf::from("/tmp/file.txt") }.exit_code(),
             2
         );
 
         // Security - secrets: 3
         assert_eq!(
-            EmbedError::SecretsDetected {
-                count: 5,
-                files: "config.py".to_string()
-            }
-            .exit_code(),
+            EmbedError::SecretsDetected { count: 5, files: "config.py".to_string() }.exit_code(),
             3
         );
 
@@ -557,11 +480,7 @@ mod tests {
 
         // Manifest errors: 10
         assert_eq!(
-            EmbedError::ManifestVersionTooNew {
-                found: 99,
-                max_supported: 2
-            }
-            .exit_code(),
+            EmbedError::ManifestVersionTooNew { found: 99, max_supported: 2 }.exit_code(),
             10
         );
         assert_eq!(
@@ -575,14 +494,8 @@ mod tests {
         );
 
         // Resource limits: 11
-        assert_eq!(
-            EmbedError::TooManyChunks { count: 100000, max: 50000 }.exit_code(),
-            11
-        );
-        assert_eq!(
-            EmbedError::TooManyFiles { count: 10000, max: 5000 }.exit_code(),
-            11
-        );
+        assert_eq!(EmbedError::TooManyChunks { count: 100000, max: 50000 }.exit_code(), 11);
+        assert_eq!(EmbedError::TooManyFiles { count: 10000, max: 5000 }.exit_code(), 11);
         assert_eq!(
             EmbedError::FileTooLarge {
                 path: PathBuf::from("big.bin"),
@@ -602,13 +515,7 @@ mod tests {
             .exit_code(),
             12
         );
-        assert_eq!(
-            EmbedError::SerializationError {
-                reason: "failed".to_string()
-            }
-            .exit_code(),
-            12
-        );
+        assert_eq!(EmbedError::SerializationError { reason: "failed".to_string() }.exit_code(), 12);
 
         // Internal errors: 13
         assert_eq!(
@@ -634,10 +541,7 @@ mod tests {
 
         // Multiple errors: 15
         assert_eq!(
-            EmbedError::MultipleErrors {
-                errors: "error1\nerror2".to_string()
-            }
-            .exit_code(),
+            EmbedError::MultipleErrors { errors: "error1\nerror2".to_string() }.exit_code(),
             15
         );
     }
@@ -645,19 +549,12 @@ mod tests {
     #[test]
     fn test_error_codes() {
         assert_eq!(
-            EmbedError::InvalidSettings {
-                field: "x".to_string(),
-                reason: "y".to_string()
-            }
-            .error_code(),
+            EmbedError::InvalidSettings { field: "x".to_string(), reason: "y".to_string() }
+                .error_code(),
             "E001_INVALID_SETTINGS"
         );
         assert_eq!(
-            EmbedError::SecretsDetected {
-                count: 1,
-                files: "f".to_string()
-            }
-            .error_code(),
+            EmbedError::SecretsDetected { count: 1, files: "f".to_string() }.error_code(),
             "E005_SECRETS_DETECTED"
         );
         assert_eq!(

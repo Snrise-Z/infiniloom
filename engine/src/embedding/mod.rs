@@ -94,9 +94,20 @@ mod streaming;
 mod types;
 
 // Re-export public types
+pub use audit::{
+    AuditEntry, AuditLog, AuditOperation, IntegrityError, IntegrityReport, AUDIT_LOG_VERSION,
+};
+pub use batch::{BatchEmbedder, BatchRepoConfig, BatchRepoResult, BatchResult};
+pub use checkpoint::{
+    CheckpointError, CheckpointManager, CheckpointPhase, CheckpointRepoId, CheckpointStats,
+    ChunkReference, EmbedCheckpoint, CHECKPOINT_VERSION,
+};
 pub use chunker::EmbedChunker;
 pub use error::{sanitize_path, sanitize_pathbuf, EmbedError, SafePath};
 pub use hasher::{hash_content, HashResult};
+pub use hierarchy::{
+    get_hierarchy_summary, ChildReference, HierarchyBuilder, HierarchyConfig, HierarchySummary,
+};
 pub use limits::ResourceLimits;
 pub use manifest::{
     BatchOperation, DiffBatch, DiffSummary, EmbedDiff, EmbedManifest, ManifestEntry, ModifiedChunk,
@@ -104,26 +115,10 @@ pub use manifest::{
 };
 pub use normalizer::{needs_normalization, normalize_for_hash};
 pub use progress::{ProgressReporter, QuietProgress, TerminalProgress};
+pub use streaming::{
+    BatchIterator, Batches, CancellationHandle, ChunkStream, StreamConfig, StreamStats,
+};
 pub use types::{
     ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
     Visibility,
-};
-pub use hierarchy::{
-    ChildReference, HierarchyBuilder, HierarchyConfig, HierarchySummary,
-    get_hierarchy_summary,
-};
-pub use streaming::{
-    ChunkStream, StreamConfig, StreamStats, CancellationHandle,
-    BatchIterator, Batches,
-};
-pub use batch::{
-    BatchEmbedder, BatchRepoConfig, BatchRepoResult, BatchResult,
-};
-pub use audit::{
-    AuditEntry, AuditLog, AuditOperation, IntegrityError, IntegrityReport,
-    AUDIT_LOG_VERSION,
-};
-pub use checkpoint::{
-    CheckpointError, CheckpointManager, CheckpointPhase, CheckpointRepoId,
-    CheckpointStats, ChunkReference, EmbedCheckpoint, CHECKPOINT_VERSION,
 };

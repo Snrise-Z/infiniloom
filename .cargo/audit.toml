@@ -1,0 +1,11 @@
+# Cargo audit configuration
+# https://rustsec.org/advisories/
+
+[advisories]
+# Ignore unmaintained paste crate - it's a transitive dependency from candle
+# via gemm. The paste crate is still functional and has no security
+# vulnerabilities, just no active maintenance. Candle team is aware.
+# See: https://github.com/huggingface/candle/issues/2846
+ignore = [
+    "RUSTSEC-2024-0436",  # paste - no longer maintained (candle dependency)
+]

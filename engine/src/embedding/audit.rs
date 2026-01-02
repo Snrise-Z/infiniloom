@@ -71,95 +71,46 @@ pub struct AuditEntry {
 #[serde(tag = "type")]
 pub enum AuditOperation {
     /// Log file created
-    LogCreated {
-        version: u32,
-        created_by: String,
-    },
+    LogCreated { version: u32, created_by: String },
 
     /// Embedding operation started
-    EmbedStart {
-        repo_path: String,
-        settings_hash: String,
-    },
+    EmbedStart { repo_path: String, settings_hash: String },
 
     /// Embedding operation completed successfully
-    EmbedComplete {
-        chunks_count: usize,
-        total_tokens: u64,
-        manifest_hash: String,
-    },
+    EmbedComplete { chunks_count: usize, total_tokens: u64, manifest_hash: String },
 
     /// Embedding operation failed
-    EmbedFailed {
-        error_code: String,
-        error_message: String,
-    },
+    EmbedFailed { error_code: String, error_message: String },
 
     /// Manifest loaded from disk
-    ManifestLoaded {
-        path: String,
-        manifest_hash: String,
-        chunks_count: usize,
-    },
+    ManifestLoaded { path: String, manifest_hash: String, chunks_count: usize },
 
     /// Manifest saved to disk
-    ManifestSaved {
-        path: String,
-        manifest_hash: String,
-    },
+    ManifestSaved { path: String, manifest_hash: String },
 
     /// Diff computed between manifest and current state
-    DiffComputed {
-        added: usize,
-        modified: usize,
-        removed: usize,
-    },
+    DiffComputed { added: usize, modified: usize, removed: usize },
 
     /// Batch embedding started
-    BatchStart {
-        repo_count: usize,
-        total_settings_hash: String,
-    },
+    BatchStart { repo_count: usize, total_settings_hash: String },
 
     /// Single repo in batch completed
-    BatchRepoComplete {
-        repo_index: usize,
-        repo_path: String,
-        chunks_count: usize,
-        success: bool,
-    },
+    BatchRepoComplete { repo_index: usize, repo_path: String, chunks_count: usize, success: bool },
 
     /// Batch embedding completed
-    BatchComplete {
-        successful: usize,
-        failed: usize,
-        total_chunks: usize,
-    },
+    BatchComplete { successful: usize, failed: usize, total_chunks: usize },
 
     /// Security scan performed
-    SecurityScan {
-        findings_count: usize,
-        secrets_redacted: bool,
-    },
+    SecurityScan { findings_count: usize, secrets_redacted: bool },
 
     /// Checkpoint created for resume
-    CheckpointCreated {
-        checkpoint_hash: String,
-        files_processed: usize,
-        chunks_generated: usize,
-    },
+    CheckpointCreated { checkpoint_hash: String, files_processed: usize, chunks_generated: usize },
 
     /// Resume from checkpoint
-    ResumeFromCheckpoint {
-        checkpoint_hash: String,
-        files_remaining: usize,
-    },
+    ResumeFromCheckpoint { checkpoint_hash: String, files_remaining: usize },
 
     /// Custom user-defined operation
-    Custom {
-        name: String,
-        data: String,
-    },
+    Custom { name: String, data: String },
 }
 
 /// Current audit log format version
@@ -184,10 +135,7 @@ impl Default for AuditLog {
 impl AuditLog {
     /// Create a new empty audit log
     pub fn new() -> Self {
-        let mut log = Self {
-            version: AUDIT_LOG_VERSION,
-            entries: Vec::new(),
-        };
+        let mut log = Self { version: AUDIT_LOG_VERSION, entries: Vec::new() };
 
         // Add initial entry
         log.record(AuditOperation::LogCreated {
@@ -217,13 +165,7 @@ impl AuditLog {
         // Compute hash of this entry
         let hash = compute_entry_hash(sequence, timestamp, &prev_hash, &operation);
 
-        let entry = AuditEntry {
-            sequence,
-            timestamp,
-            prev_hash,
-            hash: hash.clone(),
-            operation,
-        };
+        let entry = AuditEntry { sequence, timestamp, prev_hash, hash: hash.clone(), operation };
 
         self.entries.push(entry);
         hash
@@ -285,11 +227,7 @@ impl AuditLog {
             prev_hash = entry.hash.clone();
         }
 
-        IntegrityReport {
-            is_valid: errors.is_empty(),
-            entries_checked: self.entries.len(),
-            errors,
-        }
+        IntegrityReport { is_valid: errors.is_empty(), entries_checked: self.entries.len(), errors }
     }
 
     /// Get the number of entries in the log
@@ -328,14 +266,13 @@ impl AuditLog {
 
     /// Save the audit log to a file (JSON format)
     pub fn save(&self, path: &Path) -> Result<(), EmbedError> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| EmbedError::SerializationError {
-            reason: format!("Failed to serialize audit log: {}", e),
-        })?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| EmbedError::SerializationError {
+                reason: format!("Failed to serialize audit log: {}", e),
+            })?;
 
-        std::fs::write(path, json).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        std::fs::write(path, json)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         Ok(())
     }
@@ -346,10 +283,8 @@ impl AuditLog {
     pub fn save_jsonl(&self, path: &Path) -> Result<(), EmbedError> {
         use std::io::Write;
 
-        let file = std::fs::File::create(path).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let file = std::fs::File::create(path)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         let mut writer = std::io::BufWriter::new(file);
 
@@ -358,10 +293,8 @@ impl AuditLog {
             "audit_log_version": self.version,
             "entry_count": self.entries.len()
         });
-        writeln!(writer, "{}", header).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        writeln!(writer, "{}", header)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         // Write each entry
         for entry in &self.entries {
@@ -369,26 +302,21 @@ impl AuditLog {
                 serde_json::to_string(entry).map_err(|e| EmbedError::SerializationError {
                     reason: format!("Failed to serialize audit entry: {}", e),
                 })?;
-            writeln!(writer, "{}", line).map_err(|e| EmbedError::IoError {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
+            writeln!(writer, "{}", line)
+                .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
         }
 
-        writer.flush().map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        writer
+            .flush()
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         Ok(())
     }
 
     /// Load an audit log from a file (JSON format)
     pub fn load(path: &Path) -> Result<Self, EmbedError> {
-        let content = std::fs::read_to_string(path).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         let log: Self =
             serde_json::from_str(&content).map_err(|e| EmbedError::DeserializationError {
@@ -417,24 +345,18 @@ impl AuditLog {
             .create(true)
             .append(true)
             .open(path)
-            .map_err(|e| EmbedError::IoError {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         let mut writer = std::io::BufWriter::new(file);
         let line = serde_json::to_string(entry).map_err(|e| EmbedError::SerializationError {
             reason: format!("Failed to serialize audit entry: {}", e),
         })?;
-        writeln!(writer, "{}", line).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        writeln!(writer, "{}", line)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
-        writer.flush().map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        writer
+            .flush()
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         Ok(())
     }
@@ -483,28 +405,16 @@ pub struct IntegrityReport {
 #[derive(Debug, Clone)]
 pub enum IntegrityError {
     /// Hash chain is broken (prev_hash doesn't match)
-    ChainBroken {
-        entry_index: usize,
-        expected_prev: String,
-        actual_prev: String,
-    },
+    ChainBroken { entry_index: usize, expected_prev: String, actual_prev: String },
 
     /// Entry hash doesn't match computed value
-    HashMismatch {
-        entry_index: usize,
-        expected: String,
-        actual: String,
-    },
+    HashMismatch { entry_index: usize, expected: String, actual: String },
 }
 
 impl std::fmt::Display for IntegrityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ChainBroken {
-                entry_index,
-                expected_prev,
-                actual_prev,
-            } => {
+            Self::ChainBroken { entry_index, expected_prev, actual_prev } => {
                 write!(
                     f,
                     "Chain broken at entry {}: expected prev_hash '{}', got '{}'",
@@ -512,12 +422,8 @@ impl std::fmt::Display for IntegrityError {
                     &expected_prev[..8.min(expected_prev.len())],
                     &actual_prev[..8.min(actual_prev.len())]
                 )
-            }
-            Self::HashMismatch {
-                entry_index,
-                expected,
-                actual,
-            } => {
+            },
+            Self::HashMismatch { entry_index, expected, actual } => {
                 write!(
                     f,
                     "Hash mismatch at entry {}: expected '{}', got '{}'",
@@ -525,7 +431,7 @@ impl std::fmt::Display for IntegrityError {
                     &expected[..8.min(expected.len())],
                     &actual[..8.min(actual.len())]
                 )
-            }
+            },
         }
     }
 }
@@ -602,14 +508,8 @@ mod tests {
     fn test_tamper_detection_chain_broken() {
         let mut log = AuditLog::new();
 
-        log.record(AuditOperation::Custom {
-            name: "op1".to_string(),
-            data: "data1".to_string(),
-        });
-        log.record(AuditOperation::Custom {
-            name: "op2".to_string(),
-            data: "data2".to_string(),
-        });
+        log.record(AuditOperation::Custom { name: "op1".to_string(), data: "data1".to_string() });
+        log.record(AuditOperation::Custom { name: "op2".to_string(), data: "data2".to_string() });
 
         // Break the chain by modifying prev_hash
         log.entries[2].prev_hash = "fake_hash".to_string();
@@ -617,20 +517,14 @@ mod tests {
         let report = log.verify_integrity_detailed();
         assert!(!report.is_valid);
         assert!(!report.errors.is_empty());
-        assert!(matches!(
-            report.errors[0],
-            IntegrityError::ChainBroken { .. }
-        ));
+        assert!(matches!(report.errors[0], IntegrityError::ChainBroken { .. }));
     }
 
     #[test]
     fn test_tamper_detection_hash_mismatch() {
         let mut log = AuditLog::new();
 
-        log.record(AuditOperation::Custom {
-            name: "op1".to_string(),
-            data: "data1".to_string(),
-        });
+        log.record(AuditOperation::Custom { name: "op1".to_string(), data: "data1".to_string() });
 
         // Modify the entry's own hash
         log.entries[1].hash = "fake_hash".to_string();
@@ -650,10 +544,8 @@ mod tests {
         let initial_head = log.head_hash().map(String::from);
         assert!(initial_head.is_some());
 
-        let new_hash = log.record(AuditOperation::Custom {
-            name: "test".to_string(),
-            data: "data".to_string(),
-        });
+        let new_hash = log
+            .record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
 
         assert_eq!(log.head_hash(), Some(new_hash.as_str()));
         assert_ne!(log.head_hash().map(String::from), initial_head);
@@ -689,10 +581,7 @@ mod tests {
         let mut log = AuditLog::new();
 
         // All entries will have the same timestamp (or very close)
-        log.record(AuditOperation::Custom {
-            name: "test".to_string(),
-            data: "data".to_string(),
-        });
+        log.record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -740,10 +629,7 @@ mod tests {
         let log_path = temp_dir.path().join("audit.jsonl");
 
         let mut log = AuditLog::new();
-        log.record(AuditOperation::Custom {
-            name: "test".to_string(),
-            data: "data".to_string(),
-        });
+        log.record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
 
         log.save_jsonl(&log_path).unwrap();
 
@@ -760,20 +646,15 @@ mod tests {
     fn test_security_scan_operation() {
         let mut log = AuditLog::new();
 
-        log.record(AuditOperation::SecurityScan {
-            findings_count: 5,
-            secrets_redacted: true,
-        });
+        log.record(AuditOperation::SecurityScan { findings_count: 5, secrets_redacted: true });
 
         assert!(log.verify_integrity());
 
         let scans = log.filter_by_type(|op| matches!(op, AuditOperation::SecurityScan { .. }));
         assert_eq!(scans.len(), 1);
 
-        if let AuditOperation::SecurityScan {
-            findings_count,
-            secrets_redacted,
-        } = &scans[0].operation
+        if let AuditOperation::SecurityScan { findings_count, secrets_redacted } =
+            &scans[0].operation
         {
             assert_eq!(*findings_count, 5);
             assert!(*secrets_redacted);
@@ -798,11 +679,7 @@ mod tests {
             });
         }
 
-        log.record(AuditOperation::BatchComplete {
-            successful: 3,
-            failed: 0,
-            total_chunks: 600,
-        });
+        log.record(AuditOperation::BatchComplete { successful: 3, failed: 0, total_chunks: 600 });
 
         assert!(log.verify_integrity());
         assert_eq!(log.entries.len(), 6); // LogCreated + BatchStart + 3 repos + BatchComplete

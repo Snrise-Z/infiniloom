@@ -44,9 +44,7 @@ const MAX_SIZE_LIMIT: u64 = 1024 * 1024 * 1024;
 #[inline]
 pub fn deserialize_with_limit<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, bincode::Error> {
     let limit = calculate_limit(bytes.len() as u64);
-    bincode::options()
-        .with_limit(limit)
-        .deserialize(bytes)
+    bincode::options().with_limit(limit).deserialize(bytes)
 }
 
 /// Deserialize from a reader with size limit
@@ -95,10 +93,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_valid() {
-        let original = TestStruct {
-            name: "test".to_owned(),
-            values: vec![1, 2, 3, 4, 5],
-        };
+        let original = TestStruct { name: "test".to_owned(), values: vec![1, 2, 3, 4, 5] };
 
         // Use options() for serialization to match deserialization config
         let bytes = serialize_with_options(&original).unwrap();
@@ -132,15 +127,11 @@ mod tests {
 
     #[test]
     fn test_deserialize_from_reader() {
-        let original = TestStruct {
-            name: "reader_test".to_owned(),
-            values: vec![10, 20, 30],
-        };
+        let original = TestStruct { name: "reader_test".to_owned(), values: vec![10, 20, 30] };
 
         let bytes = serialize_with_options(&original).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
-        let restored: TestStruct =
-            deserialize_from_with_limit(cursor, bytes.len() as u64).unwrap();
+        let restored: TestStruct = deserialize_from_with_limit(cursor, bytes.len() as u64).unwrap();
 
         assert_eq!(original, restored);
     }

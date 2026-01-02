@@ -331,7 +331,8 @@ impl BatchEmbedder {
         }
 
         // Create chunker for this repo
-        let chunker = EmbedChunker::new(settings, self.limits.clone()).with_repo_id(repo_id.clone());
+        let chunker =
+            EmbedChunker::new(settings, self.limits.clone()).with_repo_id(repo_id.clone());
 
         // Process the repository
         let quiet = QuietProgress;
@@ -421,9 +422,7 @@ mod tests {
             "/// A test function\npub fn hello() { println!(\"hello\"); }\n",
         );
 
-        let repos = vec![
-            BatchRepoConfig::new(temp_dir.path()).with_name("test-repo"),
-        ];
+        let repos = vec![BatchRepoConfig::new(temp_dir.path()).with_name("test-repo")];
 
         let embedder = BatchEmbedder::new(EmbedSettings::default());
         let result = embedder.embed_batch(&repos).unwrap();
@@ -439,16 +438,8 @@ mod tests {
         let temp_dir1 = TempDir::new().unwrap();
         let temp_dir2 = TempDir::new().unwrap();
 
-        create_test_file(
-            temp_dir1.path(),
-            "a.rs",
-            "pub fn foo() { println!(\"foo\"); }\n",
-        );
-        create_test_file(
-            temp_dir2.path(),
-            "b.rs",
-            "pub fn bar() { println!(\"bar\"); }\n",
-        );
+        create_test_file(temp_dir1.path(), "a.rs", "pub fn foo() { println!(\"foo\"); }\n");
+        create_test_file(temp_dir2.path(), "b.rs", "pub fn bar() { println!(\"bar\"); }\n");
 
         let repos = vec![
             BatchRepoConfig::new(temp_dir1.path())
@@ -497,11 +488,7 @@ mod tests {
         let temp_dir1 = TempDir::new().unwrap();
         let temp_dir2 = TempDir::new().unwrap();
 
-        create_test_file(
-            temp_dir1.path(),
-            "a.rs",
-            "pub fn func1() {}\npub fn func2() {}\n",
-        );
+        create_test_file(temp_dir1.path(), "a.rs", "pub fn func1() {}\npub fn func2() {}\n");
         create_test_file(temp_dir2.path(), "b.rs", "pub fn func3() {}\n");
 
         let repos = vec![
@@ -539,11 +526,9 @@ mod tests {
         create_test_file(temp_dir.path(), "tests/test.rs", "pub fn excluded() {}\n");
 
         // Test with include pattern override
-        let repos = vec![
-            BatchRepoConfig::new(temp_dir.path())
-                .with_name("filtered-repo")
-                .with_include_patterns(vec!["src/**/*.rs".to_string()]),
-        ];
+        let repos = vec![BatchRepoConfig::new(temp_dir.path())
+            .with_name("filtered-repo")
+            .with_include_patterns(vec!["src/**/*.rs".to_string()])];
 
         let embedder = BatchEmbedder::new(EmbedSettings::default());
         let result = embedder.embed_batch(&repos).unwrap();

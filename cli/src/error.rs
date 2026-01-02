@@ -489,11 +489,8 @@ mod tests {
         assert_eq!(err.exit_code(), 22);
 
         // Security - secrets: 23 (20 + 3)
-        let err: CliError = EmbedError::SecretsDetected {
-            count: 5,
-            files: "config.py".to_string(),
-        }
-        .into();
+        let err: CliError =
+            EmbedError::SecretsDetected { count: 5, files: "config.py".to_string() }.into();
         assert_eq!(err.exit_code(), 23);
 
         // Security - path traversal: 24 (20 + 4)
@@ -505,19 +502,12 @@ mod tests {
         assert_eq!(err.exit_code(), 24);
 
         // Manifest error: 30 (20 + 10)
-        let err: CliError = EmbedError::ManifestVersionTooNew {
-            found: 99,
-            max_supported: 2,
-        }
-        .into();
+        let err: CliError =
+            EmbedError::ManifestVersionTooNew { found: 99, max_supported: 2 }.into();
         assert_eq!(err.exit_code(), 30);
 
         // Resource limit: 31 (20 + 11)
-        let err: CliError = EmbedError::TooManyChunks {
-            count: 100000,
-            max: 50000,
-        }
-        .into();
+        let err: CliError = EmbedError::TooManyChunks { count: 100000, max: 50000 }.into();
         assert_eq!(err.exit_code(), 31);
 
         // System error: 32 (20 + 12)
@@ -547,10 +537,8 @@ mod tests {
         assert_eq!(err.exit_code(), 34);
 
         // Multiple errors: 35 (20 + 15)
-        let err: CliError = EmbedError::MultipleErrors {
-            errors: "error1\nerror2".to_string(),
-        }
-        .into();
+        let err: CliError =
+            EmbedError::MultipleErrors { errors: "error1\nerror2".to_string() }.into();
         assert_eq!(err.exit_code(), 35);
     }
 }

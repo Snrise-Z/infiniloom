@@ -77,10 +77,7 @@ impl TerminalProgress {
 
     /// Get current progress as (current, total)
     pub fn progress(&self) -> (usize, usize) {
-        (
-            self.current.load(Ordering::Relaxed),
-            self.total.load(Ordering::Relaxed),
-        )
+        (self.current.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed))
     }
 
     /// Get current phase name
@@ -166,11 +163,7 @@ where
 {
     /// Create a new callback progress reporter
     pub fn new(callback: F) -> Self {
-        Self {
-            callback,
-            total: AtomicUsize::new(0),
-            current: AtomicUsize::new(0),
-        }
+        Self { callback, total: AtomicUsize::new(0), current: AtomicUsize::new(0) }
     }
 }
 
@@ -246,9 +239,7 @@ pub struct SharedProgress {
 impl SharedProgress {
     /// Create a new shared progress reporter
     pub fn new<P: ProgressReporter + 'static>(reporter: P) -> Self {
-        Self {
-            inner: Arc::new(reporter),
-        }
+        Self { inner: Arc::new(reporter) }
     }
 
     /// Create a quiet shared progress reporter

@@ -4,8 +4,8 @@
 //! using bincode for fast binary serialization.
 
 use super::types::{DepGraph, SymbolIndex};
-use bincode::Options;
 use crate::bincode_safe::deserialize_from_with_limit;
+use bincode::Options;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};

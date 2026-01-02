@@ -69,9 +69,7 @@ use crate::tokenizer::{TokenModel, Tokenizer};
 use super::error::EmbedError;
 use super::hasher::hash_content;
 use super::limits::ResourceLimits;
-use super::types::{
-    ChunkContext, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
-};
+use super::types::{ChunkContext, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier};
 
 /// Configuration for streaming chunk generation
 #[derive(Debug, Clone)]
@@ -205,12 +203,13 @@ impl ChunkStream {
         limits: ResourceLimits,
         config: StreamConfig,
     ) -> Result<Self, EmbedError> {
-        let repo_root = repo_path.as_ref().canonicalize().map_err(|e| {
-            EmbedError::IoError {
+        let repo_root = repo_path
+            .as_ref()
+            .canonicalize()
+            .map_err(|e| EmbedError::IoError {
                 path: repo_path.as_ref().to_path_buf(),
                 source: e,
-            }
-        })?;
+            })?;
 
         if !repo_root.is_dir() {
             return Err(EmbedError::NotADirectory { path: repo_root });
@@ -257,9 +256,7 @@ impl ChunkStream {
 
     /// Get a cancellation handle for this stream
     pub fn cancellation_handle(&self) -> CancellationHandle {
-        CancellationHandle {
-            cancelled: Arc::clone(&self.cancelled),
-        }
+        CancellationHandle { cancelled: Arc::clone(&self.cancelled) }
     }
 
     /// Check if the stream has been cancelled
@@ -399,7 +396,7 @@ impl ChunkStream {
                     for chunk in chunks {
                         self.chunk_buffer.push_back(Ok(chunk));
                     }
-                }
+                },
                 Err(e) => {
                     self.stats.error_count += 1;
                     let current_errors = self.error_count.fetch_add(1, Ordering::Relaxed) + 1;
@@ -422,7 +419,7 @@ impl ChunkStream {
                         self.chunk_buffer.push_back(Err(e));
                         break;
                     }
-                }
+                },
             }
         }
 
@@ -432,10 +429,8 @@ impl ChunkStream {
     /// Process a single file and return its chunks
     fn process_file(&mut self, path: &Path) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Validate file size
-        let metadata = std::fs::metadata(path).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         if !self.limits.check_file_size(metadata.len()) {
             return Err(EmbedError::FileTooLarge {
@@ -446,10 +441,8 @@ impl ChunkStream {
         }
 
         // Read file
-        let mut content = std::fs::read_to_string(path).map_err(|e| EmbedError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let mut content = std::fs::read_to_string(path)
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         self.stats.bytes_processed += content.len() as u64;
 
@@ -476,10 +469,7 @@ impl ChunkStream {
                         .map(|f| format!("  {}:{} - {}", f.file, f.line, f.kind.name()))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    return Err(EmbedError::SecretsDetected {
-                        count: findings.len(),
-                        files,
-                    });
+                    return Err(EmbedError::SecretsDetected { count: findings.len(), files });
                 }
 
                 if self.settings.redact_secrets {
@@ -512,10 +502,8 @@ impl ChunkStream {
             // Extract content with context
             let start_line = symbol.start_line.saturating_sub(1) as usize;
             let end_line = (symbol.end_line as usize).min(lines.len());
-            let context_start =
-                start_line.saturating_sub(self.settings.context_lines as usize);
-            let context_end =
-                (end_line + self.settings.context_lines as usize).min(lines.len());
+            let context_start = start_line.saturating_sub(self.settings.context_lines as usize);
+            let context_end = (end_line + self.settings.context_lines as usize).min(lines.len());
 
             let chunk_content = lines[context_start..context_end].join("\n");
 
@@ -567,12 +555,9 @@ impl ChunkStream {
 
     /// Get safe relative path
     fn safe_relative_path(&self, path: &Path) -> Result<String, EmbedError> {
-        let canonical =
-            path.canonicalize()
-                .map_err(|e| EmbedError::IoError {
-                    path: path.to_path_buf(),
-                    source: e,
-                })?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         if !canonical.starts_with(&self.repo_root) {
             return Err(EmbedError::PathTraversal {
@@ -642,10 +627,10 @@ impl ChunkStream {
                 Ok(chunk) => chunks.push(chunk),
                 Err(e) if e.is_skippable() => {
                     // Non-critical, skip
-                }
+                },
                 Err(e) => {
                     last_error = Some(e);
-                }
+                },
             }
         }
 
@@ -719,10 +704,7 @@ pub trait BatchIterator: Iterator {
     where
         Self: Sized,
     {
-        Batches {
-            iter: self,
-            batch_size,
-        }
+        Batches { iter: self, batch_size }
     }
 }
 
@@ -884,8 +866,7 @@ fn goodbye() {
         let settings = EmbedSettings::default();
         let limits = ResourceLimits::default();
 
-        let stream =
-            ChunkStream::with_config(temp_dir.path(), settings, limits, config).unwrap();
+        let stream = ChunkStream::with_config(temp_dir.path(), settings, limits, config).unwrap();
         let chunks: Vec<_> = stream.filter_map(|r| r.ok()).collect();
 
         assert!(!chunks.is_empty());

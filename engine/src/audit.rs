@@ -314,10 +314,7 @@ impl AuditEvent {
         // Calculate year, month, day from days since epoch
         let (year, month, day) = Self::days_to_ymd(days);
 
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-            year, month, day, hours, minutes, seconds
-        )
+        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
     }
 
     /// Convert days since Unix epoch to year/month/day
@@ -415,10 +412,7 @@ impl FileAuditLogger {
     /// Create a new file-based audit logger
     pub fn new(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(Self {
-            writer: Mutex::new(BufWriter::new(file)),
-            min_severity: AuditSeverity::Info,
-        })
+        Ok(Self { writer: Mutex::new(BufWriter::new(file)), min_severity: AuditSeverity::Info })
     }
 
     /// Create with a specific minimum severity level
@@ -468,10 +462,7 @@ impl Default for MemoryAuditLogger {
 impl MemoryAuditLogger {
     /// Create a new in-memory audit logger
     pub fn new() -> Self {
-        Self {
-            events: RwLock::new(Vec::new()),
-            min_severity: AuditSeverity::Debug,
-        }
+        Self { events: RwLock::new(Vec::new()), min_severity: AuditSeverity::Debug }
     }
 
     /// Create with a specific minimum severity level
@@ -498,10 +489,8 @@ impl MemoryAuditLogger {
         self.events()
             .into_iter()
             .filter(|e| {
-                let temp_logger = MemoryAuditLogger {
-                    events: RwLock::new(Vec::new()),
-                    min_severity: severity,
-                };
+                let temp_logger =
+                    MemoryAuditLogger { events: RwLock::new(Vec::new()), min_severity: severity };
                 temp_logger.should_log(e.severity)
             })
             .collect()
@@ -641,56 +630,29 @@ pub fn log_scan_started(repo_id: &str, user: Option<&str>, path: &str) {
 /// Convenience function to log a scan completed event
 pub fn log_scan_completed(repo_id: &str, session_id: &str, files: usize, chunks: usize) {
     log_event(
-        AuditEvent::with_session(
-            AuditEventKind::ScanCompleted,
-            repo_id,
-            session_id,
-            None,
-        )
-        .with_detail("files_processed", files.to_string())
-        .with_detail("chunks_generated", chunks.to_string()),
+        AuditEvent::with_session(AuditEventKind::ScanCompleted, repo_id, session_id, None)
+            .with_detail("files_processed", files.to_string())
+            .with_detail("chunks_generated", chunks.to_string()),
     );
 }
 
 /// Convenience function to log a secret detection
-pub fn log_secret_detected(
-    repo_id: &str,
-    session_id: &str,
-    file: &str,
-    line: u32,
-    kind: &str,
-) {
+pub fn log_secret_detected(repo_id: &str, session_id: &str, file: &str, line: u32, kind: &str) {
     log_event(
-        AuditEvent::with_session(
-            AuditEventKind::SecretDetected,
-            repo_id,
-            session_id,
-            None,
-        )
-        .with_detail("file", file)
-        .with_detail("line", line.to_string())
-        .with_detail("secret_kind", kind),
+        AuditEvent::with_session(AuditEventKind::SecretDetected, repo_id, session_id, None)
+            .with_detail("file", file)
+            .with_detail("line", line.to_string())
+            .with_detail("secret_kind", kind),
     );
 }
 
 /// Convenience function to log PII detection
-pub fn log_pii_detected(
-    repo_id: &str,
-    session_id: &str,
-    file: &str,
-    line: u32,
-    pii_type: &str,
-) {
+pub fn log_pii_detected(repo_id: &str, session_id: &str, file: &str, line: u32, pii_type: &str) {
     log_event(
-        AuditEvent::with_session(
-            AuditEventKind::PiiDetected,
-            repo_id,
-            session_id,
-            None,
-        )
-        .with_detail("file", file)
-        .with_detail("line", line.to_string())
-        .with_detail("pii_type", pii_type),
+        AuditEvent::with_session(AuditEventKind::PiiDetected, repo_id, session_id, None)
+            .with_detail("file", file)
+            .with_detail("line", line.to_string())
+            .with_detail("pii_type", pii_type),
     );
 }
 
@@ -700,7 +662,11 @@ mod tests {
 
     #[test]
     fn test_audit_event_creation() {
-        let event = AuditEvent::new(AuditEventKind::ScanStarted, "test-repo", Some("user@test.com".to_string()));
+        let event = AuditEvent::new(
+            AuditEventKind::ScanStarted,
+            "test-repo",
+            Some("user@test.com".to_string()),
+        );
 
         assert_eq!(event.event, AuditEventKind::ScanStarted);
         assert_eq!(event.repo_id, "test-repo");
@@ -765,8 +731,12 @@ mod tests {
 
     #[test]
     fn test_event_json_serialization() {
-        let event = AuditEvent::new(AuditEventKind::SecretDetected, "test-repo", Some("user@test.com".to_string()))
-            .with_detail("file", "secret.py");
+        let event = AuditEvent::new(
+            AuditEventKind::SecretDetected,
+            "test-repo",
+            Some("user@test.com".to_string()),
+        )
+        .with_detail("file", "secret.py");
 
         let json = event.to_json();
 
@@ -779,22 +749,10 @@ mod tests {
 
     #[test]
     fn test_default_severities() {
-        assert_eq!(
-            AuditEventKind::SecretDetected.default_severity(),
-            AuditSeverity::Critical
-        );
-        assert_eq!(
-            AuditEventKind::PiiDetected.default_severity(),
-            AuditSeverity::High
-        );
-        assert_eq!(
-            AuditEventKind::ScanStarted.default_severity(),
-            AuditSeverity::Info
-        );
-        assert_eq!(
-            AuditEventKind::ChunkGenerated.default_severity(),
-            AuditSeverity::Debug
-        );
+        assert_eq!(AuditEventKind::SecretDetected.default_severity(), AuditSeverity::Critical);
+        assert_eq!(AuditEventKind::PiiDetected.default_severity(), AuditSeverity::High);
+        assert_eq!(AuditEventKind::ScanStarted.default_severity(), AuditSeverity::Info);
+        assert_eq!(AuditEventKind::ChunkGenerated.default_severity(), AuditSeverity::Debug);
     }
 
     #[test]
@@ -842,23 +800,26 @@ mod tests {
         logger.log(event);
 
         // Test secret detected event structure
-        let event = AuditEvent::with_session(AuditEventKind::SecretDetected, "repo", "session123", None)
-            .with_detail("file", "config.py")
-            .with_detail("line", "42")
-            .with_detail("secret_kind", "AWS Key");
+        let event =
+            AuditEvent::with_session(AuditEventKind::SecretDetected, "repo", "session123", None)
+                .with_detail("file", "config.py")
+                .with_detail("line", "42")
+                .with_detail("secret_kind", "AWS Key");
         logger.log(event);
 
         // Test PII detected event structure
-        let event = AuditEvent::with_session(AuditEventKind::PiiDetected, "repo", "session123", None)
-            .with_detail("file", "data.txt")
-            .with_detail("line", "10")
-            .with_detail("pii_type", "SSN");
+        let event =
+            AuditEvent::with_session(AuditEventKind::PiiDetected, "repo", "session123", None)
+                .with_detail("file", "data.txt")
+                .with_detail("line", "10")
+                .with_detail("pii_type", "SSN");
         logger.log(event);
 
         // Test scan completed event structure
-        let event = AuditEvent::with_session(AuditEventKind::ScanCompleted, "repo", "session123", None)
-            .with_detail("files_processed", "100")
-            .with_detail("chunks_generated", "500");
+        let event =
+            AuditEvent::with_session(AuditEventKind::ScanCompleted, "repo", "session123", None)
+                .with_detail("files_processed", "100")
+                .with_detail("chunks_generated", "500");
         logger.log(event);
 
         assert_eq!(logger.len(), 4);
@@ -883,26 +844,22 @@ mod tests {
 
         // Should match ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
         let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$").unwrap();
-        assert!(re.is_match(&event.timestamp), "Timestamp {} doesn't match ISO 8601", event.timestamp);
+        assert!(
+            re.is_match(&event.timestamp),
+            "Timestamp {} doesn't match ISO 8601",
+            event.timestamp
+        );
     }
 
     #[test]
     fn test_session_correlation() {
         let session_id = "test-session-123";
 
-        let event1 = AuditEvent::with_session(
-            AuditEventKind::ScanStarted,
-            "repo",
-            session_id,
-            None,
-        );
+        let event1 =
+            AuditEvent::with_session(AuditEventKind::ScanStarted, "repo", session_id, None);
 
-        let event2 = AuditEvent::with_session(
-            AuditEventKind::ScanCompleted,
-            "repo",
-            session_id,
-            None,
-        );
+        let event2 =
+            AuditEvent::with_session(AuditEventKind::ScanCompleted, "repo", session_id, None);
 
         assert_eq!(event1.session_id, event2.session_id);
     }

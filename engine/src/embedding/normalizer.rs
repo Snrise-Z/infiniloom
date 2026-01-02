@@ -52,9 +52,7 @@ pub fn normalize_for_hash(content: &str) -> String {
 
     // Step 2: Normalize line endings (optimize for common case - no \r)
     let line_normalized = if unicode_normalized.contains('\r') {
-        unicode_normalized
-            .replace("\r\n", "\n")
-            .replace('\r', "\n")
+        unicode_normalized.replace("\r\n", "\n").replace('\r', "\n")
     } else {
         unicode_normalized
     };
@@ -201,10 +199,7 @@ mod tests {
         let with_trailing = "fn foo() {}\n\n\n";
         let without = "fn foo() {}";
 
-        assert_eq!(
-            normalize_for_hash(with_trailing),
-            normalize_for_hash(without)
-        );
+        assert_eq!(normalize_for_hash(with_trailing), normalize_for_hash(without));
     }
 
     #[test]

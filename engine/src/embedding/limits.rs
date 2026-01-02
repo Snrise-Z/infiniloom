@@ -44,12 +44,12 @@ impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
             max_recursion_depth: 500,
-            max_file_size: 10 * 1024 * 1024,     // 10 MB
-            max_total_chunks: 1_000_000,         // 1 million chunks
-            max_files: 500_000,                  // 500k files
-            max_concurrent_loads: 32,            // 32 concurrent operations
-            max_line_length: 10_000,             // 10k chars per line
-            max_chunk_size: 1024 * 1024,         // 1 MB per chunk
+            max_file_size: 10 * 1024 * 1024, // 10 MB
+            max_total_chunks: 1_000_000,     // 1 million chunks
+            max_files: 500_000,              // 500k files
+            max_concurrent_loads: 32,        // 32 concurrent operations
+            max_line_length: 10_000,         // 10k chars per line
+            max_chunk_size: 1024 * 1024,     // 1 MB per chunk
         }
     }
 }
@@ -59,12 +59,12 @@ impl ResourceLimits {
     pub fn relaxed() -> Self {
         Self {
             max_recursion_depth: 1000,
-            max_file_size: 50 * 1024 * 1024,    // 50 MB
-            max_total_chunks: 10_000_000,        // 10 million
-            max_files: 1_000_000,                // 1 million files
-            max_concurrent_loads: 64,            // More concurrency
-            max_line_length: 100_000,            // 100k chars
-            max_chunk_size: 5 * 1024 * 1024,     // 5 MB
+            max_file_size: 50 * 1024 * 1024, // 50 MB
+            max_total_chunks: 10_000_000,    // 10 million
+            max_files: 1_000_000,            // 1 million files
+            max_concurrent_loads: 64,        // More concurrency
+            max_line_length: 100_000,        // 100k chars
+            max_chunk_size: 5 * 1024 * 1024, // 5 MB
         }
     }
 
@@ -72,12 +72,12 @@ impl ResourceLimits {
     pub fn strict() -> Self {
         Self {
             max_recursion_depth: 100,
-            max_file_size: 1024 * 1024,          // 1 MB
-            max_total_chunks: 100_000,           // 100k chunks
-            max_files: 50_000,                   // 50k files
-            max_concurrent_loads: 8,             // Limited concurrency
-            max_line_length: 1000,               // 1k chars
-            max_chunk_size: 100 * 1024,          // 100 KB
+            max_file_size: 1024 * 1024, // 1 MB
+            max_total_chunks: 100_000,  // 100k chunks
+            max_files: 50_000,          // 50k files
+            max_concurrent_loads: 8,    // Limited concurrency
+            max_line_length: 1000,      // 1k chars
+            max_chunk_size: 100 * 1024, // 100 KB
         }
     }
 
@@ -85,12 +85,12 @@ impl ResourceLimits {
     pub fn minimal() -> Self {
         Self {
             max_recursion_depth: 50,
-            max_file_size: 100 * 1024,           // 100 KB
-            max_total_chunks: 1000,              // 1k chunks
-            max_files: 100,                      // 100 files
-            max_concurrent_loads: 4,             // Minimal concurrency
-            max_line_length: 500,                // 500 chars
-            max_chunk_size: 10 * 1024,           // 10 KB
+            max_file_size: 100 * 1024, // 100 KB
+            max_total_chunks: 1000,    // 1k chunks
+            max_files: 100,            // 100 files
+            max_concurrent_loads: 4,   // Minimal concurrency
+            max_line_length: 500,      // 500 chars
+            max_chunk_size: 10 * 1024, // 10 KB
         }
     }
 

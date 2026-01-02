@@ -216,50 +216,93 @@ pub use tokenizer::TokenCounts as AccurateTokenCounts;
 pub use tokenizer::Tokenizer;
 // Note: IncrementalScanner is available via incremental:: module but not re-exported
 // at top level since CLI uses RepoCache directly
-pub use error::{InfiniloomError, Result as InfiniloomResult};
-pub use embedding::{
+pub use audit::{
+    get_global_logger,
+    log_event,
+    log_pii_detected,
+    log_scan_completed,
+    // Convenience functions
+    log_scan_started,
+    log_secret_detected,
+    // Global logger functions
+    set_global_logger,
     // Core types
-    EmbedChunk, EmbedChunker, EmbedSettings, ChunkKind, ChunkSource, ChunkContext, ChunkPart,
-    Visibility as EmbedVisibility,
-    // Manifest and diffing
-    EmbedManifest, EmbedDiff, DiffSummary, DiffBatch, BatchOperation, ManifestEntry,
-    ModifiedChunk, RemovedChunk, MANIFEST_VERSION,
-    // Error and limits
-    EmbedError, ResourceLimits,
+    AuditEvent,
+    AuditEventKind,
+    AuditLogger,
+    AuditSeverity,
+    // Logger implementations
+    FileAuditLogger,
+    MemoryAuditLogger,
+    MultiAuditLogger,
+    NullAuditLogger,
+};
+pub use embedding::{
+    get_hierarchy_summary,
     // Hashing
-    hash_content, HashResult,
+    hash_content,
+    needs_normalization,
     // Normalization
-    normalize_for_hash, needs_normalization,
+    normalize_for_hash,
+    BatchIterator,
+    BatchOperation,
+    Batches,
+    CancellationHandle,
+    ChildReference,
+    ChunkContext,
+    ChunkKind,
+    ChunkPart,
+    ChunkSource,
+    // Streaming API
+    ChunkStream,
+    DiffBatch,
+    DiffSummary,
+    // Core types
+    EmbedChunk,
+    EmbedChunker,
+    EmbedDiff,
+    // Error and limits
+    EmbedError,
+    // Manifest and diffing
+    EmbedManifest,
+    EmbedSettings,
+    HashResult,
+    // Hierarchical chunking
+    HierarchyBuilder,
+    HierarchyConfig,
+    HierarchySummary,
+    ManifestEntry,
+    ModifiedChunk,
     // Progress reporting
-    ProgressReporter, QuietProgress, TerminalProgress,
+    ProgressReporter,
+    QuietProgress,
+    RemovedChunk,
     // Repository identifier
     RepoIdentifier,
-    // Hierarchical chunking
-    HierarchyBuilder, HierarchyConfig, HierarchySummary, ChildReference,
-    get_hierarchy_summary,
-    // Streaming API
-    ChunkStream, StreamConfig, StreamStats, CancellationHandle,
-    BatchIterator, Batches,
+    ResourceLimits,
+    StreamConfig,
+    StreamStats,
+    TerminalProgress,
+    Visibility as EmbedVisibility,
+    MANIFEST_VERSION,
 };
-pub use audit::{
-    // Core types
-    AuditEvent, AuditEventKind, AuditSeverity, AuditLogger,
-    // Logger implementations
-    FileAuditLogger, MemoryAuditLogger, NullAuditLogger, MultiAuditLogger,
-    // Global logger functions
-    set_global_logger, get_global_logger, log_event,
-    // Convenience functions
-    log_scan_started, log_scan_completed, log_secret_detected, log_pii_detected,
-};
+pub use error::{InfiniloomError, Result as InfiniloomResult};
 pub use exit_codes::{
     // Core types
-    ExitCode, ExitCodeCategory, ExitResult,
+    ExitCode,
+    ExitCodeCategory,
+    ExitResult,
     // Trait for error conversion
     ToExitCode,
 };
 pub use license::{
     // Core types
-    License, LicenseRisk, LicenseFinding, LicenseScanConfig, LicenseScanner, LicenseSummary,
+    License,
+    LicenseFinding,
+    LicenseRisk,
+    LicenseScanConfig,
+    LicenseScanner,
+    LicenseSummary,
 };
 
 /// Library version

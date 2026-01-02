@@ -77,13 +77,13 @@ impl Default for EmbedConfig {
             manifest_path: PathBuf::from(".infiniloom-embed.bin"),
             diff_only: false,
             // Defaults match EmbedSettings in engine for consistency
-            max_tokens: 1000,      // Matches EmbedSettings::default().max_tokens
-            min_tokens: 50,        // Matches EmbedSettings::default().min_tokens
-            context_lines: 5,      // Matches EmbedSettings::default().context_lines
+            max_tokens: 1000, // Matches EmbedSettings::default().max_tokens
+            min_tokens: 50,   // Matches EmbedSettings::default().min_tokens
+            context_lines: 5, // Matches EmbedSettings::default().context_lines
             token_model: "claude".to_string(),
-            include_imports: true,  // Include imports by default for dependency tracking
+            include_imports: true, // Include imports by default for dependency tracking
             include_top_level: true,
-            security_scan: true,    // Enable security scanning by default for safety
+            security_scan: true, // Enable security scanning by default for safety
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
             include_tests: false,
@@ -150,8 +150,8 @@ pub fn cmd_embed(config: EmbedConfig) -> Result<()> {
         config.path.join(&config.manifest_path)
     };
 
-    let existing_manifest = EmbedManifest::load_if_exists(&manifest_path)
-        .context("Failed to load manifest")?;
+    let existing_manifest =
+        EmbedManifest::load_if_exists(&manifest_path).context("Failed to load manifest")?;
 
     // Compute diff if we have an existing manifest
     let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
@@ -160,21 +160,22 @@ pub fn cmd_embed(config: EmbedConfig) -> Result<()> {
     match config.output_format {
         EmbedOutputFormat::Jsonl => {
             output_jsonl(&config, &chunks, diff.as_ref(), &settings, elapsed)?;
-        }
+        },
         EmbedOutputFormat::Json => {
             output_json(&config, &chunks, diff.as_ref(), &settings, elapsed)?;
-        }
+        },
     }
 
     // Update and save manifest
     let mut manifest = existing_manifest.unwrap_or_else(|| {
-        EmbedManifest::new(
-            config.path.to_string_lossy().to_string(),
-            settings.clone(),
-        )
+        EmbedManifest::new(config.path.to_string_lossy().to_string(), settings.clone())
     });
-    manifest.update(&chunks).context("Failed to update manifest")?;
-    manifest.save(&manifest_path).context("Failed to save manifest")?;
+    manifest
+        .update(&chunks)
+        .context("Failed to update manifest")?;
+    manifest
+        .save(&manifest_path)
+        .context("Failed to save manifest")?;
 
     // Print statistics if not quiet and (outputting to file or verbose mode)
     if !config.quiet && (config.output_file.is_some() || config.verbose) {
@@ -364,10 +365,7 @@ fn print_statistics(
         eprintln!("{}", "━".repeat(50).dimmed());
         eprintln!();
         eprintln!("  Total Chunks:  {}", chunks.len());
-        eprintln!(
-            "  Total Tokens:  {}",
-            chunks.iter().map(|c| c.tokens as u64).sum::<u64>()
-        );
+        eprintln!("  Total Tokens:  {}", chunks.iter().map(|c| c.tokens as u64).sum::<u64>());
 
         if let Some(d) = diff {
             eprintln!();

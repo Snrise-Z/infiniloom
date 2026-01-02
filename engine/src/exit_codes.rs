@@ -338,26 +338,17 @@ pub struct ExitResult {
 impl ExitResult {
     /// Create a success result
     pub fn success() -> Self {
-        Self {
-            code: ExitCode::Success,
-            message: None,
-        }
+        Self { code: ExitCode::Success, message: None }
     }
 
     /// Create an error result
     pub fn error(code: ExitCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: Some(message.into()),
-        }
+        Self { code, message: Some(message.into()) }
     }
 
     /// Create from just an exit code
     pub fn from_code(code: ExitCode) -> Self {
-        Self {
-            code,
-            message: None,
-        }
+        Self { code, message: None }
     }
 
     /// Get the exit code

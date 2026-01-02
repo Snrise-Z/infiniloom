@@ -71,13 +71,7 @@ impl RepoIdentifier {
         branch: Option<String>,
         commit: Option<String>,
     ) -> Self {
-        Self {
-            namespace: namespace.into(),
-            name: name.into(),
-            version,
-            branch,
-            commit,
-        }
+        Self { namespace: namespace.into(), name: name.into(), version, branch, commit }
     }
 
     /// Get fully qualified repository name (namespace/name)
@@ -210,7 +204,6 @@ pub struct ChunkContext {
 
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
-
     /// Lines of code in this chunk (excluding blank lines and comments)
     /// Useful for filtering out trivial one-liners vs substantial implementations
     #[serde(skip_serializing_if = "is_zero", default)]
@@ -405,7 +398,7 @@ impl Default for EmbedSettings {
             include_top_level: true, // Include module-level code
             token_model: "claude".to_string(),
             algorithm_version: 1,
-            scan_secrets: true,  // Safe default
+            scan_secrets: true, // Safe default
             fail_on_secrets: false,
             redact_secrets: true, // Safe default
             include_patterns: Vec::new(),
@@ -494,7 +487,7 @@ impl From<crate::types::SymbolKind> for ChunkKind {
             crate::types::SymbolKind::Constant => ChunkKind::Constant,
             crate::types::SymbolKind::Variable => ChunkKind::Variable,
             crate::types::SymbolKind::TypeAlias => ChunkKind::Struct, // Map type aliases to struct
-            crate::types::SymbolKind::Export => ChunkKind::Imports, // Map exports to imports
+            crate::types::SymbolKind::Export => ChunkKind::Imports,   // Map exports to imports
             crate::types::SymbolKind::Module => ChunkKind::Module,
             crate::types::SymbolKind::Macro => ChunkKind::Function, // Map macros to functions
         }

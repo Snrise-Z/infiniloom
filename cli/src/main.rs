@@ -1163,7 +1163,9 @@ fn run_command(cli: Cli) -> Result<()> {
             // Map embed errors to CliError for semantic exit codes
             commands::cmd_embed(config).map_err(|e| {
                 // Try to extract EmbedError from the anyhow chain
-                if let Some(embed_err) = e.downcast_ref::<infiniloom_engine::embedding::EmbedError>() {
+                if let Some(embed_err) =
+                    e.downcast_ref::<infiniloom_engine::embedding::EmbedError>()
+                {
                     anyhow::anyhow!(error::CliError::Embed(embed_err.clone()))
                 } else {
                     e
