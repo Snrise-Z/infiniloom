@@ -593,8 +593,7 @@ impl ChunkStream {
             .or_else(|| file.strip_suffix(".jsx"))
             .or_else(|| file.strip_suffix(".go"))
             .unwrap_or(file)
-            .replace('\\', "::")
-            .replace('/', "::");
+            .replace(['\\', '/'], "::"); // Normalize path separators
 
         if let Some(ref parent) = symbol.parent {
             format!("{}::{}::{}", module_path, parent, symbol.name)

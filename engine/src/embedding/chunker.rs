@@ -1110,8 +1110,7 @@ impl EmbedChunker {
             .or_else(|| file.strip_suffix(".kt"))
             .or_else(|| file.strip_suffix(".scala"))
             .unwrap_or(file)
-            .replace('\\', "::") // Windows backslashes
-            .replace('/', "::"); // Unix forward slashes
+            .replace(['\\', '/'], "::"); // Normalize path separators
 
         if let Some(ref parent) = symbol.parent {
             format!("{}::{}::{}", module_path, parent, symbol.name)
