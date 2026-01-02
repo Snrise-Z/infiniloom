@@ -1,8 +1,7 @@
 # Infiniloom Design Document
 
 > **Note:** This document describes the design decisions and architecture of Infiniloom.
-> For planned but unimplemented features, see [ROADMAP.md](planning/ROADMAP.md).
-> For current implementation status, see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+> For planned but unimplemented features, see [ROADMAP.md](../planning/ROADMAP.md).
 
 ## Executive Summary
 

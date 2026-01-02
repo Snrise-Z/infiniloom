@@ -325,4 +325,4 @@ Located in `src/constants.rs` with namespaced modules:
 
 - [README.md](../README.md) - User documentation and CLI reference
 - [CLAUDE.md](../CLAUDE.md) - Development guide for Claude Code
-- [IMPLEMENTATION_STATUS.md](../docs/IMPLEMENTATION_STATUS.md) - Feature implementation status
+- [Design Document](../docs/contributing/INFINILOOM_DESIGN.md) - Architecture and design decisions

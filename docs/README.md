@@ -47,9 +47,6 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 | [Reference](REFERENCE.md) | Complete command reference |
 | [Recipes](RECIPES.md) | Ready-to-use code patterns |
 | [Output Formats](INFINILOOM_OUTPUT_FORMATS.md) | XML, Markdown, JSON, YAML, TOON specs |
-| [Architecture](INFINILOOM_DESIGN.md) | System design and internals |
-| [Parser Documentation](../engine/PARSER_README.md) | Tree-sitter parser details |
-| [Git Context](GIT_CONTEXT_DESIGN.md) | Diff and index design |
 | [Roadmap](planning/ROADMAP.md) | Future development plans |
 
 ## Support
@@ -68,7 +65,14 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.
+| Document | Description |
+|----------|-------------|
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
+| [Architecture](contributing/INFINILOOM_DESIGN.md) | System design and internals |
+| [Git Context Design](contributing/GIT_CONTEXT_DESIGN.md) | Diff and index design |
+| [Test Specifications](contributing/TEST_SPECIFICATION.md) | CLI test specifications |
+| [Clippy Guide](contributing/CLIPPY_GUIDE.md) | Linting configuration |
+| [Parser Documentation](../engine/PARSER_README.md) | Tree-sitter parser details |
 
 ## Changelog
 
