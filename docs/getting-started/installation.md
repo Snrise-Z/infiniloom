@@ -200,6 +200,6 @@ Or allow in System Preferences → Security & Privacy.
 ## Next Steps
 
 - [Quick Start](quick-start.md) — Get productive in 5 minutes
-- [Cheat Sheet](../CHEATSHEET.md) — All commands at a glance
+- [Reference](../REFERENCE.md) — All commands at a glance
 - [Configuration](../CONFIGURATION.md) — Set up your config file
 - [Troubleshooting](../TROUBLESHOOTING.md) — Installation issues

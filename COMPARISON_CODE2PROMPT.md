@@ -501,7 +501,8 @@ infiniloom pack github:owner/repo --sparse-path src --sparse-path lib
 #### Infiniloom
 **Docs:**
 - README.md (comprehensive)
-- CHEATSHEET.md (quick reference)
+- REFERENCE.md (complete command reference)
+- RECIPES.md (ready-to-use patterns)
 - Command reference (per-command guides)
 - CONFIGURATION.md (all options)
 - FAQ.md

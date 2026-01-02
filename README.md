@@ -384,7 +384,8 @@ cargo fmt --all           # Format
 
 ## Documentation
 
-- [Cheat Sheet](docs/CHEATSHEET.md) — Quick reference
+- [Reference](docs/REFERENCE.md) — Complete command reference
+- [Recipes](docs/RECIPES.md) — Ready-to-use code patterns
 - [Command Reference](docs/commands/) — Detailed CLI documentation
 - [Configuration Guide](docs/CONFIGURATION.md) — Config files and options
 - [FAQ](docs/FAQ.md) — Common questions answered

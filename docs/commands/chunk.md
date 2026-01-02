@@ -395,5 +395,6 @@ infiniloom chunk --generate-prompts
 ## Related Commands
 
 - [`pack`](pack.md) - Generate single context file
+- [`embed`](embed.md) - AST-aware chunks for vector databases (preferred for RAG)
 - [`scan`](scan.md) - Check total token counts before chunking
 - [`map`](map.md) - Understand symbol importance for priority chunking

@@ -4,7 +4,8 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 
 ## Quick Links
 
-- **[Cheat Sheet](CHEATSHEET.md)** - All commands and options at a glance
+- **[Reference](REFERENCE.md)** - All commands and options at a glance
+- **[Recipes](RECIPES.md)** - Ready-to-use code patterns
 - **[FAQ](FAQ.md)** - Frequently asked questions
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
 
@@ -21,6 +22,7 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 | Command | Description |
 |---------|-------------|
 | [pack](commands/pack.md) | Transform repository into LLM context |
+| [embed](commands/embed.md) | Generate chunks for vector databases (RAG) |
 | [scan](commands/scan.md) | Analyze repository statistics |
 | [map](commands/map.md) | Generate symbol map with PageRank |
 | [chunk](commands/chunk.md) | Split repository into chunks |
@@ -42,14 +44,12 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 
 | Document | Description |
 |----------|-------------|
-| [Cheat Sheet](CHEATSHEET.md) | Quick reference for all commands |
+| [Reference](REFERENCE.md) | Complete command reference |
+| [Recipes](RECIPES.md) | Ready-to-use code patterns |
 | [Output Formats](INFINILOOM_OUTPUT_FORMATS.md) | XML, Markdown, JSON, YAML, TOON specs |
 | [Architecture](INFINILOOM_DESIGN.md) | System design and internals |
-| [Engine Architecture](../engine/ARCHITECTURE.md) | Module dependency graph |
 | [Parser Documentation](../engine/PARSER_README.md) | Tree-sitter parser details |
 | [Git Context](GIT_CONTEXT_DESIGN.md) | Diff and index design |
-| [Test Specification](TEST_SPECIFICATION.md) | Testing approach |
-| [Implementation Status](IMPLEMENTATION_STATUS.md) | Feature checklist |
 | [Roadmap](planning/ROADMAP.md) | Future development plans |
 
 ## Support
@@ -61,10 +61,10 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 
 ## Language Bindings
 
-| Binding | Documentation |
-|---------|---------------|
-| Python | [bindings/python/README.md](../bindings/python/README.md) |
-| Node.js | [bindings/node/README.md](../bindings/node/README.md) |
+| Binding | API Reference | Quick Start |
+|---------|---------------|-------------|
+| Python | [API Reference](api/python.md) | `pip install infiniloom` |
+| Node.js | [API Reference](api/nodejs.md) | `npm install infiniloom-node` |
 
 ## Contributing
 

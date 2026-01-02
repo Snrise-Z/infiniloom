@@ -87,6 +87,39 @@ Chunks respect code structure:
 - Large symbols are split at logical boundaries with part numbering
 - Each part includes the parent signature for context
 
+### Why AST-Aware vs Character-Based Splitting?
+
+| Aspect | AST-Aware (Infiniloom) | Character-Based (typical) |
+|--------|------------------------|---------------------------|
+| **Boundary** | Function/class boundaries | Fixed character count |
+| **Context** | Complete semantic units | May split mid-statement |
+| **Search quality** | Higher precision | Noisy partial matches |
+| **Deduplication** | Content-addressable IDs | Offset-dependent IDs |
+| **Updates** | Stable IDs across versions | IDs change with any edit |
+
+**Example - Character-based (problematic):**
+```
+Chunk 1: "function authenticate(user, pass) { if (!user) { throw new"
+Chunk 2: "Error('User required'); } return validateCredentials(user, pa"
+Chunk 3: "ss); }"
+```
+
+**Example - AST-aware (Infiniloom):**
+```
+Chunk 1: "function authenticate(user, pass) {
+  if (!user) {
+    throw new Error('User required');
+  }
+  return validateCredentials(user, pass);
+}"
+```
+
+AST-aware chunking ensures:
+- Complete functions are searchable as units
+- Semantic tags (`async`, `security`) apply to whole functions
+- Call graph extraction works correctly
+- Embeddings capture full context
+
 ## Options
 
 ### Output Options

@@ -431,7 +431,8 @@ infiniloom scan . --verbose
 
 ## See Also
 
-- [Cheat Sheet](CHEATSHEET.md) — Quick reference for all commands
+- [Reference](REFERENCE.md) — Complete command reference
+- [Recipes](RECIPES.md) — Ready-to-use code patterns
 - [Command Reference](commands/) — Detailed CLI documentation
 - [LLM Optimization](guides/llm-optimization.md) — Model-specific tips
 - [CI/CD Integration](guides/ci-integration.md) — Automation workflows

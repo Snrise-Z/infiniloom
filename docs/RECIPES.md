@@ -21,6 +21,7 @@
 13. [CI/CD Integration](#13-cicd-integration)
 14. [Watch Mode for Development](#14-watch-mode-for-development)
 15. [Remote Repository Analysis](#15-remote-repository-analysis)
+16. [Call Graph Analysis](#16-call-graph-analysis)
 
 ---
 
@@ -376,6 +377,94 @@ infiniloom pack github:kubernetes/kubernetes \
 
 ---
 
+## 16. Call Graph Analysis
+
+**Goal:** Understand function relationships and dependencies in your codebase.
+
+**CLI - Show what calls a function:**
+```bash
+# Build index first
+infiniloom index .
+
+# What calls "authenticate"?
+infiniloom impact . --symbol "authenticate" --call-graph
+```
+
+**Node.js - Full call graph analysis:**
+```javascript
+const {
+  buildIndex,
+  getCallers,
+  getCallees,
+  getCallGraph,
+  getTransitiveCallers
+} = require('infiniloom-node');
+
+// Build index
+buildIndex('./my-repo');
+
+// Find what calls "validateInput"
+const callers = getCallers('./my-repo', 'validateInput');
+console.log(`validateInput is called by ${callers.length} functions:`);
+for (const c of callers) {
+  console.log(`  ${c.name} at ${c.file}:${c.line}`);
+}
+
+// Find what "processRequest" calls
+const callees = getCallees('./my-repo', 'processRequest');
+console.log(`processRequest calls ${callees.length} functions`);
+
+// Get complete call graph
+const graph = getCallGraph('./my-repo');
+console.log(`Graph: ${graph.stats.totalSymbols} symbols, ${graph.stats.totalCalls} edges`);
+
+// Find all paths to a dangerous function (security audit)
+const transitiveCallers = getTransitiveCallers('./my-repo', 'deleteUser', {
+  maxDepth: 5,
+  maxResults: 100
+});
+for (const c of transitiveCallers) {
+  console.log(`Depth ${c.depth}: ${c.callPath.join(' -> ')}`);
+}
+```
+
+**Python - Call graph analysis:**
+```python
+import infiniloom
+
+# Build index
+infiniloom.build_index("/path/to/repo")
+
+# Find callers
+callers = infiniloom.get_callers("/path/to/repo", "authenticate")
+print(f"authenticate is called by {len(callers)} functions")
+
+# Find callees
+callees = infiniloom.get_callees("/path/to/repo", "processRequest")
+print(f"processRequest calls {len(callees)} functions")
+
+# Full call graph
+graph = infiniloom.get_call_graph("/path/to/repo")
+print(f"Graph: {graph['stats']['total_symbols']} symbols")
+
+# Security audit - who can reach a dangerous function?
+transitive = infiniloom.get_transitive_callers(
+    "/path/to/repo",
+    "deleteAllData",
+    max_depth=5
+)
+for c in transitive:
+    print(f"Depth {c['depth']}: {' -> '.join(c['call_path'])}")
+```
+
+**Use cases:**
+- **Security audit**: Find all entry points to sensitive functions
+- **Refactoring**: Understand blast radius before changing a function
+- **Documentation**: Generate dependency diagrams
+- **Code review**: Understand what a PR affects
+
+---
+
 ## Bonus: Common Aliases
 
 Add to your shell profile (`~/.bashrc`, `~/.zshrc`):
@@ -399,7 +488,7 @@ alias repostats='infiniloom scan . --json | jq'
 
 ## See Also
 
-- [Cheat Sheet](CHEATSHEET.md) - Command reference
-- [Quick Reference](QUICK_REFERENCE.md) - One-page printable
+- [Reference](REFERENCE.md) - Complete command reference
 - [Command Reference](commands/) - Full documentation
 - [Configuration Guide](CONFIGURATION.md) - Config options
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues

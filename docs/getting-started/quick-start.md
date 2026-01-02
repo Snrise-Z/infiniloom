@@ -42,7 +42,31 @@ infiniloom pack . --format markdown --output context.md
 infiniloom pack . --format yaml --output context.yaml
 ```
 
-## 4. Explore Your Repository
+## 4. Generate RAG Chunks (Vector Databases)
+
+For semantic search and RAG pipelines, use `embed` instead of `pack`:
+
+```bash
+# Generate content-addressable chunks
+infiniloom embed . -o chunks.jsonl
+
+# Optimized for Voyage embeddings (1500 tokens)
+infiniloom embed . --max-tokens 1500 -o chunks.jsonl
+```
+
+Each chunk includes:
+- **Content-addressable ID** (`ec_a1b2c3...`) - same code = same ID across repos
+- **AST boundaries** - never splits mid-function
+- **Semantic metadata** - docstrings, call graph, auto-tags
+
+```bash
+# After code changes, only get what changed
+infiniloom embed . --diff -o updates.jsonl
+```
+
+Output format ready for Pinecone, Weaviate, Qdrant, or any vector database.
+
+## 5. Explore Your Repository
 
 ### Scan Statistics
 
@@ -71,7 +95,7 @@ infiniloom map . --budget 2000
 
 Shows the most important symbols in your codebase, ranked by PageRank.
 
-## 5. Common Workflows
+## 6. Common Workflows
 
 ### AI Code Review
 
@@ -84,6 +108,18 @@ infiniloom diff . --staged --include-diff
 
 # Pipe to clipboard (macOS)
 infiniloom diff . --staged | pbcopy
+```
+
+### RAG Pipeline
+
+```bash
+# Initial ingestion
+infiniloom embed . -o chunks.jsonl
+# Ingest into your vector DB...
+
+# Incremental updates (only changed)
+infiniloom embed . --diff -o updates.jsonl
+# Upsert/delete in your vector DB...
 ```
 
 ### Focus on Specific Files
@@ -116,7 +152,7 @@ infiniloom pack . --security-check
 infiniloom pack . --redact-secrets
 ```
 
-## 6. Create a Config File
+## 7. Create a Config File
 
 For repeatable settings:
 
@@ -145,7 +181,8 @@ Now `infiniloom pack .` uses these defaults.
 
 ## Next Steps
 
-- [Cheat Sheet](../CHEATSHEET.md) — All commands and options at a glance
+- [Reference](../REFERENCE.md) — All commands and options at a glance
+- [Recipes](../RECIPES.md) — Ready-to-use code patterns
 - [Configuration Guide](../CONFIGURATION.md) — All config options
 - [Command Reference](../commands/) — Detailed command docs
 - [LLM Optimization](../guides/llm-optimization.md) — Model-specific tips

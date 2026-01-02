@@ -1,25 +1,45 @@
-# Infiniloom Cheat Sheet
+# Infiniloom Reference
 
-Quick reference for all Infiniloom commands, options, and common workflows.
+**Complete reference for all commands, options, and workflows.**
 
-## Commands at a Glance
+---
 
-```
-infiniloom pack    - Transform repository into LLM context
-infiniloom scan    - Show repository statistics
-infiniloom map     - Generate PageRank symbol map
-infiniloom embed   - Generate chunks for vector databases
-infiniloom index   - Build symbol index for fast queries
-infiniloom diff    - Get context for code changes
-infiniloom impact  - Analyze change impact
-infiniloom chunk   - Split repository for multi-turn
-infiniloom init    - Create configuration file
-infiniloom info    - Show version and config
+## Quick Start (30 seconds)
+
+```bash
+# Generate AI-ready context (paste into Claude/GPT)
+infiniloom pack .
+
+# Generate chunks for vector databases (RAG)
+infiniloom embed . -o chunks.jsonl
+
+# View repository statistics
+infiniloom scan .
+
+# Get context for code changes
+infiniloom index . && infiniloom diff .
 ```
 
 ---
 
-## pack
+## Commands at a Glance
+
+| Command | Description | Primary Use |
+|---------|-------------|-------------|
+| `pack` | Transform repo into LLM context | AI assistants, code review |
+| `embed` | Generate chunks for vector DBs | RAG pipelines, semantic search |
+| `scan` | Show repository statistics | Pre-analysis, security audit |
+| `map` | Generate PageRank symbol map | Understand codebase architecture |
+| `index` | Build symbol index | Enable fast diff/impact queries |
+| `diff` | Get context for code changes | Code review, debugging |
+| `impact` | Analyze change impact | Pre-change analysis |
+| `chunk` | Split repo for multi-turn | Large codebases |
+| `init` | Create configuration file | Project setup |
+| `info` | Show version and config | Debug, discovery |
+
+---
+
+## pack - Generate AI Context
 
 Transform repository into LLM-optimized format.
 
@@ -33,7 +53,7 @@ infiniloom pack . | pbcopy                     # Copy to clipboard (macOS)
 infiniloom pack github:facebook/react          # Remote repository
 ```
 
-### Output Formats
+### Output Formats (`--format`, `-f`)
 
 ```bash
 infiniloom pack . --format xml         # Claude (default, prompt caching)
@@ -44,7 +64,7 @@ infiniloom pack . --format toon        # Token-efficient (~40% smaller)
 infiniloom pack . --format plain       # Simple plain text
 ```
 
-### Model Selection
+### Model Selection (`--model`, `-m`)
 
 ```bash
 infiniloom pack . --model claude       # Anthropic Claude (default)
@@ -56,16 +76,21 @@ infiniloom pack . --model llama        # Meta Llama
 infiniloom pack . --model deepseek     # DeepSeek
 ```
 
-### Compression Levels
+### Compression Levels (`--compression`, `-c`)
+
+| Level | Reduction | Description |
+|-------|-----------|-------------|
+| `none` | 0% | Full content |
+| `minimal` | ~15% | Remove empty lines |
+| `balanced` | ~35% | Remove comments (default) |
+| `aggressive` | ~60% | Signatures only |
+| `extreme` | ~80% | Key symbols only |
+| `focused` | ~75% | Key symbols + context |
+| `semantic` | ~65% | Smart compression |
 
 ```bash
-infiniloom pack . --compression none       # Full content (0%)
-infiniloom pack . --compression minimal    # Remove empty lines (10-20%)
-infiniloom pack . --compression balanced   # Remove comments (30-40%)
-infiniloom pack . --compression aggressive # Remove docstrings (50-60%)
-infiniloom pack . --compression extreme    # Signatures only (70-80%)
-infiniloom pack . --compression focused    # Key symbols + context (~75%)
-infiniloom pack . --compression semantic   # Smart compression (60-70%)
+infiniloom pack . --compression balanced   # Default
+infiniloom pack . --compression aggressive # For tight budgets
 ```
 
 ### Filtering
@@ -128,7 +153,7 @@ infiniloom pack github:owner/repo --sparse-path src --sparse-path lib
 
 ---
 
-## embed
+## embed - Generate RAG Chunks
 
 Generate content-addressable chunks for vector databases and RAG systems.
 
@@ -171,29 +196,33 @@ infiniloom embed --no-imports                  # Exclude import chunks
 infiniloom embed --no-top-level                # Exclude top-level code
 ```
 
-### Hierarchical Chunking
+### Chunk Output Format
 
-```bash
-infiniloom embed --hierarchy                   # Generate summary chunks
-infiniloom embed --hierarchy --hierarchy-min-children 3
-```
-
-### Security
-
-```bash
-infiniloom embed                               # Security scan on by default
-infiniloom embed --no-security-scan            # Disable (not recommended)
-```
-
-### Custom Manifest
-
-```bash
-infiniloom embed -m .cache/manifest.bin        # Custom manifest location
+```json
+{
+  "id": "ec_a1b2c3d4e5f6...",
+  "content": "fn foo() {...}",
+  "tokens": 150,
+  "kind": "function",
+  "source": {
+    "file": "src/main.rs",
+    "symbol": "foo",
+    "fqn": "src::main::foo",
+    "lines": [10, 25],
+    "language": "Rust"
+  },
+  "context": {
+    "docstring": "Does something...",
+    "calls": ["bar", "baz"],
+    "called_by": ["main"],
+    "tags": ["async", "public-api"]
+  }
+}
 ```
 
 ---
 
-## scan
+## scan - Repository Statistics
 
 Show repository statistics and token counts.
 
@@ -204,7 +233,6 @@ infiniloom scan . --verbose                # Show file list
 infiniloom scan . --json                   # JSON output
 infiniloom scan . --security-check         # Include security scan
 infiniloom scan . --sample 500             # Sample N random files
-infiniloom scan . --sample-percent 5       # Sample N% of files
 infiniloom scan . --include "src/**"       # Filter files
 infiniloom scan . --exclude "vendor/*"     # Exclude patterns
 infiniloom scan . --include-tests          # Include test files
@@ -212,7 +240,7 @@ infiniloom scan . --include-tests          # Include test files
 
 ---
 
-## map
+## map - PageRank Symbol Map
 
 Generate PageRank-ranked symbol map.
 
@@ -223,13 +251,12 @@ infiniloom map . --model gpt4o             # Specific model
 infiniloom map . --output map.txt          # Save to file
 infiniloom map . --verbose                 # Detailed output
 infiniloom map . --include "src/**"        # Filter files
-infiniloom map . --exclude "tests/*"       # Exclude patterns
 infiniloom map . --include-tests           # Include test files
 ```
 
 ---
 
-## index
+## index - Build Symbol Index
 
 Build symbol index for fast diff/impact queries.
 
@@ -241,13 +268,12 @@ infiniloom index . --incremental           # Only re-index changed files
 infiniloom index . --watch                 # Auto-rebuild on changes
 infiniloom index . --verbose               # Detailed output
 infiniloom index . --include "src/**"      # Filter files
-infiniloom index . --exclude "vendor/*"    # Exclude patterns
 infiniloom index . --include-tests         # Include test files
 ```
 
 ---
 
-## diff
+## diff - Change Context
 
 Get context for code changes (requires index).
 
@@ -268,18 +294,13 @@ infiniloom diff . --depth 3                # + Transitive deps
 infiniloom diff . --budget 80000           # Token budget
 infiniloom diff . --format markdown        # Output format
 infiniloom diff . --output diff.xml        # Save to file
-infiniloom diff . --model gpt4o            # Token counting model
 infiniloom diff . --include-history        # Include file commit history
-infiniloom diff . --history-count 5        # Number of commits per file
-infiniloom diff . --verbose                # Detailed output
-infiniloom diff . --include "src/**"       # Filter files
-infiniloom diff . --exclude "vendor/*"     # Exclude patterns
 infiniloom diff . --include-tests          # Include test files
 ```
 
 ---
 
-## impact
+## impact - Change Impact Analysis
 
 Analyze change impact (requires index).
 
@@ -298,16 +319,12 @@ infiniloom impact . src/auth.rs --depth 2  # Default
 infiniloom impact . src/auth.rs --depth 3  # Full transitive
 infiniloom impact . --call-graph           # Show call graph
 infiniloom impact . src/auth.rs --json     # JSON output
-infiniloom impact . --verbose              # Detailed output
-infiniloom impact . --model gpt4o          # Token counting model
-infiniloom impact . --include "src/**"     # Filter files
-infiniloom impact . --exclude "vendor/*"   # Exclude patterns
 infiniloom impact . --include-tests        # Include test files
 ```
 
 ---
 
-## chunk
+## chunk - Multi-Turn Splitting
 
 Split repository for multi-turn conversations.
 
@@ -323,46 +340,28 @@ infiniloom chunk . --strategy fixed        # Fixed token size
 # Options
 infiniloom chunk . --max-tokens 50000      # Tokens per chunk
 infiniloom chunk . --overlap 2000          # Token overlap between chunks
-infiniloom chunk . --model gpt4o           # Token counting model
 infiniloom chunk . --format markdown       # Output format
 infiniloom chunk . --output chunks/        # Save to directory
 infiniloom chunk . --priority-first        # Most important chunks first
-infiniloom chunk . --no-chunk-summary      # Disable chunk summaries
-infiniloom chunk . --verbose               # Detailed output
-infiniloom chunk . --include "src/**"      # Filter files
-infiniloom chunk . --exclude "vendor/*"    # Exclude patterns
 infiniloom chunk . --include-tests         # Include test files
 ```
 
 ---
 
-## init
-
-Create configuration file.
+## init & info
 
 ```bash
+# Create configuration file
 infiniloom init                            # Create .infiniloom.yaml
 infiniloom init --format toml              # Create .infiniloom.toml
-infiniloom init --format json              # Create .infiniloom.json
 infiniloom init --template rust            # Rust project template
 infiniloom init --template python          # Python project template
-infiniloom init --template node            # Node.js project template
-infiniloom init --template generic         # Generic template (default)
-infiniloom init --output custom.yaml       # Custom output path
 infiniloom init --force                    # Overwrite existing
-```
 
----
-
-## info
-
-Show version and configuration.
-
-```bash
+# Show version and configuration
 infiniloom info                            # General info
 infiniloom info .                          # Include project-specific info
 infiniloom --version                       # Version only
-infiniloom --help                          # Help for all commands
 infiniloom pack --help                     # Help for specific command
 ```
 
@@ -381,6 +380,19 @@ infiniloom diff . --staged --include-diff --format markdown > review.md
 
 # Or pipe directly
 infiniloom diff . --staged --include-diff | pbcopy
+```
+
+### RAG Pipeline
+
+```bash
+# Generate chunks for vector database
+infiniloom embed . -o chunks.jsonl
+
+# Incremental updates (only changed)
+infiniloom embed . --diff -o updates.jsonl
+
+# Optimized for Voyage embeddings
+infiniloom embed . --max-tokens 1500 -o chunks.jsonl
 ```
 
 ### Large Repository
@@ -419,37 +431,13 @@ infiniloom scan . --security-check
 infiniloom pack . --redact-secrets --output context.xml
 ```
 
-### Remote Repository Analysis
-
-```bash
-# Sparse checkout for large repos
-infiniloom pack github:torvalds/linux --sparse-path kernel/sched
-
-# Specific branch
-infiniloom pack github:owner/repo --remote-branch develop
-```
-
 ---
 
-## Environment Variables
+## Configuration
 
-```bash
-INFINILOOM_OUTPUT__MODEL=claude            # Default model
-INFINILOOM_OUTPUT__FORMAT=xml              # Default format
-INFINILOOM_OUTPUT__COMPRESSION=balanced    # Default compression
-INFINILOOM_OUTPUT__TOKEN_BUDGET=100000     # Default token budget
-INFINILOOM_SCAN__INCLUDE_HIDDEN=false      # Include hidden files
-INFINILOOM_SCAN__RESPECT_GITIGNORE=true    # Respect .gitignore
-INFINILOOM_SECURITY__SCAN_SECRETS=true     # Enable security scanning
-INFINILOOM_SECURITY__REDACT_SECRETS=true   # Redact secrets in output
-```
-
----
-
-## Configuration File
+### Config File (`.infiniloom.yaml`)
 
 ```yaml
-# .infiniloom.yaml
 output:
   format: xml
   model: claude
@@ -477,51 +465,70 @@ security:
   allowlist:
     - "EXAMPLE"
     - "placeholder"
-  custom_patterns:
-    - "MY_SECRET_[A-Z0-9]{32}"
+```
+
+### Environment Variables
+
+```bash
+INFINILOOM_OUTPUT__MODEL=claude
+INFINILOOM_OUTPUT__FORMAT=xml
+INFINILOOM_OUTPUT__COMPRESSION=balanced
+INFINILOOM_OUTPUT__TOKEN_BUDGET=100000
+INFINILOOM_SCAN__INCLUDE_HIDDEN=false
+INFINILOOM_SCAN__RESPECT_GITIGNORE=true
+INFINILOOM_SECURITY__SCAN_SECRETS=true
+INFINILOOM_SECURITY__REDACT_SECRETS=true
 ```
 
 ---
 
 ## Output Format Summary
 
-| Format | Best For | Optimizations |
-|--------|----------|---------------|
-| `xml` | Claude | Prompt caching, CDATA sections |
-| `markdown` | GPT-4o/GPT-5 | Tables, headers, code fences |
-| `yaml` | Gemini | Structured hierarchy |
-| `json` | Programmatic | Standard parsing |
-| `toon` | Limited context | ~40% smaller |
-| `plain` | Simple use | No markup |
+| Format | Best For | Token Efficiency |
+|--------|----------|------------------|
+| `xml` | Claude | Baseline (prompt caching) |
+| `markdown` | GPT-4o/GPT-5 | ~10% more tokens |
+| `yaml` | Gemini | ~12% more tokens |
+| `json` | Programmatic | ~15% more tokens |
+| `toon` | Any (max efficiency) | ~40% fewer tokens |
+| `plain` | Simple use | ~5% fewer tokens |
 
 ---
 
 ## Model Aliases
 
-| CLI Value | Full Model |
-|-----------|------------|
-| `claude` | Claude 3.5 Sonnet / Opus |
-| `gpt52` | GPT-5.2 |
-| `gpt5` | GPT-5 |
-| `gpt4o` | GPT-4o |
-| `gpt4` | GPT-4 |
-| `o3` | O3 |
-| `o1` | O1 |
-| `gemini` | Gemini 1.5 Pro |
-| `llama` | Llama 3/4 |
-| `codellama` | CodeLlama |
-| `deepseek` | DeepSeek V3/R1 |
-| `mistral` | Mistral |
-| `qwen` | Qwen |
-| `cohere` | Command R+ |
-| `grok` | Grok |
+| CLI Value | Full Model | Token Counting |
+|-----------|------------|----------------|
+| `claude` | Claude 3.5/4 | Estimated (~95%) |
+| `gpt52` | GPT-5.2 | Exact (tiktoken) |
+| `gpt5` | GPT-5 | Exact (tiktoken) |
+| `gpt4o` | GPT-4o | Exact (tiktoken) |
+| `gpt4` | GPT-4 | Exact (tiktoken) |
+| `o3` | O3 | Exact (tiktoken) |
+| `o1` | O1 | Exact (tiktoken) |
+| `gemini` | Gemini 1.5/2 | Estimated (~95%) |
+| `llama` | Llama 3/4 | Estimated (~95%) |
+| `deepseek` | DeepSeek V3/R1 | Estimated (~95%) |
+| `mistral` | Mistral | Estimated (~95%) |
+| `qwen` | Qwen | Estimated (~95%) |
+| `cohere` | Command R+ | Estimated (~95%) |
+| `grok` | Grok | Estimated (~95%) |
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (invalid path, I/O error, validation failure) |
 
 ---
 
 ## See Also
 
-- [Command Reference](commands/) - Detailed documentation for each command
-- [Configuration Guide](CONFIGURATION.md) - All configuration options
-- [LLM Optimization](guides/llm-optimization.md) - Model-specific tips
-- [Large Repos Guide](guides/large-repos.md) - Scaling strategies
-- [CI Integration](guides/ci-integration.md) - Automation workflows
+- [Command Documentation](commands/) - Detailed docs for each command
+- [Configuration Guide](CONFIGURATION.md) - All config options
+- [Recipes](RECIPES.md) - Ready-to-use code patterns
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues
+- [FAQ](FAQ.md) - Frequently asked questions

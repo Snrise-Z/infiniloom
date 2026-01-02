@@ -970,4 +970,4 @@ const result: EmbedResult = embed('./my-repo');
 - [Python API Reference](python.md)
 - [CLI Reference](../commands/pack.md)
 - [Recipes Cookbook](../RECIPES.md)
-- [Quick Reference](../QUICK_REFERENCE.md)
+- [Reference](../REFERENCE.md)

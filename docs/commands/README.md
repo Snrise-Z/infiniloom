@@ -7,6 +7,7 @@ Complete technical documentation for all Infiniloom CLI commands.
 | Command | Description | Primary Use Case |
 |---------|-------------|------------------|
 | [`pack`](pack.md) | Transform repository into LLM-optimized context | Generating context for AI assistants |
+| [`embed`](embed.md) | Generate content-addressable chunks for RAG | Vector database ingestion, semantic search |
 | [`scan`](scan.md) | Analyze repository statistics and security | Pre-pack analysis, security audit |
 | [`map`](map.md) | Generate PageRank-ranked symbol map | Understanding codebase architecture |
 | [`index`](index.md) | Build persistent symbol index | Enable fast diff/impact analysis |
@@ -53,7 +54,20 @@ infiniloom scan --security-check
 infiniloom pack --redact-secrets -o safe-context.xml
 ```
 
-#### 4. Large Repository Handling
+#### 4. RAG Pipeline / Vector Database
+
+```bash
+# Generate chunks for vector DB ingestion
+infiniloom embed -o chunks.json
+
+# Optimized for voyage-code-2/3
+infiniloom embed --max-tokens 1500 -o chunks.json
+
+# Incremental updates (only changed chunks)
+infiniloom embed --diff -o changes.json
+```
+
+#### 5. Large Repository Handling
 
 ```bash
 # Check size first

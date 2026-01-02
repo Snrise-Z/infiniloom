@@ -414,3 +414,12 @@ security:
 - **Cache mode** (`--cache`): Significantly faster for repeated runs
 - **Parallel processing**: Automatically scales to available CPU cores
 - **Memory-mapped I/O**: Used for files ≥1MB for better performance
+
+## See Also
+
+- [`embed`](embed.md) - Generate chunks for vector databases (RAG)
+- [`scan`](scan.md) - View repository statistics
+- [`diff`](diff.md) - Get context for code changes
+- [`chunk`](chunk.md) - Split repository for multi-turn conversations
+- [Reference](../REFERENCE.md) - Complete command reference
+- [Recipes](../RECIPES.md) - Ready-to-use code patterns

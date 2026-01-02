@@ -270,5 +270,6 @@ infiniloom scan --security-check --json | jq -e '.security.issues_found == 0'
 ## Related Commands
 
 - [`pack`](pack.md) - Generate full LLM context
+- [`embed`](embed.md) - Generate chunks for vector databases (RAG)
 - [`map`](map.md) - Generate symbol-ranked repository map
 - [`info`](info.md) - Show tool configuration
