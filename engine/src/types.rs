@@ -181,7 +181,7 @@ impl Visibility {
 }
 
 /// A code symbol (function, class, variable, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Symbol {
     /// Symbol name
     pub name: String,
@@ -256,8 +256,9 @@ impl fmt::Display for Symbol {
 }
 
 /// Kind of code symbol
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum SymbolKind {
+    #[default]
     Function,
     Method,
     Class,

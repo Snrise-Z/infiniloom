@@ -21,6 +21,7 @@ mod symbols;
 mod diff;
 mod impact;
 mod embed;
+mod analysis;
 
 // Re-export all public types
 pub use types::*;
@@ -51,6 +52,10 @@ pub use symbols::{
 pub use embed::{
     delete_embed_manifest, delete_embed_manifest_async, embed, embed_async, load_embed_manifest,
     load_embed_manifest_async,
+};
+pub use analysis::{
+    extract_documentation, extract_documentation_async, detect_dead_code, detect_dead_code_async,
+    detect_breaking_changes, detect_breaking_changes_async,
 };
 
 use infiniloom_bindings_common::{

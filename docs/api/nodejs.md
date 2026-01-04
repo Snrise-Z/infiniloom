@@ -702,6 +702,376 @@ for (const c of chunks) {
 
 ---
 
+## Analysis API
+
+### `extractDocumentation()`
+
+Extract structured documentation from a docstring/comment.
+
+```typescript
+function extractDocumentation(rawDoc: string, language: string): Documentation
+
+interface Documentation {
+  summary?: string;
+  description?: string;
+  params: DocParam[];
+  returns?: {
+    typeInfo?: string;
+    description?: string;
+  };
+  throws: DocThrows[];
+  examples: DocExample[];
+  isDeprecated: boolean;
+  deprecationMessage?: string;
+  since?: string;
+  seeAlso: string[];
+  tags: Record<string, string[]>;
+  raw?: string;
+}
+
+interface DocParam {
+  name: string;
+  typeInfo?: string;
+  description?: string;
+  isOptional: boolean;
+  defaultValue?: string;
+}
+
+interface DocThrows {
+  exceptionType: string;
+  description?: string;
+}
+
+interface DocExample {
+  code: string;
+  title?: string;
+  language?: string;
+}
+```
+
+**Example:**
+```javascript
+const { extractDocumentation } = require('infiniloom-node');
+
+const doc = `
+@param name - The user's name
+@param age - The user's age
+@returns The greeting message
+@throws ValueError If name is empty
+`;
+const result = extractDocumentation(doc, 'javascript');
+console.log(`Params: ${result.params.length}`);
+for (const param of result.params) {
+  console.log(`  ${param.name}: ${param.description}`);
+}
+```
+
+---
+
+### `calculateComplexity()`
+
+Calculate complexity metrics for source code.
+
+```typescript
+function calculateComplexity(source: string, language: string): ComplexityMetrics
+
+interface ComplexityMetrics {
+  cyclomatic: number;           // Cyclomatic complexity
+  cognitive: number;            // Cognitive complexity
+  halstead: HalsteadMetrics;
+  loc: LocMetrics;
+  maintainabilityIndex?: number;
+  maxNestingDepth: number;
+  parameterCount: number;
+  returnCount: number;
+}
+
+interface HalsteadMetrics {
+  distinctOperators: number;
+  distinctOperands: number;
+  totalOperators: number;
+  totalOperands: number;
+  vocabulary: number;
+  length: number;
+  calculatedLength: number;
+  volume: number;
+  difficulty: number;
+  effort: number;
+  time: number;
+  bugs: number;
+}
+
+interface LocMetrics {
+  total: number;
+  source: number;
+  comments: number;
+  blank: number;
+}
+```
+
+**Example:**
+```javascript
+const { calculateComplexity } = require('infiniloom-node');
+
+const code = `
+function complexFunction(a, b, c) {
+  if (a > 0) {
+    if (b > 0) {
+      return a + b;
+    } else {
+      return a - b;
+    }
+  }
+  return c;
+}
+`;
+const metrics = calculateComplexity(code, 'javascript');
+console.log(`Cyclomatic: ${metrics.cyclomatic}`);
+console.log(`Cognitive: ${metrics.cognitive}`);
+console.log(`Maintainability: ${metrics.maintainabilityIndex?.toFixed(1)}`);
+```
+
+---
+
+### `checkComplexity()`
+
+Check code complexity against thresholds.
+
+```typescript
+function checkComplexity(
+  source: string,
+  language: string,
+  options?: ComplexityThresholds
+): ComplexityIssue[]
+
+interface ComplexityThresholds {
+  maxCyclomatic?: number;       // Default: 10
+  maxCognitive?: number;        // Default: 15
+  maxNesting?: number;          // Default: 4
+  maxParams?: number;           // Default: 5
+  minMaintainability?: number;  // Default: 40.0
+}
+
+interface ComplexityIssue {
+  message: string;
+  severity: string;  // "warning" or "error"
+}
+```
+
+**Example:**
+```javascript
+const { checkComplexity } = require('infiniloom-node');
+
+const issues = checkComplexity(code, 'javascript', { maxCyclomatic: 5 });
+for (const issue of issues) {
+  console.log(`[${issue.severity}] ${issue.message}`);
+}
+```
+
+---
+
+### `detectDeadCode()`
+
+Detect dead code in a repository.
+
+```typescript
+function detectDeadCode(path: string, options?: DeadCodeOptions): DeadCodeInfo
+
+interface DeadCodeOptions {
+  languages?: string[];
+}
+
+interface DeadCodeInfo {
+  unusedExports: UnusedExport[];
+  unreachableCode: UnreachableCode[];
+  unusedPrivate: UnusedPrivate[];
+  unusedImports: UnusedImport[];
+  unusedVariables: UnusedVariable[];
+}
+
+interface UnusedExport {
+  name: string;
+  kind: string;
+  filePath: string;
+  line: number;
+  confidence: number;
+  reason: string;
+}
+
+interface UnreachableCode {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  reason: string;
+  snippet: string;
+}
+
+interface UnusedPrivate {
+  name: string;
+  kind: string;
+  filePath: string;
+  line: number;
+}
+
+interface UnusedImport {
+  name: string;
+  importPath: string;
+  filePath: string;
+  line: number;
+}
+
+interface UnusedVariable {
+  name: string;
+  filePath: string;
+  line: number;
+  scope: string;
+}
+```
+
+**Example:**
+```javascript
+const { detectDeadCode } = require('infiniloom-node');
+
+const result = detectDeadCode('./my-repo');
+console.log(`Unused exports: ${result.unusedExports.length}`);
+console.log(`Unreachable code: ${result.unreachableCode.length}`);
+for (const exp of result.unusedExports) {
+  console.log(`  ${exp.name} in ${exp.filePath}:${exp.line}`);
+}
+```
+
+---
+
+### `detectBreakingChanges()`
+
+Detect breaking changes between two versions.
+
+```typescript
+function detectBreakingChanges(
+  path: string,
+  oldRef: string,
+  newRef: string
+): BreakingChangeReport
+
+interface BreakingChangeReport {
+  changes: BreakingChange[];
+  summary: {
+    totalChanges: number;
+    bySeverity: Record<string, number>;
+    byType: Record<string, number>;
+  };
+  oldRef: string;
+  newRef: string;
+}
+
+interface BreakingChange {
+  symbolName: string;
+  changeType: string;        // "removed", "signature_changed", "visibility_changed"
+  severity: string;          // "breaking", "warning", "info"
+  filePath: string;
+  oldLine?: number;
+  newLine?: number;
+  oldValue?: string;
+  newValue?: string;
+  description: string;
+  suggestion?: string;
+}
+```
+
+**Example:**
+```javascript
+const { detectBreakingChanges } = require('infiniloom-node');
+
+const report = detectBreakingChanges('./my-repo', 'v1.0.0', 'v2.0.0');
+console.log(`Breaking changes: ${report.summary.bySeverity.breaking || 0}`);
+for (const change of report.changes) {
+  if (change.severity === 'breaking') {
+    console.log(`  BREAKING: ${change.symbolName} - ${change.description}`);
+  }
+}
+```
+
+---
+
+### `getTypeHierarchy()`
+
+Get the type hierarchy for a class/interface.
+
+```typescript
+function getTypeHierarchy(path: string, symbolName: string): TypeHierarchy
+
+interface TypeHierarchy {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  ancestors: AncestorInfo[];
+  descendants: AncestorInfo[];
+  interfaces: string[];
+}
+
+interface AncestorInfo {
+  name: string;
+  file: string;
+  line: number;
+  kind: string;
+  depth: number;
+  isDirect: boolean;
+}
+```
+
+**Example:**
+```javascript
+const { getTypeHierarchy } = require('infiniloom-node');
+
+const hierarchy = getTypeHierarchy('./my-repo', 'BaseController');
+console.log(`Ancestors: ${hierarchy.ancestors.map(a => a.name).join(', ')}`);
+console.log(`Descendants: ${hierarchy.descendants.map(d => d.name).join(', ')}`);
+```
+
+---
+
+### `getTypeAncestors()`
+
+Get all ancestors (parent classes/interfaces) of a type.
+
+```typescript
+function getTypeAncestors(path: string, symbolName: string): AncestorInfo[]
+```
+
+---
+
+### `getTypeDescendants()`
+
+Get all descendants (child classes) of a type.
+
+```typescript
+function getTypeDescendants(path: string, symbolName: string): AncestorInfo[]
+```
+
+---
+
+### `getImplementors()`
+
+Get all classes that implement an interface.
+
+```typescript
+function getImplementors(path: string, interfaceName: string): SymbolInfo[]
+```
+
+**Example:**
+```javascript
+const { getImplementors } = require('infiniloom-node');
+
+const implementors = getImplementors('./my-repo', 'Serializable');
+console.log(`Classes implementing Serializable: ${implementors.length}`);
+for (const impl of implementors) {
+  console.log(`  ${impl.name} at ${impl.file}:${impl.line}`);
+}
+```
+
+---
+
 ## Classes
 
 ### `Infiniloom`

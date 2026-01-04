@@ -451,6 +451,342 @@ for c in callers:
 
 ---
 
+## Analysis API
+
+### `extract_documentation()`
+
+Extract structured documentation from a docstring/comment.
+
+```python
+def extract_documentation(raw_doc: str, language: str) -> Documentation
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `raw_doc` | `str` | Raw documentation string (JSDoc, Python docstring, etc.) |
+| `language` | `str` | Language of the code (`"javascript"`, `"python"`, `"rust"`, etc.) |
+
+**Returns:** `Documentation` dictionary:
+```python
+{
+    "summary": Optional[str],
+    "description": Optional[str],
+    "params": [
+        {
+            "name": str,
+            "type_info": Optional[str],
+            "description": Optional[str],
+            "is_optional": bool,
+            "default_value": Optional[str],
+        }
+    ],
+    "returns": {
+        "type_info": Optional[str],
+        "description": Optional[str],
+    },
+    "throws": [{"exception_type": str, "description": Optional[str]}],
+    "examples": [{"code": str, "title": Optional[str], "language": Optional[str]}],
+    "is_deprecated": bool,
+    "deprecation_message": Optional[str],
+    "since": Optional[str],
+    "see_also": List[str],
+    "tags": Dict[str, List[str]],
+    "raw": Optional[str],
+}
+```
+
+**Example:**
+```python
+doc = """
+@param name - The user's name
+@param age - The user's age
+@returns The greeting message
+@throws ValueError If name is empty
+"""
+result = infiniloom.extract_documentation(doc, "javascript")
+print(f"Params: {len(result['params'])}")
+for param in result['params']:
+    print(f"  {param['name']}: {param['description']}")
+```
+
+---
+
+### `calculate_complexity()`
+
+Calculate complexity metrics for source code.
+
+```python
+def calculate_complexity(source: str, language: str) -> ComplexityMetrics
+```
+
+**Returns:** `ComplexityMetrics` dictionary:
+```python
+{
+    "cyclomatic": int,           # Cyclomatic complexity
+    "cognitive": int,            # Cognitive complexity
+    "halstead": {
+        "distinct_operators": int,
+        "distinct_operands": int,
+        "total_operators": int,
+        "total_operands": int,
+        "vocabulary": int,
+        "length": int,
+        "calculated_length": float,
+        "volume": float,
+        "difficulty": float,
+        "effort": float,
+        "time": float,
+        "bugs": float,
+    },
+    "loc": {
+        "total": int,
+        "source": int,
+        "comments": int,
+        "blank": int,
+    },
+    "maintainability_index": Optional[float],
+    "max_nesting_depth": int,
+    "parameter_count": int,
+    "return_count": int,
+}
+```
+
+**Example:**
+```python
+code = """
+def complex_function(a, b, c):
+    if a > 0:
+        if b > 0:
+            return a + b
+        else:
+            return a - b
+    return c
+"""
+metrics = infiniloom.calculate_complexity(code, "python")
+print(f"Cyclomatic: {metrics['cyclomatic']}")
+print(f"Cognitive: {metrics['cognitive']}")
+print(f"Maintainability: {metrics['maintainability_index']:.1f}")
+```
+
+---
+
+### `check_complexity()`
+
+Check code complexity against thresholds.
+
+```python
+def check_complexity(
+    source: str,
+    language: str,
+    max_cyclomatic: int = 10,
+    max_cognitive: int = 15,
+    max_nesting: int = 4,
+    max_params: int = 5,
+    min_maintainability: float = 40.0,
+) -> List[ComplexityIssue]
+```
+
+**Returns:** List of complexity issues:
+```python
+{
+    "message": str,    # Description of the issue
+    "severity": str,   # "warning" or "error"
+}
+```
+
+**Example:**
+```python
+issues = infiniloom.check_complexity(code, "python", max_cyclomatic=5)
+for issue in issues:
+    print(f"[{issue['severity']}] {issue['message']}")
+```
+
+---
+
+### `detect_dead_code()`
+
+Detect dead code in a repository.
+
+```python
+def detect_dead_code(
+    path: str,
+    languages: Optional[List[str]] = None,
+) -> DeadCodeInfo
+```
+
+**Returns:** `DeadCodeInfo` dictionary:
+```python
+{
+    "unused_exports": [
+        {
+            "name": str,
+            "kind": str,
+            "file_path": str,
+            "line": int,
+            "confidence": float,
+            "reason": str,
+        }
+    ],
+    "unreachable_code": [
+        {
+            "file_path": str,
+            "start_line": int,
+            "end_line": int,
+            "reason": str,
+            "snippet": str,
+        }
+    ],
+    "unused_private": [
+        {"name": str, "kind": str, "file_path": str, "line": int}
+    ],
+    "unused_imports": [
+        {"name": str, "import_path": str, "file_path": str, "line": int}
+    ],
+    "unused_variables": [
+        {"name": str, "file_path": str, "line": int, "scope": str}
+    ],
+}
+```
+
+**Example:**
+```python
+result = infiniloom.detect_dead_code("/path/to/repo")
+print(f"Unused exports: {len(result['unused_exports'])}")
+print(f"Unreachable code: {len(result['unreachable_code'])}")
+for export in result['unused_exports']:
+    print(f"  {export['name']} in {export['file_path']}:{export['line']}")
+```
+
+---
+
+### `detect_breaking_changes()`
+
+Detect breaking changes between two versions.
+
+```python
+def detect_breaking_changes(
+    path: str,
+    old_ref: str,
+    new_ref: str,
+) -> BreakingChangeReport
+```
+
+**Returns:** `BreakingChangeReport` dictionary:
+```python
+{
+    "changes": [
+        {
+            "symbol_name": str,
+            "change_type": str,        # "removed", "signature_changed", "visibility_changed"
+            "severity": str,           # "breaking", "warning", "info"
+            "file_path": str,
+            "old_line": Optional[int],
+            "new_line": Optional[int],
+            "old_value": Optional[str],
+            "new_value": Optional[str],
+            "description": str,
+            "suggestion": Optional[str],
+        }
+    ],
+    "summary": {
+        "total_changes": int,
+        "by_severity": {"breaking": int, "warning": int, "info": int},
+        "by_type": {"removed": int, "signature_changed": int, ...},
+    },
+    "old_ref": str,
+    "new_ref": str,
+}
+```
+
+**Example:**
+```python
+report = infiniloom.detect_breaking_changes("/path/to/repo", "v1.0.0", "v2.0.0")
+print(f"Breaking changes: {report['summary']['by_severity'].get('breaking', 0)}")
+for change in report['changes']:
+    if change['severity'] == 'breaking':
+        print(f"  BREAKING: {change['symbol_name']} - {change['description']}")
+```
+
+---
+
+### `get_type_hierarchy()`
+
+Get the type hierarchy for a class/interface.
+
+```python
+def get_type_hierarchy(path: str, symbol_name: str) -> TypeHierarchy
+```
+
+**Returns:** `TypeHierarchy` dictionary:
+```python
+{
+    "name": str,
+    "kind": str,
+    "file": str,
+    "line": int,
+    "ancestors": [
+        {
+            "name": str,
+            "file": str,
+            "line": int,
+            "kind": str,
+            "depth": int,
+            "is_direct": bool,
+        }
+    ],
+    "descendants": [...],
+    "interfaces": List[str],
+}
+```
+
+**Example:**
+```python
+hierarchy = infiniloom.get_type_hierarchy("/path/to/repo", "BaseController")
+print(f"Ancestors: {[a['name'] for a in hierarchy['ancestors']]}")
+print(f"Descendants: {[d['name'] for d in hierarchy['descendants']]}")
+```
+
+---
+
+### `get_type_ancestors()`
+
+Get all ancestors (parent classes/interfaces) of a type.
+
+```python
+def get_type_ancestors(path: str, symbol_name: str) -> List[AncestorInfo]
+```
+
+---
+
+### `get_type_descendants()`
+
+Get all descendants (child classes) of a type.
+
+```python
+def get_type_descendants(path: str, symbol_name: str) -> List[AncestorInfo]
+```
+
+---
+
+### `get_implementors()`
+
+Get all classes that implement an interface.
+
+```python
+def get_implementors(path: str, interface_name: str) -> List[SymbolInfo]
+```
+
+**Example:**
+```python
+implementors = infiniloom.get_implementors("/path/to/repo", "Serializable")
+print(f"Classes implementing Serializable: {len(implementors)}")
+for impl in implementors:
+    print(f"  {impl['name']} at {impl['file']}:{impl['line']}")
+```
+
+---
+
 ## Diff Context API
 
 ### `get_diff_context()`

@@ -165,6 +165,9 @@ pub mod exit_codes;
 // License detection for compliance scanning
 pub mod license;
 
+// Code analysis module for advanced features
+pub mod analysis;
+
 // Re-exports from core modules
 pub use chunking::{Chunk, ChunkStrategy, Chunker};
 pub use constants::{
@@ -303,6 +306,67 @@ pub use license::{
     LicenseScanConfig,
     LicenseScanner,
     LicenseSummary,
+};
+pub use analysis::{
+    // Type signature extraction
+    TypeSignature,
+    ParameterInfo,
+    ParameterKind,
+    TypeInfo,
+    GenericParam,
+    Variance,
+    TypeSignatureExtractor,
+    // Type hierarchy navigation
+    TypeHierarchy,
+    AncestorInfo,
+    AncestorKind,
+    TypeHierarchyBuilder,
+    build_type_hierarchy,
+    // Documentation extraction
+    Documentation,
+    ParamDoc,
+    ReturnDoc,
+    ThrowsDoc,
+    Example,
+    DocumentationExtractor,
+    // Complexity metrics
+    ComplexityMetrics,
+    HalsteadMetrics,
+    LocMetrics,
+    ComplexityCalculator,
+    ComplexityThresholds,
+    ComplexitySeverity,
+    calculate_complexity,
+    calculate_complexity_from_source,
+    check_complexity,
+    // Dead code detection
+    DeadCodeInfo,
+    UnusedExport,
+    UnreachableCode,
+    UnusedSymbol,
+    UnusedImport,
+    UnusedVariable,
+    DeadCodeDetector,
+    detect_dead_code,
+    detect_unreachable_code,
+    // Breaking change detection
+    BreakingChange,
+    BreakingChangeType,
+    ChangeSeverity,
+    BreakingChangeReport,
+    BreakingChangeSummary,
+    BreakingChangeDetector,
+    detect_breaking_changes,
+    // Multi-repository index
+    MultiRepoIndex,
+    RepoEntry,
+    CrossRepoLink,
+    CrossRepoLinkType,
+    UnifiedSymbolRef,
+    MultiRepoIndexBuilder,
+    MultiRepoQuery,
+    MultiRepoStats,
+    build_multi_repo_index,
 };
 
 /// Library version

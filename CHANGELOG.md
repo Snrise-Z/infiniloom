@@ -5,6 +5,55 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-01-04
+
+### Added
+
+- **Analysis Module** - Comprehensive code analysis capabilities (`engine/src/analysis/`)
+  - **Type Signature Extraction** - Extract complete type signatures for functions, methods, and classes across 21 languages
+  - **Type Hierarchy Navigation** - Navigate class inheritance and interface implementations
+    - `get_type_hierarchy()` - Get complete hierarchy with ancestors and descendants
+    - `get_type_ancestors()` - Get all parent classes/interfaces
+    - `get_type_descendants()` - Get all child classes
+    - `get_implementors()` - Get all classes implementing an interface/trait
+  - **Documentation Extraction** - Parse JSDoc, Python docstrings, Rust doc comments into structured format
+    - `extract_documentation()` - Returns summary, params, returns, throws, examples, deprecation info
+  - **Complexity Metrics** - Calculate code complexity metrics
+    - `calculate_complexity()` - Cyclomatic, cognitive, Halstead metrics, maintainability index
+    - `check_complexity()` - Validate against thresholds, return issues
+  - **Dead Code Detection** - Find unused code across codebase
+    - `detect_dead_code()` - Returns unused exports, unreachable code, unused imports/variables
+  - **Breaking Change Detection** - Detect API breaking changes between versions
+    - `detect_breaking_changes()` - Compare two git refs, report signature changes, removals
+
+- **Python Bindings** - All 9 analysis functions exposed with full type stubs
+  - Added `extract_documentation()`, `detect_dead_code()`, `detect_breaking_changes()`
+  - Added `get_type_hierarchy()`, `get_type_ancestors()`, `get_type_descendants()`, `get_implementors()`
+  - Added `calculate_complexity()`, `check_complexity()`
+  - Complete TypedDict definitions in `infiniloom.pyi` for IDE support
+
+- **Node.js Bindings** - All analysis functions exposed with TypeScript definitions
+  - Added `extractDocumentation()`, `detectDeadCode()`, `detectBreakingChanges()`
+  - Added `getTypeHierarchy()`, `getTypeAncestors()`, `getTypeDescendants()`, `getImplementors()`
+  - Added `calculateComplexity()`, `checkComplexity()`
+
+### Fixed
+
+- **OCaml Tree-sitter Query** - Fixed "Impossible pattern" error in module_binding query
+  - Changed `name: (module_name) @name` to `(module_name) @name` (OCaml grammar doesn't have `name` field)
+  - Both `ocaml_query()` and `ocaml_super_query()` now work correctly
+
+- **Documentation Regex** - Fixed lookahead regex not supported by Rust regex crate
+  - Changed JSDoc example pattern to avoid `(?=...)` lookahead syntax
+
+- **Dead Code Test** - Fixed test using wrong language for entry point detection
+  - Changed from Rust (where all public items are entry points) to C for accurate testing
+
+### Changed
+
+- **Test Coverage** - All 998 engine tests passing (was 997)
+- **Bindings Validation** - Both Python and Node.js bindings compile and pass all tests
+
 ## [0.5.4] - 2025-12-29
 
 ### Fixed

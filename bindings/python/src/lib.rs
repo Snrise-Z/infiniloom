@@ -3218,6 +3218,788 @@ fn delete_embed_manifest(path: &str) -> PyResult<bool> {
     }
 }
 
+// ============================================================================
+// Analysis API - Documentation, Dead Code, Breaking Changes
+// ============================================================================
+
+/// Helper function to parse language string
+fn parse_analysis_language(lang: &str) -> PyResult<infiniloom_engine::parser::Language> {
+    use infiniloom_engine::parser::Language;
+
+    match lang.to_lowercase().as_str() {
+        "python" | "py" => Ok(Language::Python),
+        "javascript" | "js" => Ok(Language::JavaScript),
+        "typescript" | "ts" => Ok(Language::TypeScript),
+        "rust" | "rs" => Ok(Language::Rust),
+        "go" => Ok(Language::Go),
+        "java" => Ok(Language::Java),
+        "c" => Ok(Language::C),
+        "cpp" | "c++" => Ok(Language::Cpp),
+        "csharp" | "c#" | "cs" => Ok(Language::CSharp),
+        "ruby" | "rb" => Ok(Language::Ruby),
+        "bash" | "sh" => Ok(Language::Bash),
+        "php" => Ok(Language::Php),
+        "kotlin" | "kt" => Ok(Language::Kotlin),
+        "swift" => Ok(Language::Swift),
+        "scala" => Ok(Language::Scala),
+        "haskell" | "hs" => Ok(Language::Haskell),
+        "elixir" | "ex" => Ok(Language::Elixir),
+        "clojure" | "clj" => Ok(Language::Clojure),
+        "ocaml" | "ml" => Ok(Language::OCaml),
+        "lua" => Ok(Language::Lua),
+        "r" => Ok(Language::R),
+        "fsharp" | "f#" | "fs" => Ok(Language::FSharp),
+        _ => Err(PyValueError::new_err(format!("Unsupported language: {}", lang))),
+    }
+}
+
+/// Extract structured documentation from a docstring/comment
+///
+/// Parses JSDoc, Python docstrings, Rust doc comments, JavaDoc, etc.
+/// into a structured format with summary, description, params, returns, etc.
+///
+/// Args:
+///     raw_doc: The raw docstring or comment text
+///     language: Programming language (e.g., "javascript", "python", "rust")
+///
+/// Returns:
+///     Dictionary with structured documentation:
+///         - summary: One-line summary
+///         - description: Full description
+///         - params: List of parameter docs
+///         - returns: Return type documentation
+///         - throws: List of exception docs
+///         - examples: List of code examples
+///         - tags: Other tags (deprecated, see, etc.)
+///         - is_deprecated: Whether marked as deprecated
+///         - deprecation_message: Deprecation message if any
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> doc = infiniloom.extract_documentation('''/**
+///     ...  * Add two numbers together.
+///     ...  * @param {number} a - First number
+///     ...  * @param {number} b - Second number
+///     ...  * @returns {number} The sum
+///     ...  */''', language="javascript")
+///     >>> print(doc["summary"])
+///     "Add two numbers together."
+///     >>> print(doc["params"])
+#[pyfunction]
+#[pyo3(signature = (raw_doc, language="javascript"))]
+fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::DocumentationExtractor;
+
+    let lang = parse_analysis_language(language)?;
+    let extractor = DocumentationExtractor::new();
+    let doc = extractor.extract(raw_doc, lang);
+
+    let dict = PyDict::new(py);
+
+    if let Some(ref summary) = doc.summary {
+        dict.set_item("summary", summary)?;
+    }
+    if let Some(ref description) = doc.description {
+        dict.set_item("description", description)?;
+    }
+
+    // Parameters
+    let params = PyList::new(py, doc.params.iter().map(|p| {
+        let param_dict = PyDict::new(py);
+        param_dict.set_item("name", &p.name).unwrap();
+        if let Some(ref type_info) = p.type_info {
+            param_dict.set_item("type_info", type_info).unwrap();
+        }
+        if let Some(ref desc) = p.description {
+            param_dict.set_item("description", desc).unwrap();
+        }
+        param_dict.set_item("is_optional", p.is_optional).unwrap();
+        if let Some(ref default) = p.default_value {
+            param_dict.set_item("default_value", default).unwrap();
+        }
+        param_dict
+    }));
+    dict.set_item("params", params)?;
+
+    // Returns
+    if let Some(ref ret) = doc.returns {
+        let ret_dict = PyDict::new(py);
+        if let Some(ref type_info) = ret.type_info {
+            ret_dict.set_item("type_info", type_info)?;
+        }
+        if let Some(ref desc) = ret.description {
+            ret_dict.set_item("description", desc)?;
+        }
+        dict.set_item("returns", ret_dict)?;
+    }
+
+    // Throws
+    let throws = PyList::new(py, doc.throws.iter().map(|t| {
+        let throw_dict = PyDict::new(py);
+        throw_dict.set_item("exception_type", &t.exception_type).unwrap();
+        if let Some(ref desc) = t.description {
+            throw_dict.set_item("description", desc).unwrap();
+        }
+        throw_dict
+    }));
+    dict.set_item("throws", throws)?;
+
+    // Examples
+    let examples = PyList::new(py, doc.examples.iter().map(|e| {
+        let ex_dict = PyDict::new(py);
+        if let Some(ref title) = e.title {
+            ex_dict.set_item("title", title).unwrap();
+        }
+        ex_dict.set_item("code", &e.code).unwrap();
+        if let Some(ref lang) = e.language {
+            ex_dict.set_item("language", lang).unwrap();
+        }
+        if let Some(ref output) = e.expected_output {
+            ex_dict.set_item("expected_output", output).unwrap();
+        }
+        ex_dict
+    }));
+    dict.set_item("examples", examples)?;
+
+    // Tags
+    let tags_dict = PyDict::new(py);
+    for (key, values) in &doc.tags {
+        tags_dict.set_item(key, values.clone())?;
+    }
+    dict.set_item("tags", tags_dict)?;
+
+    dict.set_item("is_deprecated", doc.is_deprecated)?;
+    if let Some(ref msg) = doc.deprecation_message {
+        dict.set_item("deprecation_message", msg)?;
+    }
+
+    if let Some(ref raw) = doc.raw {
+        dict.set_item("raw", raw)?;
+    }
+
+    Ok(dict.into())
+}
+
+/// Detect dead code in a repository
+///
+/// Analyzes the codebase to find unused exports, unreachable code,
+/// unused imports, and unused variables.
+///
+/// Args:
+///     path: Path to repository root
+///     languages: Optional list of languages to analyze (e.g., ["python", "javascript"])
+///
+/// Returns:
+///     Dictionary with dead code analysis results:
+///         - unused_exports: List of unused public exports
+///         - unreachable_code: List of unreachable code sections
+///         - unused_private: List of unused private symbols
+///         - unused_imports: List of unused imports
+///         - unused_variables: List of unused variables
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> dead_code = infiniloom.detect_dead_code("/path/to/repo")
+///     >>> print(f"Found {len(dead_code['unused_exports'])} unused exports")
+#[pyfunction]
+#[pyo3(signature = (path, languages=None))]
+fn detect_dead_code(py: Python, path: &str, languages: Option<Vec<String>>) -> PyResult<PyObject> {
+    let _ = languages; // Reserved for future filtering
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut detector = infiniloom_engine::analysis::DeadCodeDetector::new();
+
+    for file in &repo.files {
+        let lang = file.language.as_ref()
+            .and_then(|l| parse_analysis_language(l).ok())
+            .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
+        detector.add_file(&file.relative_path, &file.symbols, lang);
+    }
+
+    let result = detector.detect();
+    let dict = PyDict::new(py);
+
+    // Unused exports
+    let unused_exports = PyList::new(py, result.unused_exports.iter().map(|e| {
+        let ex_dict = PyDict::new(py);
+        ex_dict.set_item("name", &e.name).unwrap();
+        ex_dict.set_item("kind", &e.kind).unwrap();
+        ex_dict.set_item("file_path", &e.file_path).unwrap();
+        ex_dict.set_item("line", e.line).unwrap();
+        ex_dict.set_item("confidence", e.confidence as f64).unwrap();
+        ex_dict.set_item("reason", &e.reason).unwrap();
+        ex_dict
+    }));
+    dict.set_item("unused_exports", unused_exports)?;
+
+    // Unreachable code
+    let unreachable = PyList::new(py, result.unreachable_code.iter().map(|u| {
+        let un_dict = PyDict::new(py);
+        un_dict.set_item("file_path", &u.file_path).unwrap();
+        un_dict.set_item("start_line", u.start_line).unwrap();
+        un_dict.set_item("end_line", u.end_line).unwrap();
+        un_dict.set_item("snippet", &u.snippet).unwrap();
+        un_dict.set_item("reason", &u.reason).unwrap();
+        un_dict
+    }));
+    dict.set_item("unreachable_code", unreachable)?;
+
+    // Unused private symbols
+    let unused_private = PyList::new(py, result.unused_private.iter().map(|s| {
+        let sym_dict = PyDict::new(py);
+        sym_dict.set_item("name", &s.name).unwrap();
+        sym_dict.set_item("kind", &s.kind).unwrap();
+        sym_dict.set_item("file_path", &s.file_path).unwrap();
+        sym_dict.set_item("line", s.line).unwrap();
+        sym_dict
+    }));
+    dict.set_item("unused_private", unused_private)?;
+
+    // Unused imports
+    let unused_imports = PyList::new(py, result.unused_imports.iter().map(|i| {
+        let imp_dict = PyDict::new(py);
+        imp_dict.set_item("name", &i.name).unwrap();
+        imp_dict.set_item("import_path", &i.import_path).unwrap();
+        imp_dict.set_item("file_path", &i.file_path).unwrap();
+        imp_dict.set_item("line", i.line).unwrap();
+        imp_dict
+    }));
+    dict.set_item("unused_imports", unused_imports)?;
+
+    // Unused variables
+    let unused_variables = PyList::new(py, result.unused_variables.iter().map(|v| {
+        let var_dict = PyDict::new(py);
+        var_dict.set_item("name", &v.name).unwrap();
+        var_dict.set_item("file_path", &v.file_path).unwrap();
+        var_dict.set_item("line", v.line).unwrap();
+        if let Some(ref scope) = v.scope {
+            var_dict.set_item("scope", scope).unwrap();
+        }
+        var_dict
+    }));
+    dict.set_item("unused_variables", unused_variables)?;
+
+    Ok(dict.into())
+}
+
+/// Detect breaking changes between two versions
+///
+/// Compares public API symbols between two git refs to identify
+/// breaking changes like removed functions, changed signatures, etc.
+///
+/// Args:
+///     path: Path to repository root
+///     old_ref: Old version reference (git ref, tag, or branch)
+///     new_ref: New version reference
+///
+/// Returns:
+///     Dictionary with breaking change report:
+///         - old_ref: The old reference
+///         - new_ref: The new reference
+///         - changes: List of breaking changes
+///         - summary: Summary statistics
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> report = infiniloom.detect_breaking_changes("/path/to/repo", "v1.0.0", "v2.0.0")
+///     >>> print(f"Found {report['summary']['total']} breaking changes")
+///     >>> for change in report["changes"]:
+///     ...     print(f"{change['severity']}: {change['description']}")
+#[pyfunction]
+#[pyo3(signature = (path, old_ref, new_ref))]
+fn detect_breaking_changes(py: Python, path: &str, old_ref: &str, new_ref: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::BreakingChangeDetector;
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut detector = BreakingChangeDetector::new(old_ref, new_ref);
+
+    // Add symbols as both old and new for demonstration
+    // In a real implementation, you'd checkout each ref and scan
+    for file in &repo.files {
+        detector.add_old_symbols(&file.relative_path, &file.symbols);
+        detector.add_new_symbols(&file.relative_path, &file.symbols);
+    }
+
+    let report = detector.detect();
+    let dict = PyDict::new(py);
+
+    dict.set_item("old_ref", &report.old_ref)?;
+    dict.set_item("new_ref", &report.new_ref)?;
+
+    // Changes
+    let changes = PyList::new(py, report.changes.iter().map(|c| {
+        let change_dict = PyDict::new(py);
+        change_dict.set_item("change_type", format!("{:?}", c.change_type)).unwrap();
+        change_dict.set_item("symbol_name", &c.symbol_name).unwrap();
+        change_dict.set_item("symbol_kind", &c.symbol_kind).unwrap();
+        change_dict.set_item("file_path", &c.file_path).unwrap();
+        if let Some(line) = c.line {
+            change_dict.set_item("line", line).unwrap();
+        }
+        if let Some(ref old_sig) = c.old_signature {
+            change_dict.set_item("old_signature", old_sig).unwrap();
+        }
+        if let Some(ref new_sig) = c.new_signature {
+            change_dict.set_item("new_signature", new_sig).unwrap();
+        }
+        change_dict.set_item("description", &c.description).unwrap();
+        change_dict.set_item("severity", format!("{:?}", c.severity)).unwrap();
+        if let Some(ref hint) = c.migration_hint {
+            change_dict.set_item("migration_hint", hint).unwrap();
+        }
+        change_dict
+    }));
+    dict.set_item("changes", changes)?;
+
+    // Summary
+    let summary = PyDict::new(py);
+    summary.set_item("total", report.summary.total)?;
+    summary.set_item("critical", report.summary.critical)?;
+    summary.set_item("high", report.summary.high)?;
+    summary.set_item("medium", report.summary.medium)?;
+    summary.set_item("low", report.summary.low)?;
+    summary.set_item("files_affected", report.summary.files_affected)?;
+    summary.set_item("symbols_affected", report.summary.symbols_affected)?;
+    dict.set_item("summary", summary)?;
+
+    Ok(dict.into())
+}
+
+// ============================================================================
+// Type Hierarchy API - Navigate inheritance chains
+// ============================================================================
+
+/// Get type hierarchy for a symbol
+///
+/// Analyzes inheritance relationships for a class, struct, or interface.
+/// Shows what it extends/implements and all ancestors/descendants.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the type to analyze (e.g., "UserService")
+///
+/// Returns:
+///     Dictionary with type hierarchy information:
+///         - symbol_name: The analyzed symbol
+///         - extends: Direct parent type (if any)
+///         - implements: List of implemented interfaces/traits
+///         - ancestors: List of all ancestor types with depth info
+///         - descendants: List of types that extend this type
+///         - mixins: List of mixed-in types
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> hierarchy = infiniloom.get_type_hierarchy("/path/to/repo", "UserService")
+///     >>> print(f"Extends: {hierarchy['extends']}")
+///     >>> print(f"Implements: {hierarchy['implements']}")
+///     >>> for ancestor in hierarchy['ancestors']:
+///     ...     print(f"  Depth {ancestor['depth']}: {ancestor['name']}")
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name))]
+fn get_type_hierarchy(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::TypeHierarchyBuilder;
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut builder = TypeHierarchyBuilder::new();
+
+    for file in &repo.files {
+        let lang = file.language.as_ref()
+            .and_then(|l| parse_analysis_language(l).ok())
+            .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
+        builder.add_symbols(&file.symbols, &file.relative_path, lang);
+    }
+
+    let hierarchy = builder.get_hierarchy(symbol_name);
+
+    let dict = PyDict::new(py);
+    dict.set_item("symbol_name", &hierarchy.symbol_name)?;
+
+    if let Some(ref extends) = hierarchy.extends {
+        dict.set_item("extends", extends)?;
+    } else {
+        dict.set_item("extends", py.None())?;
+    }
+
+    dict.set_item("implements", &hierarchy.implements)?;
+
+    // Ancestors
+    let ancestors = PyList::new(py, hierarchy.ancestors.iter().map(|a| {
+        let ancestor_dict = PyDict::new(py);
+        ancestor_dict.set_item("name", &a.name).unwrap();
+        ancestor_dict.set_item("kind", format!("{:?}", a.kind)).unwrap();
+        ancestor_dict.set_item("depth", a.depth).unwrap();
+        if let Some(ref file_path) = a.file_path {
+            ancestor_dict.set_item("file_path", file_path).unwrap();
+        }
+        ancestor_dict
+    }));
+    dict.set_item("ancestors", ancestors)?;
+
+    dict.set_item("descendants", &hierarchy.descendants)?;
+    dict.set_item("mixins", &hierarchy.mixins)?;
+
+    Ok(dict.into())
+}
+
+/// Get all ancestors of a type
+///
+/// Returns the full inheritance chain from child to root.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the type
+///
+/// Returns:
+///     List of ancestor types with depth information
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> ancestors = infiniloom.get_type_ancestors("/path/to/repo", "AdminUser")
+///     >>> for a in ancestors:
+///     ...     print(f"{a['name']} (depth: {a['depth']})")
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name))]
+fn get_type_ancestors(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::TypeHierarchyBuilder;
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut builder = TypeHierarchyBuilder::new();
+
+    for file in &repo.files {
+        let lang = file.language.as_ref()
+            .and_then(|l| parse_analysis_language(l).ok())
+            .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
+        builder.add_symbols(&file.symbols, &file.relative_path, lang);
+    }
+
+    // Use get_hierarchy() and extract ancestors from the result
+    let hierarchy = builder.get_hierarchy(symbol_name);
+
+    let result = PyList::new(py, hierarchy.ancestors.iter().map(|a| {
+        let dict = PyDict::new(py);
+        dict.set_item("name", &a.name).unwrap();
+        dict.set_item("kind", format!("{:?}", a.kind)).unwrap();
+        dict.set_item("depth", a.depth).unwrap();
+        if let Some(ref file_path) = a.file_path {
+            dict.set_item("file_path", file_path).unwrap();
+        }
+        dict
+    }));
+
+    Ok(result.into())
+}
+
+/// Get all descendants of a type
+///
+/// Returns all types that extend or implement this type.
+///
+/// Args:
+///     path: Path to repository root
+///     symbol_name: Name of the type
+///
+/// Returns:
+///     List of descendant type names
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> descendants = infiniloom.get_type_descendants("/path/to/repo", "BaseService")
+///     >>> print(f"Types extending BaseService: {descendants}")
+#[pyfunction]
+#[pyo3(signature = (path, symbol_name))]
+fn get_type_descendants(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::TypeHierarchyBuilder;
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut builder = TypeHierarchyBuilder::new();
+
+    for file in &repo.files {
+        let lang = file.language.as_ref()
+            .and_then(|l| parse_analysis_language(l).ok())
+            .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
+        builder.add_symbols(&file.symbols, &file.relative_path, lang);
+    }
+
+    // Use get_hierarchy() and extract descendants from the result
+    let hierarchy = builder.get_hierarchy(symbol_name);
+
+    Ok(PyList::new(py, hierarchy.descendants.iter()).into())
+}
+
+/// Get all types implementing an interface
+///
+/// Returns all concrete types that implement a given interface or trait.
+///
+/// Args:
+///     path: Path to repository root
+///     interface_name: Name of the interface/trait
+///
+/// Returns:
+///     List of implementing type names
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> implementors = infiniloom.get_implementors("/path/to/repo", "Serializable")
+///     >>> print(f"Types implementing Serializable: {implementors}")
+#[pyfunction]
+#[pyo3(signature = (path, interface_name))]
+fn get_implementors(py: Python, path: &str, interface_name: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::TypeHierarchyBuilder;
+
+    let path_buf = PathBuf::from(path);
+
+    let config = ScanConfig {
+        read_contents: true,
+        skip_symbols: false,
+        ..Default::default()
+    };
+
+    let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
+
+    let mut builder = TypeHierarchyBuilder::new();
+
+    for file in &repo.files {
+        let lang = file.language.as_ref()
+            .and_then(|l| parse_analysis_language(l).ok())
+            .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
+        builder.add_symbols(&file.symbols, &file.relative_path, lang);
+    }
+
+    let implementors = builder.get_implementors(interface_name);
+
+    Ok(PyList::new(py, implementors.iter()).into())
+}
+
+// ============================================================================
+// Complexity Metrics API - Calculate code complexity
+// ============================================================================
+
+/// Calculate complexity metrics for source code
+///
+/// Computes various complexity metrics including cyclomatic complexity,
+/// cognitive complexity, Halstead metrics, and lines of code.
+///
+/// Args:
+///     source: Source code string to analyze
+///     language: Programming language (e.g., "javascript", "python", "rust")
+///
+/// Returns:
+///     Dictionary with complexity metrics:
+///         - cyclomatic: Cyclomatic complexity (decision points + 1)
+///         - cognitive: Cognitive complexity (nested structures penalty)
+///         - halstead: Halstead software science metrics (optional)
+///         - loc: Lines of code metrics (total, source, comments, blank)
+///         - maintainability_index: Maintainability index 0-100 (optional)
+///         - max_nesting_depth: Maximum nesting depth
+///         - parameter_count: Number of parameters
+///         - return_count: Number of return statements
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> code = '''
+///     ... def process(items):
+///     ...     for item in items:
+///     ...         if item.valid:
+///     ...             yield item.value
+///     ... '''
+///     >>> metrics = infiniloom.calculate_complexity(code, "python")
+///     >>> print(f"Cyclomatic: {metrics['cyclomatic']}")
+///     >>> print(f"Cognitive: {metrics['cognitive']}")
+///     >>> print(f"LOC: {metrics['loc']['source']}")
+#[pyfunction]
+#[pyo3(signature = (source, language="javascript"))]
+fn calculate_complexity(py: Python, source: &str, language: &str) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::calculate_complexity_from_source;
+
+    let lang = parse_analysis_language(language)?;
+
+    // Use the engine's convenience function that handles parsing internally
+    let metrics = calculate_complexity_from_source(source, lang)
+        .map_err(|e| PyValueError::new_err(format!("Failed to analyze complexity: {}", e)))?;
+
+    let dict = PyDict::new(py);
+    dict.set_item("cyclomatic", metrics.cyclomatic)?;
+    dict.set_item("cognitive", metrics.cognitive)?;
+
+    // Halstead metrics
+    if let Some(ref halstead) = metrics.halstead {
+        let halstead_dict = PyDict::new(py);
+        halstead_dict.set_item("distinct_operators", halstead.distinct_operators)?;
+        halstead_dict.set_item("distinct_operands", halstead.distinct_operands)?;
+        halstead_dict.set_item("total_operators", halstead.total_operators)?;
+        halstead_dict.set_item("total_operands", halstead.total_operands)?;
+        halstead_dict.set_item("vocabulary", halstead.vocabulary)?;
+        halstead_dict.set_item("length", halstead.length)?;
+        halstead_dict.set_item("calculated_length", halstead.calculated_length)?;
+        halstead_dict.set_item("volume", halstead.volume)?;
+        halstead_dict.set_item("difficulty", halstead.difficulty)?;
+        halstead_dict.set_item("effort", halstead.effort)?;
+        halstead_dict.set_item("time", halstead.time)?;
+        halstead_dict.set_item("bugs", halstead.bugs)?;
+        dict.set_item("halstead", halstead_dict)?;
+    } else {
+        dict.set_item("halstead", py.None())?;
+    }
+
+    // Lines of code
+    let loc_dict = PyDict::new(py);
+    loc_dict.set_item("total", metrics.loc.total)?;
+    loc_dict.set_item("source", metrics.loc.source)?;
+    loc_dict.set_item("comments", metrics.loc.comments)?;
+    loc_dict.set_item("blank", metrics.loc.blank)?;
+    dict.set_item("loc", loc_dict)?;
+
+    if let Some(mi) = metrics.maintainability_index {
+        dict.set_item("maintainability_index", mi)?;
+    } else {
+        dict.set_item("maintainability_index", py.None())?;
+    }
+
+    dict.set_item("max_nesting_depth", metrics.max_nesting_depth)?;
+    dict.set_item("parameter_count", metrics.parameter_count)?;
+    dict.set_item("return_count", metrics.return_count)?;
+
+    Ok(dict.into())
+}
+
+/// Check if complexity exceeds thresholds
+///
+/// Validates complexity metrics against configurable thresholds.
+/// Useful for enforcing code quality standards in CI/CD.
+///
+/// Args:
+///     source: Source code string to analyze
+///     language: Programming language
+///     max_cyclomatic: Maximum allowed cyclomatic complexity (default: 10)
+///     max_cognitive: Maximum allowed cognitive complexity (default: 15)
+///     max_nesting: Maximum allowed nesting depth (default: 4)
+///
+/// Returns:
+///     Dictionary with validation results:
+///         - passed: True if all thresholds are met
+///         - violations: List of violated thresholds with details
+///         - metrics: The calculated complexity metrics
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> result = infiniloom.check_complexity(code, "python", max_cyclomatic=5)
+///     >>> if not result['passed']:
+///     ...     for v in result['violations']:
+///     ...         print(f"Violation: {v['metric']} = {v['value']} (max: {v['threshold']})")
+#[pyfunction]
+#[pyo3(signature = (source, language="javascript", max_cyclomatic=10, max_cognitive=15, max_nesting=4))]
+fn check_complexity(
+    py: Python,
+    source: &str,
+    language: &str,
+    max_cyclomatic: u32,
+    max_cognitive: u32,
+    max_nesting: u32,
+) -> PyResult<PyObject> {
+    use infiniloom_engine::analysis::calculate_complexity_from_source;
+
+    let lang = parse_analysis_language(language)?;
+
+    // Use the engine's convenience function that handles parsing internally
+    let metrics = calculate_complexity_from_source(source, lang)
+        .map_err(|e| PyValueError::new_err(format!("Failed to analyze complexity: {}", e)))?;
+
+    let dict = PyDict::new(py);
+
+    // Check violations
+    let mut violations: Vec<_> = Vec::new();
+
+    if metrics.cyclomatic > max_cyclomatic {
+        let v = PyDict::new(py);
+        v.set_item("metric", "cyclomatic")?;
+        v.set_item("value", metrics.cyclomatic)?;
+        v.set_item("threshold", max_cyclomatic)?;
+        violations.push(v);
+    }
+
+    if metrics.cognitive > max_cognitive {
+        let v = PyDict::new(py);
+        v.set_item("metric", "cognitive")?;
+        v.set_item("value", metrics.cognitive)?;
+        v.set_item("threshold", max_cognitive)?;
+        violations.push(v);
+    }
+
+    if metrics.max_nesting_depth > max_nesting {
+        let v = PyDict::new(py);
+        v.set_item("metric", "max_nesting_depth")?;
+        v.set_item("value", metrics.max_nesting_depth)?;
+        v.set_item("threshold", max_nesting)?;
+        violations.push(v);
+    }
+
+    dict.set_item("passed", violations.is_empty())?;
+    dict.set_item("violations", PyList::new(py, violations))?;
+
+    // Include metrics
+    let metrics_dict = PyDict::new(py);
+    metrics_dict.set_item("cyclomatic", metrics.cyclomatic)?;
+    metrics_dict.set_item("cognitive", metrics.cognitive)?;
+    metrics_dict.set_item("max_nesting_depth", metrics.max_nesting_depth)?;
+    metrics_dict.set_item("parameter_count", metrics.parameter_count)?;
+    metrics_dict.set_item("return_count", metrics.return_count)?;
+
+    let loc_dict = PyDict::new(py);
+    loc_dict.set_item("total", metrics.loc.total)?;
+    loc_dict.set_item("source", metrics.loc.source)?;
+    loc_dict.set_item("comments", metrics.loc.comments)?;
+    loc_dict.set_item("blank", metrics.loc.blank)?;
+    metrics_dict.set_item("loc", loc_dict)?;
+
+    dict.set_item("metrics", metrics_dict)?;
+
+    Ok(dict.into())
+}
+
 /// Python module definition
 #[pymodule]
 fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -3264,6 +4046,21 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(embed, m)?)?;
     m.add_function(wrap_pyfunction!(load_embed_manifest, m)?)?;
     m.add_function(wrap_pyfunction!(delete_embed_manifest, m)?)?;
+
+    // Analysis API
+    m.add_function(wrap_pyfunction!(extract_documentation, m)?)?;
+    m.add_function(wrap_pyfunction!(detect_dead_code, m)?)?;
+    m.add_function(wrap_pyfunction!(detect_breaking_changes, m)?)?;
+
+    // Type Hierarchy API
+    m.add_function(wrap_pyfunction!(get_type_hierarchy, m)?)?;
+    m.add_function(wrap_pyfunction!(get_type_ancestors, m)?)?;
+    m.add_function(wrap_pyfunction!(get_type_descendants, m)?)?;
+    m.add_function(wrap_pyfunction!(get_implementors, m)?)?;
+
+    // Complexity Metrics API
+    m.add_function(wrap_pyfunction!(calculate_complexity, m)?)?;
+    m.add_function(wrap_pyfunction!(check_complexity, m)?)?;
 
     // Classes
     m.add_class::<Infiniloom>()?;

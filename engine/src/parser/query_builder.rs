@@ -953,6 +953,8 @@ pub fn clojure_super_query() -> Result<Query, ParserError> {
 // ==========================================================================
 
 pub fn ocaml_query() -> Result<Query, ParserError> {
+    // Note: OCaml grammar uses different field names than expected
+    // module_binding doesn't have a "name" field - use child pattern instead
     let query_string = r#"
         (value_definition
           (let_binding
@@ -964,7 +966,7 @@ pub fn ocaml_query() -> Result<Query, ParserError> {
 
         (module_definition
           (module_binding
-            name: (module_name) @name)) @class
+            (module_name) @name)) @class
     "#;
 
     Query::new(&tree_sitter_ocaml::LANGUAGE_OCAML.into(), query_string)
@@ -972,6 +974,8 @@ pub fn ocaml_query() -> Result<Query, ParserError> {
 }
 
 pub fn ocaml_super_query() -> Result<Query, ParserError> {
+    // Note: OCaml grammar uses different field names than expected
+    // module_binding doesn't have a "name" field - use child pattern instead
     let query_string = r#"
         ; Functions (let bindings)
         (value_definition
@@ -986,7 +990,7 @@ pub fn ocaml_super_query() -> Result<Query, ParserError> {
         ; Modules
         (module_definition
           (module_binding
-            name: (module_name) @name)) @class
+            (module_name) @name)) @class
 
         ; Opens (imports)
         (open_module) @import
@@ -1200,8 +1204,17 @@ mod tests {
 
     #[test]
     fn test_ocaml_queries() {
-        assert!(ocaml_query().is_ok());
-        assert!(ocaml_super_query().is_ok());
+        let result = ocaml_query();
+        if let Err(ref e) = result {
+            eprintln!("OCaml query error: {:?}", e);
+        }
+        assert!(result.is_ok(), "ocaml_query failed: {:?}", result.err());
+
+        let super_result = ocaml_super_query();
+        if let Err(ref e) = super_result {
+            eprintln!("OCaml super query error: {:?}", e);
+        }
+        assert!(super_result.is_ok(), "ocaml_super_query failed: {:?}", super_result.err());
     }
 
     #[test]

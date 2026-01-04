@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { version, pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, findSymbolFiltered, getCallersFiltered, getCalleesFiltered, getReferencesFiltered, findSymbolFilteredAsync, getCallersFilteredAsync, getCalleesFilteredAsync, getReferencesFilteredAsync, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync, getChangedSymbolsFiltered, getTransitiveCallers, getCallSitesWithContext, getChangedSymbolsFilteredAsync, getTransitiveCallersAsync, getCallSitesWithContextAsync } = nativeBinding
+const { version, pack, scan, scanWithOptions, countTokens, Infiniloom, semanticCompress, isGitRepo, GitRepo, scanSecurity, buildIndex, indexStatus, findSymbol, getCallers, getCallees, getReferences, findSymbolFiltered, getCallersFiltered, getCalleesFiltered, getReferencesFiltered, findSymbolFilteredAsync, getCallersFilteredAsync, getCalleesFilteredAsync, getReferencesFilteredAsync, getCallGraph, findSymbolAsync, getCallersAsync, getCalleesAsync, getReferencesAsync, getCallGraphAsync, chunk, analyzeImpact, getDiffContext, packAsync, scanAsync, buildIndexAsync, chunkAsync, analyzeImpactAsync, getDiffContextAsync, getSymbolsInFile, getSymbolSource, getChangedSymbols, getTestsForFile, getCallSites, getSymbolsInFileAsync, getSymbolSourceAsync, getChangedSymbolsAsync, getTestsForFileAsync, getCallSitesAsync, getChangedSymbolsFiltered, getTransitiveCallers, getCallSitesWithContext, getChangedSymbolsFilteredAsync, getTransitiveCallersAsync, getCallSitesWithContextAsync, embed, embedAsync, loadEmbedManifest, loadEmbedManifestAsync, deleteEmbedManifest, deleteEmbedManifestAsync, extractDocumentation, extractDocumentationAsync, detectDeadCode, detectDeadCodeAsync, detectBreakingChanges, detectBreakingChangesAsync } = nativeBinding
 
 module.exports.version = version
 module.exports.pack = pack
@@ -367,3 +367,15 @@ module.exports.getCallSitesWithContext = getCallSitesWithContext
 module.exports.getChangedSymbolsFilteredAsync = getChangedSymbolsFilteredAsync
 module.exports.getTransitiveCallersAsync = getTransitiveCallersAsync
 module.exports.getCallSitesWithContextAsync = getCallSitesWithContextAsync
+module.exports.embed = embed
+module.exports.embedAsync = embedAsync
+module.exports.loadEmbedManifest = loadEmbedManifest
+module.exports.loadEmbedManifestAsync = loadEmbedManifestAsync
+module.exports.deleteEmbedManifest = deleteEmbedManifest
+module.exports.deleteEmbedManifestAsync = deleteEmbedManifestAsync
+module.exports.extractDocumentation = extractDocumentation
+module.exports.extractDocumentationAsync = extractDocumentationAsync
+module.exports.detectDeadCode = detectDeadCode
+module.exports.detectDeadCodeAsync = detectDeadCodeAsync
+module.exports.detectBreakingChanges = detectBreakingChanges
+module.exports.detectBreakingChangesAsync = detectBreakingChangesAsync

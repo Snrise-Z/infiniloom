@@ -335,6 +335,178 @@ class BlameInfo(TypedDict):
     line_number: int
 
 # ============================================================================
+# Analysis Types
+# ============================================================================
+
+class ParamDoc(TypedDict):
+    """Parameter documentation."""
+    name: str
+    type_info: Optional[str]
+    description: Optional[str]
+    is_optional: bool
+    default_value: Optional[str]
+
+class ReturnDoc(TypedDict):
+    """Return value documentation."""
+    type_info: Optional[str]
+    description: Optional[str]
+
+class ThrowsDoc(TypedDict):
+    """Exception documentation."""
+    exception_type: str
+    description: Optional[str]
+
+class Example(TypedDict):
+    """Code example from documentation."""
+    code: str
+    title: Optional[str]
+    language: Optional[str]
+
+class Documentation(TypedDict):
+    """Structured documentation extracted from code."""
+    summary: Optional[str]
+    description: Optional[str]
+    params: List[ParamDoc]
+    returns: Optional[ReturnDoc]
+    throws: List[ThrowsDoc]
+    examples: List[Example]
+    is_deprecated: bool
+    deprecation_message: Optional[str]
+    since: Optional[str]
+    see_also: List[str]
+    tags: Dict[str, List[str]]
+    raw: Optional[str]
+
+class HalsteadMetrics(TypedDict):
+    """Halstead software complexity metrics."""
+    distinct_operators: int
+    distinct_operands: int
+    total_operators: int
+    total_operands: int
+    vocabulary: int
+    length: int
+    calculated_length: float
+    volume: float
+    difficulty: float
+    effort: float
+    time: float
+    bugs: float
+
+class LocMetrics(TypedDict):
+    """Lines of code metrics."""
+    total: int
+    source: int
+    comments: int
+    blank: int
+
+class ComplexityMetrics(TypedDict):
+    """Code complexity metrics."""
+    cyclomatic: int
+    cognitive: int
+    halstead: Optional[HalsteadMetrics]
+    loc: LocMetrics
+    maintainability_index: Optional[float]
+    max_nesting_depth: int
+    parameter_count: int
+    return_count: int
+
+class ComplexityIssue(TypedDict):
+    """A complexity issue found in code."""
+    message: str
+    severity: str
+
+class UnusedExport(TypedDict):
+    """An unused exported symbol."""
+    name: str
+    kind: str
+    file_path: str
+    line: int
+    confidence: float
+    reason: str
+
+class UnusedSymbol(TypedDict):
+    """An unused private symbol."""
+    name: str
+    kind: str
+    file_path: str
+    line: int
+
+class UnusedImport(TypedDict):
+    """An unused import."""
+    name: str
+    import_path: str
+    file_path: str
+    line: int
+
+class UnusedVariable(TypedDict):
+    """An unused variable."""
+    name: str
+    file_path: str
+    line: int
+    scope: str
+
+class UnreachableCode(TypedDict):
+    """Unreachable code location."""
+    file_path: str
+    start_line: int
+    end_line: int
+    reason: str
+    snippet: str
+
+class DeadCodeInfo(TypedDict):
+    """Dead code detection results."""
+    unused_exports: List[UnusedExport]
+    unreachable_code: List[UnreachableCode]
+    unused_private: List[UnusedSymbol]
+    unused_imports: List[UnusedImport]
+    unused_variables: List[UnusedVariable]
+
+class BreakingChange(TypedDict):
+    """A breaking change between two versions."""
+    symbol_name: str
+    change_type: str
+    severity: str
+    file_path: str
+    old_line: Optional[int]
+    new_line: Optional[int]
+    old_value: Optional[str]
+    new_value: Optional[str]
+    description: str
+    suggestion: Optional[str]
+
+class BreakingChangeSummary(TypedDict):
+    """Summary of breaking changes."""
+    total_changes: int
+    by_severity: Dict[str, int]
+    by_type: Dict[str, int]
+
+class BreakingChangeReport(TypedDict):
+    """Breaking change analysis report."""
+    changes: List[BreakingChange]
+    summary: BreakingChangeSummary
+    old_ref: str
+    new_ref: str
+
+class AncestorInfo(TypedDict):
+    """Information about a type ancestor."""
+    name: str
+    file: str
+    line: int
+    kind: str
+    depth: int
+    is_direct: bool
+
+class TypeHierarchy(TypedDict):
+    """Type hierarchy information."""
+    name: str
+    kind: str
+    file: str
+    line: int
+    ancestors: List[AncestorInfo]
+    descendants: List[AncestorInfo]
+    interfaces: List[str]
+
+# ============================================================================
 # Core Functions
 # ============================================================================
 
@@ -972,4 +1144,137 @@ class GitRepo:
 
 class InfiniloomError(Exception):
     """Exception raised by Infiniloom operations."""
+    ...
+
+# ============================================================================
+# Analysis API
+# ============================================================================
+
+def extract_documentation(raw_doc: str, language: str) -> Documentation:
+    """Extract structured documentation from a docstring/comment.
+
+    Args:
+        raw_doc: Raw documentation string (JSDoc, Python docstring, etc.).
+        language: Language of the code ("javascript", "python", "rust", etc.).
+
+    Returns:
+        Structured documentation with summary, params, returns, etc.
+    """
+    ...
+
+def detect_dead_code(
+    path: str,
+    languages: Optional[List[str]] = None,
+) -> DeadCodeInfo:
+    """Detect dead code in a repository.
+
+    Args:
+        path: Path to the repository.
+        languages: Optional list of languages to analyze.
+
+    Returns:
+        Dead code detection results.
+    """
+    ...
+
+def detect_breaking_changes(
+    path: str,
+    old_ref: str,
+    new_ref: str,
+) -> BreakingChangeReport:
+    """Detect breaking changes between two versions.
+
+    Args:
+        path: Path to the repository.
+        old_ref: Old git ref (commit, tag, branch).
+        new_ref: New git ref (commit, tag, branch).
+
+    Returns:
+        Breaking change analysis report.
+    """
+    ...
+
+def get_type_hierarchy(path: str, symbol_name: str) -> TypeHierarchy:
+    """Get the type hierarchy for a class/interface.
+
+    Args:
+        path: Path to the repository.
+        symbol_name: Name of the class/interface.
+
+    Returns:
+        Type hierarchy with ancestors and descendants.
+    """
+    ...
+
+def get_type_ancestors(path: str, symbol_name: str) -> List[AncestorInfo]:
+    """Get all ancestors (parent classes/interfaces) of a type.
+
+    Args:
+        path: Path to the repository.
+        symbol_name: Name of the class/interface.
+
+    Returns:
+        List of ancestor types.
+    """
+    ...
+
+def get_type_descendants(path: str, symbol_name: str) -> List[AncestorInfo]:
+    """Get all descendants (child classes) of a type.
+
+    Args:
+        path: Path to the repository.
+        symbol_name: Name of the class/interface.
+
+    Returns:
+        List of descendant types.
+    """
+    ...
+
+def get_implementors(path: str, interface_name: str) -> List[SymbolInfo]:
+    """Get all classes that implement an interface.
+
+    Args:
+        path: Path to the repository.
+        interface_name: Name of the interface/trait.
+
+    Returns:
+        List of implementing classes.
+    """
+    ...
+
+def calculate_complexity(source: str, language: str) -> ComplexityMetrics:
+    """Calculate complexity metrics for source code.
+
+    Args:
+        source: Source code string.
+        language: Language of the code ("python", "javascript", etc.).
+
+    Returns:
+        Complexity metrics including cyclomatic, cognitive, Halstead, etc.
+    """
+    ...
+
+def check_complexity(
+    source: str,
+    language: str,
+    max_cyclomatic: int = 10,
+    max_cognitive: int = 15,
+    max_nesting: int = 4,
+    max_params: int = 5,
+    min_maintainability: float = 40.0,
+) -> List[ComplexityIssue]:
+    """Check code complexity against thresholds.
+
+    Args:
+        source: Source code string.
+        language: Language of the code.
+        max_cyclomatic: Maximum cyclomatic complexity.
+        max_cognitive: Maximum cognitive complexity.
+        max_nesting: Maximum nesting depth.
+        max_params: Maximum parameter count.
+        min_maintainability: Minimum maintainability index.
+
+    Returns:
+        List of complexity issues found.
+    """
     ...
