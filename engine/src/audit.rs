@@ -665,12 +665,12 @@ mod tests {
         let event = AuditEvent::new(
             AuditEventKind::ScanStarted,
             "test-repo",
-            Some("user@test.com".to_string()),
+            Some("user@test.com".to_owned()),
         );
 
         assert_eq!(event.event, AuditEventKind::ScanStarted);
         assert_eq!(event.repo_id, "test-repo");
-        assert_eq!(event.user, Some("user@test.com".to_string()));
+        assert_eq!(event.user, Some("user@test.com".to_owned()));
         assert_eq!(event.severity, AuditSeverity::Info);
         assert!(!event.timestamp.is_empty());
         assert!(!event.session_id.is_empty());
@@ -683,9 +683,9 @@ mod tests {
             .with_detail("line", "42")
             .with_detail("kind", "AWS Credential");
 
-        assert_eq!(event.details.get("file"), Some(&"config.py".to_string()));
-        assert_eq!(event.details.get("line"), Some(&"42".to_string()));
-        assert_eq!(event.details.get("kind"), Some(&"AWS Credential".to_string()));
+        assert_eq!(event.details.get("file"), Some(&"config.py".to_owned()));
+        assert_eq!(event.details.get("line"), Some(&"42".to_owned()));
+        assert_eq!(event.details.get("kind"), Some(&"AWS Credential".to_owned()));
     }
 
     #[test]
@@ -734,7 +734,7 @@ mod tests {
         let event = AuditEvent::new(
             AuditEventKind::SecretDetected,
             "test-repo",
-            Some("user@test.com".to_string()),
+            Some("user@test.com".to_owned()),
         )
         .with_detail("file", "secret.py");
 
@@ -795,7 +795,7 @@ mod tests {
         let logger = MemoryAuditLogger::new();
 
         // Test scan started event structure
-        let event = AuditEvent::new(AuditEventKind::ScanStarted, "repo", Some("user".to_string()))
+        let event = AuditEvent::new(AuditEventKind::ScanStarted, "repo", Some("user".to_owned()))
             .with_detail("path", "/path/to/repo");
         logger.log(event);
 
@@ -832,10 +832,10 @@ mod tests {
         assert_eq!(events[3].event, AuditEventKind::ScanCompleted);
 
         // Verify details are captured
-        assert_eq!(events[0].details.get("path"), Some(&"/path/to/repo".to_string()));
-        assert_eq!(events[1].details.get("secret_kind"), Some(&"AWS Key".to_string()));
-        assert_eq!(events[2].details.get("pii_type"), Some(&"SSN".to_string()));
-        assert_eq!(events[3].details.get("files_processed"), Some(&"100".to_string()));
+        assert_eq!(events[0].details.get("path"), Some(&"/path/to/repo".to_owned()));
+        assert_eq!(events[1].details.get("secret_kind"), Some(&"AWS Key".to_owned()));
+        assert_eq!(events[2].details.get("pii_type"), Some(&"SSN".to_owned()));
+        assert_eq!(events[3].details.get("files_processed"), Some(&"100".to_owned()));
     }
 
     #[test]

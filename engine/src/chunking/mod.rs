@@ -795,7 +795,7 @@ mod tests {
         };
 
         for i in 1..=3 {
-            let mut sym = Symbol::new(&format!("func{}", i), SymbolKind::Function);
+            let mut sym = Symbol::new(format!("func{}", i), SymbolKind::Function);
             sym.start_line = i;
             sym.end_line = i;
             sym.importance = 0.9 - (i as f32 * 0.1);

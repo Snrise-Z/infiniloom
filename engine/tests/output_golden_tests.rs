@@ -679,7 +679,7 @@ fn test_toon_special_characters_in_path() {
 
     // Paths with special chars should be escaped
     assert!(
-        output.contains("\"") || output.contains("path"),
+        output.contains('"') || output.contains("path"),
         "TOON should escape special characters in paths"
     );
 }

@@ -57,7 +57,7 @@ pub fn count_tokens_accurate(content: &str) -> TokenCounts {
 /// Fast (~80x faster than tiktoken) with ~95% accuracy.
 pub fn estimate_tokens(size_bytes: u64, content: Option<&str>) -> TokenCounts {
     // If we have content, use content length for better accuracy
-    let len = content.map(|c| c.len() as f32).unwrap_or(size_bytes as f32);
+    let len = content.map_or(size_bytes as f32, |c| c.len() as f32);
 
     TokenCounts {
         o200k: (len / 4.0) as u32,  // OpenAI modern (GPT-5.x, GPT-4o, O-series)
@@ -197,9 +197,9 @@ mod tests {
 
         let info = FileInfo {
             path: file_path,
-            relative_path: "test.rs".to_string(),
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(12),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         };
 
         let config = ScannerConfig::default();
@@ -219,9 +219,9 @@ mod tests {
 
         let info = FileInfo {
             path: file_path,
-            relative_path: "test.rs".to_string(),
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(12),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         };
 
         let config = ScannerConfig::default();
@@ -238,9 +238,9 @@ mod tests {
     fn test_process_file_without_content() {
         let info = FileInfo {
             path: PathBuf::from("/path/to/test.rs"),
-            relative_path: "test.rs".to_string(),
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(1000),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         };
 
         let config = ScannerConfig::default();

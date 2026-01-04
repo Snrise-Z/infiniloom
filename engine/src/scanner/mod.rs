@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_file_info_new() {
-        let info = FileInfo::new(PathBuf::from("/path/to/file.rs"), "file.rs".to_string());
+        let info = FileInfo::new(PathBuf::from("/path/to/file.rs"), "file.rs".to_owned());
         assert_eq!(info.relative_path, "file.rs");
         assert!(info.size_bytes.is_none());
         assert!(info.language.is_none());
@@ -207,14 +207,14 @@ mod tests {
     #[test]
     fn test_file_info_with_size() {
         let info =
-            FileInfo::with_size(PathBuf::from("/path/to/file.rs"), "file.rs".to_string(), 1024);
+            FileInfo::with_size(PathBuf::from("/path/to/file.rs"), "file.rs".to_owned(), 1024);
         assert_eq!(info.size_bytes, Some(1024));
     }
 
     #[test]
     fn test_file_info_with_language() {
-        let info = FileInfo::new(PathBuf::from("/path/to/file.rs"), "file.rs".to_string())
-            .with_language(Some("Rust".to_string()));
-        assert_eq!(info.language, Some("Rust".to_string()));
+        let info = FileInfo::new(PathBuf::from("/path/to/file.rs"), "file.rs".to_owned())
+            .with_language(Some("Rust".to_owned()));
+        assert_eq!(info.language, Some("Rust".to_owned()));
     }
 }

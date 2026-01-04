@@ -18,8 +18,8 @@ fn create_test_files() -> Vec<RepoFile> {
     vec![
         RepoFile {
             path: PathBuf::from("/repo/src/main.rs"),
-            relative_path: "src/main.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "src/main.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -28,8 +28,8 @@ fn create_test_files() -> Vec<RepoFile> {
         },
         RepoFile {
             path: PathBuf::from("/repo/src/lib.rs"),
-            relative_path: "src/lib.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "src/lib.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 200,
             token_count: Default::default(),
             symbols: vec![],
@@ -38,8 +38,8 @@ fn create_test_files() -> Vec<RepoFile> {
         },
         RepoFile {
             path: PathBuf::from("/repo/tests/test_main.rs"),
-            relative_path: "tests/test_main.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "tests/test_main.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 150,
             token_count: Default::default(),
             symbols: vec![],
@@ -48,8 +48,8 @@ fn create_test_files() -> Vec<RepoFile> {
         },
         RepoFile {
             path: PathBuf::from("/repo/node_modules/lib.js"),
-            relative_path: "node_modules/lib.js".to_string(),
-            language: Some("JavaScript".to_string()),
+            relative_path: "node_modules/lib.js".to_owned(),
+            language: Some("JavaScript".to_owned()),
             size_bytes: 500,
             token_count: Default::default(),
             symbols: vec![],
@@ -58,8 +58,8 @@ fn create_test_files() -> Vec<RepoFile> {
         },
         RepoFile {
             path: PathBuf::from("/repo/dist/bundle.min.js"),
-            relative_path: "dist/bundle.min.js".to_string(),
-            language: Some("JavaScript".to_string()),
+            relative_path: "dist/bundle.min.js".to_owned(),
+            language: Some("JavaScript".to_owned()),
             size_bytes: 1000,
             token_count: Default::default(),
             symbols: vec![],
@@ -113,7 +113,7 @@ fn test_include_pattern_src_directory() {
 #[test]
 fn test_apply_exclude_removes_node_modules() {
     let mut files = create_test_files();
-    let exclude = vec!["node_modules".to_string()];
+    let exclude = vec!["node_modules".to_owned()];
 
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
@@ -126,7 +126,7 @@ fn test_apply_exclude_removes_node_modules() {
 #[test]
 fn test_apply_exclude_removes_dist() {
     let mut files = create_test_files();
-    let exclude = vec!["dist".to_string()];
+    let exclude = vec!["dist".to_owned()];
 
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
@@ -137,7 +137,7 @@ fn test_apply_exclude_removes_dist() {
 #[test]
 fn test_apply_exclude_multiple_patterns() {
     let mut files = create_test_files();
-    let exclude = vec!["node_modules".to_string(), "dist".to_string()];
+    let exclude = vec!["node_modules".to_owned(), "dist".to_owned()];
 
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
@@ -151,7 +151,7 @@ fn test_apply_exclude_multiple_patterns() {
 #[test]
 fn test_apply_exclude_tests_directory() {
     let mut files = create_test_files();
-    let exclude = vec!["tests".to_string()];
+    let exclude = vec!["tests".to_owned()];
 
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
@@ -162,7 +162,7 @@ fn test_apply_exclude_tests_directory() {
 #[test]
 fn test_apply_include_only_rust_files() {
     let mut files = create_test_files();
-    let include = vec!["*.rs".to_string()];
+    let include = vec!["*.rs".to_owned()];
 
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
 
@@ -173,7 +173,7 @@ fn test_apply_include_only_rust_files() {
 #[test]
 fn test_apply_include_only_src_directory() {
     let mut files = create_test_files();
-    let include = vec!["src".to_string()];
+    let include = vec!["src".to_owned()];
 
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
 
@@ -184,7 +184,7 @@ fn test_apply_include_only_src_directory() {
 #[test]
 fn test_apply_include_multiple_patterns() {
     let mut files = create_test_files();
-    let include = vec!["*.rs".to_string(), "*.js".to_string()];
+    let include = vec!["*.rs".to_owned(), "*.js".to_owned()];
 
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
 
@@ -203,12 +203,12 @@ fn test_exclude_then_include() {
     let mut files = create_test_files();
 
     // First exclude build outputs and dependencies
-    let exclude = vec!["node_modules".to_string(), "dist".to_string()];
+    let exclude = vec!["node_modules".to_owned(), "dist".to_owned()];
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
     assert_eq!(files.len(), 3);
 
     // Then include only Rust files
-    let include = vec!["*.rs".to_string()];
+    let include = vec!["*.rs".to_owned()];
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
     assert_eq!(files.len(), 3);
     assert!(files.iter().all(|f| f.relative_path.ends_with(".rs")));
@@ -219,12 +219,12 @@ fn test_exclude_tests_then_include_src() {
     let mut files = create_test_files();
 
     // Exclude test files
-    let exclude = vec!["tests".to_string()];
+    let exclude = vec!["tests".to_owned()];
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
     assert_eq!(files.len(), 4);
 
     // Include only src directory
-    let include = vec!["src".to_string()];
+    let include = vec!["src".to_owned()];
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
     assert_eq!(files.len(), 2);
     assert!(files.iter().all(|f| f.relative_path.starts_with("src/")));
@@ -261,7 +261,7 @@ fn test_apply_include_empty_patterns() {
 #[test]
 fn test_exclude_pattern_with_slash() {
     let mut files = create_test_files();
-    let exclude = vec!["node_modules/".to_string()];
+    let exclude = vec!["node_modules/".to_owned()];
 
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
@@ -276,8 +276,8 @@ fn test_include_pattern_case_sensitive() {
     let mut files = vec![
         RepoFile {
             path: PathBuf::from("/repo/Main.rs"),
-            relative_path: "Main.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "Main.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -286,8 +286,8 @@ fn test_include_pattern_case_sensitive() {
         },
         RepoFile {
             path: PathBuf::from("/repo/main.rs"),
-            relative_path: "main.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "main.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -296,7 +296,7 @@ fn test_include_pattern_case_sensitive() {
         },
     ];
 
-    let include = vec!["*.rs".to_string()];
+    let include = vec!["*.rs".to_owned()];
     apply_include_patterns(&mut files, &include, |f| &f.relative_path);
 
     // Both should match (glob is case-insensitive for extensions)
@@ -308,8 +308,8 @@ fn test_exclude_pattern_component_match_deep() {
     let mut files = vec![
         RepoFile {
             path: PathBuf::from("/repo/src/tests/foo.rs"),
-            relative_path: "src/tests/foo.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "src/tests/foo.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -318,8 +318,8 @@ fn test_exclude_pattern_component_match_deep() {
         },
         RepoFile {
             path: PathBuf::from("/repo/src/main.rs"),
-            relative_path: "src/main.rs".to_string(),
-            language: Some("Rust".to_string()),
+            relative_path: "src/main.rs".to_owned(),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -328,7 +328,7 @@ fn test_exclude_pattern_component_match_deep() {
         },
     ];
 
-    let exclude = vec!["tests".to_string()];
+    let exclude = vec!["tests".to_owned()];
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
     // Should exclude files with "tests" as a path component
@@ -347,7 +347,7 @@ fn test_large_file_list_filtering() {
         .map(|i| RepoFile {
             path: PathBuf::from(format!("/repo/src/file{}.rs", i)),
             relative_path: format!("src/file{}.rs", i),
-            language: Some("Rust".to_string()),
+            language: Some("Rust".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -361,7 +361,7 @@ fn test_large_file_list_filtering() {
         files.push(RepoFile {
             path: PathBuf::from(format!("/repo/node_modules/lib{}.js", i)),
             relative_path: format!("node_modules/lib{}.js", i),
-            language: Some("JavaScript".to_string()),
+            language: Some("JavaScript".to_owned()),
             size_bytes: 100,
             token_count: Default::default(),
             symbols: vec![],
@@ -370,7 +370,7 @@ fn test_large_file_list_filtering() {
         });
     }
 
-    let exclude = vec!["node_modules".to_string()];
+    let exclude = vec!["node_modules".to_owned()];
     apply_exclude_patterns(&mut files, &exclude, |f| &f.relative_path);
 
     // Should have filtered out all node_modules files

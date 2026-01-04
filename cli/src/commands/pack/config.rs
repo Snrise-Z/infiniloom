@@ -153,7 +153,7 @@ use std::path::PathBuf;
 /// This struct groups all pack command options into logical categories,
 /// making the API more maintainable and testable.
 #[derive(Debug, Clone)]
-pub struct PackConfig {
+pub(crate) struct PackConfig {
     /// Path to the repository
     pub path: PathBuf,
 
@@ -183,8 +183,8 @@ pub struct PackConfig {
 }
 
 /// Output formatting and generation options
-#[derive(Debug, Clone)]
-pub struct OutputOptions {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OutputOptions {
     /// Output format (XML, Markdown, JSON, etc.)
     pub format: Option<OutputFormat>,
 
@@ -224,7 +224,7 @@ pub struct OutputOptions {
 
 /// Scanning and filtering options
 #[derive(Debug, Clone)]
-pub struct ScanOptions {
+pub(crate) struct ScanOptions {
     /// Include hidden files
     pub include_hidden: bool,
 
@@ -276,7 +276,7 @@ pub struct ScanOptions {
 
 /// Git-related options
 #[derive(Debug, Clone)]
-pub struct GitOptions {
+pub(crate) struct GitOptions {
     /// Include git logs
     pub include_logs: bool,
 
@@ -297,8 +297,8 @@ pub struct GitOptions {
 }
 
 /// Security scanning options
-#[derive(Debug, Clone)]
-pub struct SecurityOptions {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SecurityOptions {
     /// Run security check for secrets
     pub security_check: bool,
 
@@ -307,29 +307,10 @@ pub struct SecurityOptions {
 }
 
 /// Watch mode options
-#[derive(Debug, Clone)]
-pub struct WatchOptions {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WatchOptions {
     /// Enable watch mode
     pub enabled: bool,
-}
-
-impl Default for OutputOptions {
-    fn default() -> Self {
-        Self {
-            format: None,
-            model: None,
-            compression: None,
-            max_tokens: 0,
-            output_file: None,
-            header_text: None,
-            instruction_file: None,
-            show_line_numbers: false,
-            show_directory_structure: false,
-            show_file_summary: false,
-            token_tree: false,
-            copy_to_clipboard: false,
-        }
-    }
 }
 
 impl Default for ScanOptions {
@@ -368,21 +349,9 @@ impl Default for GitOptions {
     }
 }
 
-impl Default for SecurityOptions {
-    fn default() -> Self {
-        Self { security_check: false, redact_secrets: false }
-    }
-}
-
-impl Default for WatchOptions {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
 impl PackConfig {
     /// Create a new builder for PackConfig
-    pub fn builder() -> PackConfigBuilder {
+    pub(crate) fn builder() -> PackConfigBuilder {
         PackConfigBuilder::default()
     }
 }
@@ -392,7 +361,7 @@ impl PackConfig {
 /// Uses the builder pattern to construct PackConfig with sensible defaults
 /// and fluent API for setting options.
 #[derive(Debug, Default)]
-pub struct PackConfigBuilder {
+pub(crate) struct PackConfigBuilder {
     path: Option<PathBuf>,
     output: OutputOptions,
     scan: ScanOptions,
@@ -406,55 +375,55 @@ pub struct PackConfigBuilder {
 
 impl PackConfigBuilder {
     /// Set the repository path
-    pub fn path(mut self, path: PathBuf) -> Self {
+    pub(crate) fn path(mut self, path: PathBuf) -> Self {
         self.path = Some(path);
         self
     }
 
     /// Set output options
-    pub fn output(mut self, output: OutputOptions) -> Self {
+    pub(crate) fn output(mut self, output: OutputOptions) -> Self {
         self.output = output;
         self
     }
 
     /// Set scan options
-    pub fn scan(mut self, scan: ScanOptions) -> Self {
+    pub(crate) fn scan(mut self, scan: ScanOptions) -> Self {
         self.scan = scan;
         self
     }
 
     /// Set git options
-    pub fn git(mut self, git: GitOptions) -> Self {
+    pub(crate) fn git(mut self, git: GitOptions) -> Self {
         self.git = git;
         self
     }
 
     /// Set security options
-    pub fn security(mut self, security: SecurityOptions) -> Self {
+    pub(crate) fn security(mut self, security: SecurityOptions) -> Self {
         self.security = security;
         self
     }
 
     /// Set watch options
-    pub fn watch(mut self, watch: WatchOptions) -> Self {
+    pub(crate) fn watch(mut self, watch: WatchOptions) -> Self {
         self.watch = watch;
         self
     }
 
     /// Set verbose flag
-    pub fn verbose(mut self, verbose: bool) -> Self {
+    pub(crate) fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
     }
 
     /// Set config file path
-    pub fn config_path(mut self, config_path: Option<PathBuf>) -> Self {
+    pub(crate) fn config_path(mut self, config_path: Option<PathBuf>) -> Self {
         self.config_path = config_path;
         self
     }
 
     /// Set repository map token budget
-    pub fn map_budget(mut self, budget: u32) -> Self {
+    pub(crate) fn map_budget(mut self, budget: u32) -> Self {
         self.map_budget = budget;
         self
     }
@@ -464,7 +433,7 @@ impl PackConfigBuilder {
     /// # Errors
     ///
     /// Returns error if path is not set
-    pub fn build(self) -> Result<PackConfig> {
+    pub(crate) fn build(self) -> Result<PackConfig> {
         let path = self
             .path
             .ok_or_else(|| anyhow::anyhow!("Repository path is required"))?;
@@ -582,7 +551,7 @@ mod tests {
             compression: Some(CompressionLevel::Balanced),
             max_tokens: 100000,
             output_file: Some(PathBuf::from("/out.xml")),
-            header_text: Some("Custom header".to_string()),
+            header_text: Some("Custom header".to_owned()),
             instruction_file: Some(PathBuf::from("/instructions.txt")),
             show_line_numbers: true,
             show_directory_structure: true,
@@ -613,8 +582,8 @@ mod tests {
             remove_comments: true,
             top_files: 50,
             truncate_base64: true,
-            include_patterns: vec!["*.rs".to_string(), "*.py".to_string()],
-            exclude_patterns: vec!["test_*".to_string()],
+            include_patterns: vec!["*.rs".to_owned(), "*.py".to_owned()],
+            exclude_patterns: vec!["test_*".to_owned()],
             stdin: true,
             incremental_cache: true,
         };
@@ -634,15 +603,15 @@ mod tests {
             logs_count: 100,
             include_diffs: true,
             sort_by_changes: true,
-            remote_branch: Some("feature/test".to_string()),
-            sparse_paths: vec!["src/".to_string(), "lib/".to_string()],
+            remote_branch: Some("feature/test".to_owned()),
+            sparse_paths: vec!["src/".to_owned(), "lib/".to_owned()],
         };
 
         assert!(git.include_logs);
         assert_eq!(git.logs_count, 100);
         assert!(git.include_diffs);
         assert!(git.sort_by_changes);
-        assert_eq!(git.remote_branch, Some("feature/test".to_string()));
+        assert_eq!(git.remote_branch, Some("feature/test".to_owned()));
         assert_eq!(git.sparse_paths.len(), 2);
     }
 
@@ -818,11 +787,11 @@ mod tests {
     #[test]
     fn test_complex_pattern_configuration() {
         let patterns =
-            vec!["src/**/*.rs".to_string(), "lib/**/*.rs".to_string(), "!**/*_test.rs".to_string()];
+            vec!["src/**/*.rs".to_owned(), "lib/**/*.rs".to_owned(), "!**/*_test.rs".to_owned()];
 
         let scan = ScanOptions {
-            include_patterns: patterns.clone(),
-            exclude_patterns: vec!["target/".to_string(), "build/".to_string()],
+            include_patterns: patterns,
+            exclude_patterns: vec!["target/".to_owned(), "build/".to_owned()],
             ..Default::default()
         };
 

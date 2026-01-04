@@ -49,8 +49,7 @@ fn test_chunk_writes_output_dir() {
         files.iter().any(|p| {
             p.file_name()
                 .and_then(|name| name.to_str())
-                .map(|name| name.starts_with("chunk_") && name.ends_with(".xml"))
-                .unwrap_or(false)
+                .is_some_and(|name| name.starts_with("chunk_") && name.ends_with(".xml"))
         }),
         "chunk output directory should contain chunk_*.xml files"
     );

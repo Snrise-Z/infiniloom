@@ -147,16 +147,16 @@
 //! ```
 
 // Configuration types
-pub mod config;
+pub(crate) mod config;
 
 // Submodules (Phase 2 refactoring - Item 8)
-pub mod budget;
-pub mod compression;
-pub mod filters;
-pub mod output;
+pub(crate) mod budget;
+pub(crate) mod compression;
+pub(crate) mod filters;
+pub(crate) mod output;
 
 // Core implementation
-pub mod r#impl;
+pub(crate) mod r#impl;
 
 // Tests module (private)
 #[cfg(test)]
@@ -170,31 +170,26 @@ mod core;
 // ============================================================================
 
 // Configuration types
-pub use config::{
-    GitOptions, OutputOptions, PackConfig, PackConfigBuilder, ScanOptions, SecurityOptions,
-    WatchOptions,
+pub(crate) use config::{
+    GitOptions, OutputOptions, PackConfig, ScanOptions, SecurityOptions, WatchOptions,
 };
 
 // Main command function
-pub use r#impl::cmd_pack;
+pub(crate) use r#impl::cmd_pack;
 
 // File filtering functions (from filters module)
-pub use filters::{
-    apply_default_ignores, apply_exclude_patterns, apply_include_patterns, filter_stdin_paths,
-    pattern_matches_file,
-};
 
 // Content transformation functions (from compression module)
-pub use compression::{
+pub(crate) use compression::{
     extract_key_symbols_focused, extract_key_symbols_only, extract_signatures_only,
     remove_comments_from_content, remove_empty_lines_from_content,
 };
 
 // Token budget functions (from budget module)
-pub use budget::{
+pub(crate) use budget::{
     enforce_budget, estimate_tokens, rank_files_fast, recalculate_metadata, truncate_to_tokens,
     update_repo_cache,
 };
 
 // Output formatting functions (from output module)
-pub use output::{apply_pack_extras, read_instruction_file};
+pub(crate) use output::{apply_pack_extras, read_instruction_file};

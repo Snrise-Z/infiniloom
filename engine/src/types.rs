@@ -557,11 +557,11 @@ mod tests {
     fn test_repository_files_by_language() {
         let mut repo = Repository::new("test", "/tmp/test");
         let mut file1 = RepoFile::new("/tmp/test/a.rs", "a.rs");
-        file1.language = Some("rust".to_string());
+        file1.language = Some("rust".to_owned());
         let mut file2 = RepoFile::new("/tmp/test/b.py", "b.py");
-        file2.language = Some("python".to_string());
+        file2.language = Some("python".to_owned());
         let mut file3 = RepoFile::new("/tmp/test/c.rs", "c.rs");
-        file3.language = Some("rust".to_string());
+        file3.language = Some("rust".to_owned());
         repo.files.push(file1);
         repo.files.push(file2);
         repo.files.push(file3);
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn test_repo_file_display() {
         let mut file = RepoFile::new("/tmp/test/main.rs", "main.rs");
-        file.language = Some("rust".to_string());
+        file.language = Some("rust".to_owned());
         file.token_count.claude = 150;
         let display = format!("{}", file);
         assert!(display.contains("main.rs"));
@@ -742,7 +742,6 @@ mod tests {
 
     #[test]
     fn test_symbol_kind_std_from_str() {
-        use std::str::FromStr;
         assert_eq!("function".parse::<SymbolKind>(), Ok(SymbolKind::Function));
         assert_eq!("class".parse::<SymbolKind>(), Ok(SymbolKind::Class));
         assert!("invalid".parse::<SymbolKind>().is_err());
@@ -770,12 +769,8 @@ mod tests {
 
     #[test]
     fn test_language_stats() {
-        let stats = LanguageStats {
-            language: "rust".to_string(),
-            files: 10,
-            lines: 5000,
-            percentage: 45.5,
-        };
+        let stats =
+            LanguageStats { language: "rust".to_owned(), files: 10, lines: 5000, percentage: 45.5 };
         assert_eq!(stats.language, "rust");
         assert_eq!(stats.files, 10);
         assert_eq!(stats.lines, 5000);
@@ -785,11 +780,11 @@ mod tests {
     #[test]
     fn test_git_commit_info() {
         let commit = GitCommitInfo {
-            hash: "abc123def456".to_string(),
-            short_hash: "abc123d".to_string(),
-            author: "Test Author".to_string(),
-            date: "2025-01-01".to_string(),
-            message: "Test commit".to_string(),
+            hash: "abc123def456".to_owned(),
+            short_hash: "abc123d".to_owned(),
+            author: "Test Author".to_owned(),
+            date: "2025-01-01".to_owned(),
+            message: "Test commit".to_owned(),
         };
         assert_eq!(commit.hash, "abc123def456");
         assert_eq!(commit.short_hash, "abc123d");
@@ -799,9 +794,9 @@ mod tests {
     #[test]
     fn test_git_changed_file() {
         let changed = GitChangedFile {
-            path: "src/main.rs".to_string(),
-            status: "M".to_string(),
-            diff_content: Some("+new line".to_string()),
+            path: "src/main.rs".to_owned(),
+            status: "M".to_owned(),
+            diff_content: Some("+new line".to_owned()),
         };
         assert_eq!(changed.path, "src/main.rs");
         assert_eq!(changed.status, "M");
@@ -846,7 +841,6 @@ mod tests {
 
     #[test]
     fn test_compression_level_std_from_str() {
-        use std::str::FromStr;
         assert_eq!("balanced".parse::<CompressionLevel>(), Ok(CompressionLevel::Balanced));
         assert!("invalid".parse::<CompressionLevel>().is_err());
     }

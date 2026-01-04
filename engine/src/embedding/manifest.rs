@@ -255,7 +255,7 @@ impl EmbedManifest {
                 if existing_hash != chunk.full_hash.as_str() {
                     return Err(EmbedError::HashCollision {
                         id: chunk.id.clone(),
-                        hash1: existing_hash.to_string(),
+                        hash1: existing_hash.to_owned(),
                         hash2: chunk.full_hash.clone(),
                     });
                 }
@@ -516,18 +516,18 @@ mod tests {
 
     fn create_test_chunk(id: &str, file: &str, symbol: &str) -> EmbedChunk {
         EmbedChunk {
-            id: id.to_string(),
+            id: id.to_owned(),
             full_hash: format!("{}_full", id),
-            content: "fn test() {}".to_string(),
+            content: "fn test() {}".to_owned(),
             tokens: 10,
             kind: ChunkKind::Function,
             source: ChunkSource {
                 repo: RepoIdentifier::default(),
-                file: file.to_string(),
+                file: file.to_owned(),
                 lines: (1, 5),
-                symbol: symbol.to_string(),
+                symbol: symbol.to_owned(),
                 fqn: None,
-                language: "rust".to_string(),
+                language: "rust".to_owned(),
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_new_manifest() {
-        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         assert_eq!(manifest.version, MANIFEST_VERSION);
         assert_eq!(manifest.repo_path, "my-repo");
@@ -558,7 +558,7 @@ mod tests {
         let manifest_path = temp_dir.path().join("test.bin");
 
         // Create and save manifest
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let chunks = vec![
             create_test_chunk("ec_123", "src/foo.rs", "foo"),
@@ -579,7 +579,7 @@ mod tests {
         let manifest_path = temp_dir.path().join("test.bin");
 
         // Create and save manifest
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
         manifest.save(&manifest_path).unwrap();
 
         // Tamper with file
@@ -601,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_diff_added() {
-        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
 
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_diff_modified() {
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let old_chunks = vec![create_test_chunk("ec_old", "src/foo.rs", "foo")];
         manifest.update(&old_chunks).unwrap();
@@ -631,7 +631,7 @@ mod tests {
 
     #[test]
     fn test_diff_removed() {
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let old_chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
         manifest.update(&old_chunks).unwrap();
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_diff_unchanged() {
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let chunks = vec![create_test_chunk("ec_123", "src/foo.rs", "foo")];
         manifest.update(&chunks).unwrap();
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_batches() {
-        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         let chunks: Vec<_> = (0..5)
             .map(|i| {
@@ -686,7 +686,7 @@ mod tests {
         assert!(result.is_none());
 
         // Existing returns Some
-        let mut manifest = EmbedManifest::new("test".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("test".to_owned(), EmbedSettings::default());
         manifest.save(&manifest_path).unwrap();
 
         let result = EmbedManifest::load_if_exists(&manifest_path).unwrap();
@@ -695,13 +695,13 @@ mod tests {
 
     #[test]
     fn test_collision_detection() {
-        let mut manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let mut manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         // Create two chunks with same ID but different hashes
         let mut chunk1 = create_test_chunk("ec_same", "src/foo.rs", "foo");
         let mut chunk2 = create_test_chunk("ec_same", "src/bar.rs", "bar");
-        chunk1.full_hash = "hash1".to_string();
-        chunk2.full_hash = "hash2".to_string();
+        chunk1.full_hash = "hash1".to_owned();
+        chunk2.full_hash = "hash2".to_owned();
 
         let result = manifest.update(&[chunk1, chunk2]);
         assert!(matches!(result, Err(EmbedError::HashCollision { .. })));
@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_settings_match() {
-        let manifest = EmbedManifest::new("my-repo".to_string(), EmbedSettings::default());
+        let manifest = EmbedManifest::new("my-repo".to_owned(), EmbedSettings::default());
 
         assert!(manifest.settings_match(&EmbedSettings::default()));
 

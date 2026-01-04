@@ -87,7 +87,7 @@ mod tests {
     }
 
     /// Serialize using the same options as deserialize for consistent roundtrip
-    fn serialize_with_options<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, bincode::Error> {
+    fn serialize_with_options<T: Serialize>(value: &T) -> Result<Vec<u8>, bincode::Error> {
         bincode::options().serialize(value)
     }
 

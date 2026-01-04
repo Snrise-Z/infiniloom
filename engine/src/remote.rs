@@ -85,7 +85,7 @@ impl RemoteRepo {
         let (branch, subdir) = if parts.len() > 2 {
             // Check if "tree" or "blob" is in path (GitHub URL format)
             if parts.get(2) == Some(&"tree") || parts.get(2) == Some(&"blob") {
-                let branch = parts.get(3).map(|s| s.to_string());
+                let branch = parts.get(3).map(|s| (*s).to_owned());
                 let subdir = if parts.len() > 4 {
                     Some(parts[4..].join("/"))
                 } else {

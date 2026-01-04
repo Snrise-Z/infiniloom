@@ -154,6 +154,7 @@ pub mod bincode_safe;
 pub mod error;
 
 // Embedding chunk generation for vector databases
+#[allow(dead_code)]
 pub mod embedding;
 
 // Audit logging for SOC2/GDPR/HIPAA compliance

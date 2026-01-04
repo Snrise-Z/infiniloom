@@ -1174,7 +1174,7 @@ fn run_command(cli: Cli) -> Result<()> {
         },
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
-            let name = cmd.get_name().to_string();
+            let name = cmd.get_name().to_owned();
             let clap_shell: ClapShell = shell.into();
             generate(clap_shell, &mut cmd, name, &mut std::io::stdout());
             Ok(())

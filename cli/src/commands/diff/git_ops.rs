@@ -14,7 +14,7 @@ use infiniloom_engine::git::GitRepo;
 use infiniloom_engine::index::{ChangeType, DiffChange};
 
 /// Check if git is available in PATH
-pub fn check_git_available() -> Result<()> {
+pub(crate) fn check_git_available() -> Result<()> {
     use std::process::Command;
 
     let output = Command::new("git")
@@ -32,7 +32,7 @@ pub fn check_git_available() -> Result<()> {
 }
 
 /// Get diff changes from git
-pub fn get_diff_changes(
+pub(crate) fn get_diff_changes(
     repo_path: &PathBuf,
     reference: Option<&str>,
     staged: bool,
@@ -168,7 +168,7 @@ pub fn get_diff_changes(
 }
 
 /// Get untracked files from git status
-pub fn get_untracked_files(repo_path: &PathBuf) -> Result<Vec<String>> {
+pub(crate) fn get_untracked_files(repo_path: &PathBuf) -> Result<Vec<String>> {
     use std::process::Command;
 
     let output = Command::new("git")
@@ -194,7 +194,7 @@ pub fn get_untracked_files(repo_path: &PathBuf) -> Result<Vec<String>> {
 }
 
 /// Get raw diff content for a file (the actual +/- lines)
-pub fn get_diff_content(
+pub(crate) fn get_diff_content(
     repo_path: &PathBuf,
     file_path: &str,
     reference: Option<&str>,
@@ -224,7 +224,7 @@ pub fn get_diff_content(
 }
 
 /// Get changed line ranges for a file
-pub fn get_changed_lines(
+pub(crate) fn get_changed_lines(
     repo_path: &PathBuf,
     file_path: &str,
     reference: Option<&str>,
@@ -288,7 +288,7 @@ pub fn get_changed_lines(
 /// Resolve the base git reference from a reference string
 ///
 /// For "main..feature" returns "main", for "HEAD~1" returns "HEAD~1"
-pub fn resolve_base_ref(reference: Option<&str>, repo_path: &Path) -> Option<String> {
+pub(crate) fn resolve_base_ref(reference: Option<&str>, repo_path: &Path) -> Option<String> {
     let ref_str = reference.unwrap_or("HEAD");
 
     // Handle range format: "base..head" or "base...head"
@@ -317,7 +317,11 @@ pub fn resolve_base_ref(reference: Option<&str>, repo_path: &Path) -> Option<Str
 /// Read file content from a git reference
 ///
 /// Uses `git show ref:path` to retrieve file content from a specific commit/ref
-pub fn read_file_from_git(repo_path: &Path, git_ref: &str, file_path: &str) -> Option<String> {
+pub(crate) fn read_file_from_git(
+    repo_path: &Path,
+    git_ref: &str,
+    file_path: &str,
+) -> Option<String> {
     use std::process::Command;
 
     // Git show format: ref:path
@@ -337,7 +341,7 @@ pub fn read_file_from_git(repo_path: &Path, git_ref: &str, file_path: &str) -> O
 }
 
 /// Check if the symbol index is fresh (no changes since last build)
-pub fn is_index_fresh(repo_path: &Path, meta: &infiniloom_engine::index::IndexMeta) -> bool {
+pub(crate) fn is_index_fresh(repo_path: &Path, meta: &infiniloom_engine::index::IndexMeta) -> bool {
     let repo = match GitRepo::open(repo_path) {
         Ok(repo) => repo,
         Err(_) => return true,

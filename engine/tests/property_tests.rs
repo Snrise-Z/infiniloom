@@ -8,10 +8,6 @@
 
 use proptest::prelude::*;
 
-use infiniloom_engine::content_transformation::{
-    extract_key_symbols, extract_key_symbols_with_context, extract_signatures, remove_comments,
-    remove_empty_lines,
-};
 use infiniloom_engine::filtering::{
     apply_exclude_patterns, apply_include_patterns, matches_exclude_pattern,
     matches_include_pattern,
@@ -875,7 +871,7 @@ proptest! {
             .map(|i| TestFile { path: format!("target/file{}.rs", i) })
             .collect();
 
-        let patterns = vec!["target".to_string()];
+        let patterns = vec!["target".to_owned()];
         apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
 
         prop_assert_eq!(files.len(), 0, "All files matching pattern should be removed");
@@ -895,7 +891,7 @@ proptest! {
             .collect();
         let original_len = files.len();
 
-        let patterns = vec!["target".to_string()];
+        let patterns = vec!["target".to_owned()];
         apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
 
         prop_assert_eq!(files.len(), original_len, "No files should be removed when pattern doesn't match");
@@ -915,7 +911,7 @@ proptest! {
             .collect();
         let original_len = files.len();
 
-        let patterns = vec!["*.rs".to_string()];
+        let patterns = vec!["*.rs".to_owned()];
         apply_include_patterns(&mut files, &patterns, |f| &f.path);
 
         prop_assert_eq!(files.len(), original_len, "All files matching include pattern should be kept");
@@ -934,7 +930,7 @@ proptest! {
             .map(|i| TestFile { path: format!("src/file{}.rs", i) })
             .collect();
 
-        let patterns = vec!["*.ts".to_string()];
+        let patterns = vec!["*.ts".to_owned()];
         apply_include_patterns(&mut files, &patterns, |f| &f.path);
 
         prop_assert_eq!(files.len(), 0, "All files should be removed when include pattern doesn't match");
@@ -978,12 +974,12 @@ proptest! {
         struct TestFile { path: String }
 
         let mut files: Vec<TestFile> = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "target/debug.rs".to_string() },
-            TestFile { path: "node_modules/lib.js".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "target/debug.rs".to_owned() },
+            TestFile { path: "node_modules/lib.js".to_owned() },
         ];
 
-        let patterns = vec!["target".to_string(), "node_modules".to_string()];
+        let patterns = vec!["target".to_owned(), "node_modules".to_owned()];
         apply_exclude_patterns(&mut files, &patterns, |f| &f.path);
 
         // Only src/main.rs should remain
@@ -1000,12 +996,12 @@ proptest! {
         struct TestFile { path: String }
 
         let mut files: Vec<TestFile> = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "src/lib.py".to_string() },
-            TestFile { path: "src/index.ts".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "src/lib.py".to_owned() },
+            TestFile { path: "src/index.ts".to_owned() },
         ];
 
-        let patterns = vec!["*.rs".to_string(), "*.ts".to_string()];
+        let patterns = vec!["*.rs".to_owned(), "*.ts".to_owned()];
         apply_include_patterns(&mut files, &patterns, |f| &f.path);
 
         // main.rs and index.ts should remain
@@ -1548,7 +1544,8 @@ proptest! {
         let content = format!("fn {}() {{}}", func_name);
 
         // Rust extensions
-        for ext in &["rs"] {
+        {
+            let ext = &"rs";
             let path = PathBuf::from(format!("test.{}", ext));
             let symbols = parse_file_symbols(&content, &path);
             // Rust code should parse with .rs extension

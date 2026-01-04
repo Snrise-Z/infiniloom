@@ -226,8 +226,7 @@ impl ToonFormatter {
                         && first_line
                             .split(':')
                             .next()
-                            .map(|s| s.parse::<u32>().is_ok())
-                            .unwrap_or(false);
+                            .is_some_and(|s| s.parse::<u32>().is_ok());
 
                     if has_embedded_line_nums {
                         // Content has embedded line numbers - parse and output

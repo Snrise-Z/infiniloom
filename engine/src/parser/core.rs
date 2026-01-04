@@ -237,8 +237,7 @@ impl Parser {
         let import_capture = captures.iter().find(|c| {
             capture_names
                 .get(c.index as usize)
-                .map(|n| *n == "import")
-                .unwrap_or(false)
+                .is_some_and(|n| *n == "import")
         })?;
 
         let node = import_capture.node;
@@ -267,20 +266,15 @@ impl Parser {
             .find(|c| {
                 capture_names
                     .get(c.index as usize)
-                    .map(|n| *n == "name")
-                    .unwrap_or(false)
+                    .is_some_and(|n| *n == "name")
             })?
             .node;
 
         // Find kind capture (function, class, method, etc.)
         let kind_capture = captures.iter().find(|c| {
-            capture_names
-                .get(c.index as usize)
-                .map(|n| {
-                    ["function", "class", "method", "struct", "enum", "interface", "trait"]
-                        .contains(n)
-                })
-                .unwrap_or(false)
+            capture_names.get(c.index as usize).is_some_and(|n| {
+                ["function", "class", "method", "struct", "enum", "interface", "trait"].contains(n)
+            })
         })?;
 
         let kind_name = capture_names.get(kind_capture.index as usize)?;
@@ -292,8 +286,7 @@ impl Parser {
         let def_node = captures
             .iter()
             .max_by_key(|c| c.node.byte_range().len())
-            .map(|c| c.node)
-            .unwrap_or(name_node);
+            .map_or(name_node, |c| c.node);
 
         if language == Language::Kotlin && def_node.kind() == "class_declaration" {
             let mut cursor = def_node.walk();

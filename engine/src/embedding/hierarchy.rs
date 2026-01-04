@@ -204,7 +204,7 @@ impl HierarchyBuilder {
                         if s.len() > 100 {
                             format!("{}...", &s[..97])
                         } else {
-                            s.to_string()
+                            s.to_owned()
                         }
                     })
                 }),
@@ -221,7 +221,7 @@ impl HierarchyBuilder {
         let hash = hash_content(&summary_content);
 
         // Create tags for the summary
-        let mut tags = vec!["summary".to_string(), "hierarchy".to_string()];
+        let mut tags = vec!["summary".to_owned(), "hierarchy".to_owned()];
         tags.extend(container.context.tags.iter().cloned());
 
         Some(EmbedChunk {
@@ -344,7 +344,7 @@ impl HierarchyBuilder {
 
             // Mark chunks that have a parent
             if chunk.source.parent.is_some() {
-                chunk.context.tags.push("has-parent".to_string());
+                chunk.context.tags.push("has-parent".to_owned());
             }
         }
     }
@@ -374,7 +374,7 @@ pub fn get_hierarchy_summary(
                 .context
                 .docstring
                 .as_ref()
-                .and_then(|d| d.lines().next().map(|s| s.trim().to_string())),
+                .and_then(|d| d.lines().next().map(|s| s.trim().to_owned())),
         })
         .collect();
 
@@ -401,18 +401,18 @@ mod tests {
         docstring: Option<&str>,
     ) -> EmbedChunk {
         EmbedChunk {
-            id: id.to_string(),
+            id: id.to_owned(),
             full_hash: format!("{}_full", id),
             content: format!("content of {}", symbol),
             tokens: 100,
             kind,
             source: ChunkSource {
                 repo: RepoIdentifier::default(),
-                file: "test.rs".to_string(),
+                file: "test.rs".to_owned(),
                 lines: (1, 10),
-                symbol: symbol.to_string(),
+                symbol: symbol.to_owned(),
                 fqn: Some(format!("test::{}", symbol)),
-                language: "Rust".to_string(),
+                language: "Rust".to_owned(),
                 parent: parent.map(String::from),
                 visibility: Visibility::Public,
                 is_test: false,
@@ -529,8 +529,8 @@ mod tests {
             .any(|t| t.starts_with("has-children:")));
 
         // Children should have parent tag
-        assert!(chunks[1].context.tags.contains(&"has-parent".to_string()));
-        assert!(chunks[2].context.tags.contains(&"has-parent".to_string()));
+        assert!(chunks[1].context.tags.contains(&"has-parent".to_owned()));
+        assert!(chunks[2].context.tags.contains(&"has-parent".to_owned()));
     }
 
     #[test]

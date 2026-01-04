@@ -60,8 +60,8 @@ impl MultiRepoIndexBuilder {
         self.index.repositories.push(entry);
 
         // Register common package patterns
-        self.package_to_repo.insert(name.clone(), id.clone());
-        self.package_to_repo.insert(path.clone(), id.clone());
+        self.package_to_repo.insert(name, id.clone());
+        self.package_to_repo.insert(path, id);
 
         self
     }
@@ -90,8 +90,8 @@ impl MultiRepoIndexBuilder {
             let qualified_name = self.get_qualified_name(symbol, file_path);
 
             let symbol_ref = UnifiedSymbolRef {
-                repo_id: repo_id.to_string(),
-                file_path: file_path.to_string(),
+                repo_id: repo_id.to_owned(),
+                file_path: file_path.to_owned(),
                 line: symbol.start_line,
                 kind: format!("{:?}", symbol.kind),
                 qualified_name: Some(qualified_name.clone()),
@@ -106,8 +106,8 @@ impl MultiRepoIndexBuilder {
             // Also index by qualified name
             if qualified_name != symbol.name {
                 let symbol_ref = UnifiedSymbolRef {
-                    repo_id: repo_id.to_string(),
-                    file_path: file_path.to_string(),
+                    repo_id: repo_id.to_owned(),
+                    file_path: file_path.to_owned(),
                     line: symbol.start_line,
                     kind: format!("{:?}", symbol.kind),
                     qualified_name: Some(qualified_name.clone()),
@@ -160,10 +160,9 @@ impl MultiRepoIndexBuilder {
 
         // Convert path separators to ::
         normalized
-            .replace('/', "::")
-            .replace('\\', "::")
+            .replace(['/', '\\'], "::")
             .trim_start_matches("::")
-            .to_string()
+            .to_owned()
     }
 
     /// Detect cross-repository links from a symbol
@@ -259,12 +258,12 @@ impl MultiRepoIndexBuilder {
         link_type: CrossRepoLinkType,
     ) {
         self.index.cross_repo_links.push(CrossRepoLink {
-            source_repo: source_repo.to_string(),
-            source_file: source_file.to_string(),
+            source_repo: source_repo.to_owned(),
+            source_file: source_file.to_owned(),
             source_symbol: source_symbol.map(String::from),
             source_line,
-            target_repo: target_repo.to_string(),
-            target_symbol: target_symbol.to_string(),
+            target_repo: target_repo.to_owned(),
+            target_symbol: target_symbol.to_owned(),
             link_type,
         });
     }
@@ -483,7 +482,7 @@ mod tests {
 
     fn make_symbol(name: &str, kind: SymbolKind, calls: Vec<&str>) -> Symbol {
         Symbol {
-            name: name.to_string(),
+            name: name.to_owned(),
             kind,
             visibility: Visibility::Public,
             calls: calls.into_iter().map(String::from).collect(),
@@ -497,7 +496,7 @@ mod tests {
     fn test_add_repository() {
         let mut builder = MultiRepoIndexBuilder::new();
 
-        builder.add_repository("repo1", "MyLib", "/path/to/mylib", Some("abc123".to_string()));
+        builder.add_repository("repo1", "MyLib", "/path/to/mylib", Some("abc123".to_owned()));
 
         let index = builder.build();
 
@@ -580,7 +579,7 @@ mod tests {
 
         // C depends on A and B
         if let Some(c_deps) = graph.get("c") {
-            assert!(c_deps.contains(&"a".to_string()) || c_deps.contains(&"b".to_string()));
+            assert!(c_deps.contains(&"a".to_owned()) || c_deps.contains(&"b".to_owned()));
         }
     }
 

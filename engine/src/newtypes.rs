@@ -565,7 +565,7 @@ mod tests {
     fn test_token_count_clone_copy() {
         let a = TokenCount::new(100);
         let b = a; // Copy
-        let c = a.clone(); // Clone
+        let c = a; // Clone
         assert_eq!(a.get(), b.get());
         assert_eq!(a.get(), c.get());
     }
@@ -671,7 +671,7 @@ mod tests {
     fn test_line_number_clone_copy() {
         let a = LineNumber::new(10);
         let b = a;
-        let c = a.clone();
+        let c = a;
         assert_eq!(a.get(), b.get());
         assert_eq!(a.get(), c.get());
     }
@@ -740,7 +740,7 @@ mod tests {
     fn test_byte_offset_clone_copy() {
         let a = ByteOffset::new(1024);
         let b = a;
-        let c = a.clone();
+        let c = a;
         assert_eq!(a.get(), b.get());
         assert_eq!(a.get(), c.get());
     }
@@ -817,7 +817,7 @@ mod tests {
     fn test_symbol_id_clone_copy() {
         let a = SymbolId::new(42);
         let b = a;
-        let c = a.clone();
+        let c = a;
         assert_eq!(a.get(), b.get());
         assert_eq!(a.get(), c.get());
     }
@@ -915,7 +915,7 @@ mod tests {
     fn test_file_size_clone_copy() {
         let a = FileSize::new(1024);
         let b = a;
-        let c = a.clone();
+        let c = a;
         assert_eq!(a.bytes(), b.bytes());
         assert_eq!(a.bytes(), c.bytes());
     }
@@ -1025,7 +1025,7 @@ mod tests {
     fn test_importance_score_clone_copy() {
         let a = ImportanceScore::new(0.5);
         let b = a;
-        let c = a.clone();
+        let c = a;
         assert_eq!(a.get(), b.get());
         assert_eq!(a.get(), c.get());
     }

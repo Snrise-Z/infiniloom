@@ -6,7 +6,6 @@
 use crate::analysis::types::{Documentation, Example, ParamDoc, ReturnDoc, ThrowsDoc};
 use crate::parser::Language;
 use regex::Regex;
-use std::collections::HashMap;
 
 /// Extracts and parses documentation from source code
 pub struct DocumentationExtractor {
@@ -78,7 +77,7 @@ impl DocumentationExtractor {
 
     /// Parse JSDoc style documentation
     fn parse_jsdoc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Remove comment markers
         let content = self.strip_comment_markers(raw, "/**", "*/", "*");
@@ -102,7 +101,7 @@ impl DocumentationExtractor {
                 if in_example && !line.starts_with("@example") {
                     if !current_example.is_empty() {
                         doc.examples.push(Example {
-                            code: current_example.trim().to_string(),
+                            code: current_example.trim().to_owned(),
                             ..Default::default()
                         });
                     }
@@ -112,34 +111,33 @@ impl DocumentationExtractor {
 
                 // Parse different tags
                 if let Some(caps) = self.jsdoc_param.captures(line) {
-                    let type_info = caps.get(1).map(|m| m.as_str().to_string());
+                    let type_info = caps.get(1).map(|m| m.as_str().to_owned());
                     let is_optional = caps.get(2).is_some();
-                    let name = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-                    let desc = caps.get(4).map(|m| m.as_str()).unwrap_or("");
+                    let name = caps.get(3).map_or("", |m| m.as_str());
+                    let desc = caps.get(4).map_or("", |m| m.as_str());
 
                     doc.params.push(ParamDoc {
-                        name: name.to_string(),
+                        name: name.to_owned(),
                         type_info,
                         description: if desc.is_empty() {
                             None
                         } else {
-                            Some(desc.to_string())
+                            Some(desc.to_owned())
                         },
                         is_optional,
                         default_value: None,
                     });
                 } else if let Some(caps) = self.jsdoc_returns.captures(line) {
                     doc.returns = Some(ReturnDoc {
-                        type_info: caps.get(1).map(|m| m.as_str().to_string()),
-                        description: caps.get(2).map(|m| m.as_str().to_string()),
+                        type_info: caps.get(1).map(|m| m.as_str().to_owned()),
+                        description: caps.get(2).map(|m| m.as_str().to_owned()),
                     });
                 } else if let Some(caps) = self.jsdoc_throws.captures(line) {
                     doc.throws.push(ThrowsDoc {
                         exception_type: caps
                             .get(1)
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_else(|| "Error".to_string()),
-                        description: caps.get(2).map(|m| m.as_str().to_string()),
+                            .map_or_else(|| "Error".to_owned(), |m| m.as_str().to_owned()),
+                        description: caps.get(2).map(|m| m.as_str().to_owned()),
                     });
                 } else if line.starts_with("@example") {
                     in_example = true;
@@ -153,15 +151,15 @@ impl DocumentationExtractor {
                     doc.is_deprecated = true;
                     let msg = line.strip_prefix("@deprecated").unwrap_or("").trim();
                     if !msg.is_empty() {
-                        doc.deprecation_message = Some(msg.to_string());
+                        doc.deprecation_message = Some(msg.to_owned());
                     }
                 } else if let Some(caps) = self.jsdoc_tag.captures(line) {
-                    let tag = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                    let value = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                    let tag = caps.get(1).map_or("", |m| m.as_str());
+                    let value = caps.get(2).map_or("", |m| m.as_str());
                     doc.tags
-                        .entry(tag.to_string())
+                        .entry(tag.to_owned())
                         .or_default()
-                        .push(value.to_string());
+                        .push(value.to_owned());
                 }
             } else if in_example {
                 current_example.push_str(line);
@@ -174,7 +172,7 @@ impl DocumentationExtractor {
         // Handle last example
         if !current_example.is_empty() {
             doc.examples
-                .push(Example { code: current_example.trim().to_string(), ..Default::default() });
+                .push(Example { code: current_example.trim().to_owned(), ..Default::default() });
         }
 
         // Set description
@@ -182,7 +180,7 @@ impl DocumentationExtractor {
             let full_desc = description_lines.join("\n");
             let sentences: Vec<&str> = full_desc.split(". ").collect();
             if !sentences.is_empty() {
-                doc.summary = Some(sentences[0].to_string());
+                doc.summary = Some(sentences[0].to_owned());
             }
             doc.description = Some(full_desc);
         }
@@ -192,7 +190,7 @@ impl DocumentationExtractor {
 
     /// Parse Python docstring (Google/NumPy/Sphinx style)
     fn parse_python_docstring(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Remove triple quotes
         let content = raw
@@ -251,12 +249,12 @@ impl DocumentationExtractor {
                             doc.params.push(param);
                         }
 
-                        let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                        let type_info = caps.get(2).map(|m| m.as_str().to_string());
+                        let name = caps.get(1).map_or("", |m| m.as_str());
+                        let type_info = caps.get(2).map(|m| m.as_str().to_owned());
                         let desc = caps.get(3).map(|m| m.as_str());
 
                         current_param = Some(ParamDoc {
-                            name: name.to_string(),
+                            name: name.to_owned(),
                             type_info,
                             description: desc.map(String::from),
                             is_optional: false,
@@ -274,8 +272,8 @@ impl DocumentationExtractor {
                     if doc.returns.is_none() {
                         if let Some(caps) = self.python_returns.captures(trimmed) {
                             doc.returns = Some(ReturnDoc {
-                                type_info: caps.get(1).map(|m| m.as_str().to_string()),
-                                description: caps.get(2).map(|m| m.as_str().to_string()),
+                                type_info: caps.get(1).map(|m| m.as_str().to_owned()),
+                                description: caps.get(2).map(|m| m.as_str().to_owned()),
                             });
                         }
                     } else if let Some(ref mut ret) = doc.returns {
@@ -290,9 +288,9 @@ impl DocumentationExtractor {
                         doc.throws.push(ThrowsDoc {
                             exception_type: caps
                                 .get(1)
-                                .map(|m| m.as_str().to_string())
+                                .map(|m| m.as_str().to_owned())
                                 .unwrap_or_default(),
-                            description: caps.get(2).map(|m| m.as_str().to_string()),
+                            description: caps.get(2).map(|m| m.as_str().to_owned()),
                         });
                     }
                 },
@@ -312,8 +310,8 @@ impl DocumentationExtractor {
         // Save example
         if !current_example.is_empty() {
             doc.examples.push(Example {
-                code: current_example.trim().to_string(),
-                language: Some("python".to_string()),
+                code: current_example.trim().to_owned(),
+                language: Some("python".to_owned()),
                 ..Default::default()
             });
         }
@@ -323,7 +321,7 @@ impl DocumentationExtractor {
         if !desc.is_empty() {
             let sentences: Vec<&str> = desc.split(". ").collect();
             if !sentences.is_empty() {
-                doc.summary = Some(sentences[0].to_string());
+                doc.summary = Some(sentences[0].to_owned());
             }
             doc.description = Some(desc);
         }
@@ -333,7 +331,7 @@ impl DocumentationExtractor {
 
     /// Parse Rust doc comments
     fn parse_rust_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Remove /// or //! or /** */
         let content = self.strip_rust_doc_markers(raw);
@@ -382,9 +380,9 @@ impl DocumentationExtractor {
                         doc.params.push(ParamDoc {
                             name: caps
                                 .get(1)
-                                .map(|m| m.as_str().to_string())
+                                .map(|m| m.as_str().to_owned())
                                 .unwrap_or_default(),
-                            description: caps.get(2).map(|m| m.as_str().to_string()),
+                            description: caps.get(2).map(|m| m.as_str().to_owned()),
                             ..Default::default()
                         });
                     }
@@ -392,7 +390,7 @@ impl DocumentationExtractor {
                 Section::Returns => {
                     if doc.returns.is_none() {
                         doc.returns = Some(ReturnDoc {
-                            description: Some(trimmed.to_string()),
+                            description: Some(trimmed.to_owned()),
                             ..Default::default()
                         });
                     }
@@ -400,16 +398,16 @@ impl DocumentationExtractor {
                 Section::Errors => {
                     if !trimmed.is_empty() {
                         doc.throws.push(ThrowsDoc {
-                            exception_type: "Error".to_string(),
-                            description: Some(trimmed.to_string()),
+                            exception_type: "Error".to_owned(),
+                            description: Some(trimmed.to_owned()),
                         });
                     }
                 },
                 Section::Panics => {
                     doc.tags
-                        .entry("panics".to_string())
+                        .entry("panics".to_owned())
                         .or_default()
-                        .push(trimmed.to_string());
+                        .push(trimmed.to_owned());
                 },
                 Section::Examples => {
                     current_example.push_str(line);
@@ -417,9 +415,9 @@ impl DocumentationExtractor {
                 },
                 Section::Safety => {
                     doc.tags
-                        .entry("safety".to_string())
+                        .entry("safety".to_owned())
                         .or_default()
-                        .push(trimmed.to_string());
+                        .push(trimmed.to_owned());
                 },
             }
         }
@@ -431,8 +429,8 @@ impl DocumentationExtractor {
             for caps in code_block_re.captures_iter(&current_example) {
                 if let Some(code) = caps.get(1) {
                     doc.examples.push(Example {
-                        code: code.as_str().trim().to_string(),
-                        language: Some("rust".to_string()),
+                        code: code.as_str().trim().to_owned(),
+                        language: Some("rust".to_owned()),
                         ..Default::default()
                     });
                 }
@@ -444,7 +442,7 @@ impl DocumentationExtractor {
         if !desc.is_empty() {
             let sentences: Vec<&str> = desc.split(". ").collect();
             if !sentences.is_empty() {
-                doc.summary = Some(sentences[0].to_string());
+                doc.summary = Some(sentences[0].to_owned());
             }
             doc.description = Some(desc);
         }
@@ -460,7 +458,7 @@ impl DocumentationExtractor {
 
     /// Parse Go doc comments
     fn parse_go_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Go uses simple // comments
         let content: String = raw
@@ -472,7 +470,7 @@ impl DocumentationExtractor {
         // First sentence is summary
         let sentences: Vec<&str> = content.split(". ").collect();
         if !sentences.is_empty() {
-            doc.summary = Some(sentences[0].to_string());
+            doc.summary = Some(sentences[0].to_owned());
         }
         doc.description = Some(content);
 
@@ -486,7 +484,7 @@ impl DocumentationExtractor {
 
     /// Parse Ruby RDoc/YARD
     fn parse_ruby_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         let content = self.strip_comment_markers(raw, "=begin", "=end", "#");
 
@@ -502,30 +500,28 @@ impl DocumentationExtractor {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(2)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    type_info: caps.get(1).map(|m| m.as_str().to_string()),
-                    description: caps.get(3).map(|m| m.as_str().to_string()),
+                    type_info: caps.get(1).map(|m| m.as_str().to_owned()),
+                    description: caps.get(3).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = return_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    type_info: caps.get(1).map(|m| m.as_str().to_string()),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    type_info: caps.get(1).map(|m| m.as_str().to_owned()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                 });
             } else if let Some(caps) = raise_re.captures(line) {
                 doc.throws.push(ThrowsDoc {
                     exception_type: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                 });
-            } else if !line.starts_with('@') {
-                if doc.description.is_none() {
-                    doc.description = Some(line.to_string());
-                    doc.summary = Some(line.to_string());
-                }
+            } else if !line.starts_with('@') && doc.description.is_none() {
+                doc.description = Some(line.to_owned());
+                doc.summary = Some(line.to_owned());
             }
         }
 
@@ -540,7 +536,7 @@ impl DocumentationExtractor {
 
     /// Parse C# XML documentation
     fn parse_csharp_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // C# uses XML documentation
         let summary_re = Regex::new(r"<summary>([\s\S]*?)</summary>").unwrap();
@@ -550,7 +546,7 @@ impl DocumentationExtractor {
             Regex::new(r#"<exception cref="([^"]+)">([\s\S]*?)</exception>"#).unwrap();
 
         if let Some(caps) = summary_re.captures(raw) {
-            let summary = caps.get(1).map(|m| m.as_str().trim().to_string());
+            let summary = caps.get(1).map(|m| m.as_str().trim().to_owned());
             doc.summary = summary.clone();
             doc.description = summary;
         }
@@ -559,16 +555,16 @@ impl DocumentationExtractor {
             doc.params.push(ParamDoc {
                 name: caps
                     .get(1)
-                    .map(|m| m.as_str().to_string())
+                    .map(|m| m.as_str().to_owned())
                     .unwrap_or_default(),
-                description: caps.get(2).map(|m| m.as_str().trim().to_string()),
+                description: caps.get(2).map(|m| m.as_str().trim().to_owned()),
                 ..Default::default()
             });
         }
 
         if let Some(caps) = returns_re.captures(raw) {
             doc.returns = Some(ReturnDoc {
-                description: caps.get(1).map(|m| m.as_str().trim().to_string()),
+                description: caps.get(1).map(|m| m.as_str().trim().to_owned()),
                 ..Default::default()
             });
         }
@@ -577,9 +573,9 @@ impl DocumentationExtractor {
             doc.throws.push(ThrowsDoc {
                 exception_type: caps
                     .get(1)
-                    .map(|m| m.as_str().to_string())
+                    .map(|m| m.as_str().to_owned())
                     .unwrap_or_default(),
-                description: caps.get(2).map(|m| m.as_str().trim().to_string()),
+                description: caps.get(2).map(|m| m.as_str().trim().to_owned()),
             });
         }
 
@@ -588,7 +584,7 @@ impl DocumentationExtractor {
 
     /// Parse Swift documentation comments
     fn parse_swift_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Swift uses /// or /** */ with - Parameter:, - Returns:, - Throws:
         let content = self.strip_comment_markers(raw, "/**", "*/", "///");
@@ -606,20 +602,20 @@ impl DocumentationExtractor {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = returns_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    description: caps.get(1).map(|m| m.as_str().to_string()),
+                    description: caps.get(1).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = throws_re.captures(line) {
                 doc.throws.push(ThrowsDoc {
-                    exception_type: "Error".to_string(),
-                    description: caps.get(1).map(|m| m.as_str().to_string()),
+                    exception_type: "Error".to_owned(),
+                    description: caps.get(1).map(|m| m.as_str().to_owned()),
                 });
             } else if !line.starts_with('-') && !line.is_empty() {
                 description_lines.push(line);
@@ -628,7 +624,7 @@ impl DocumentationExtractor {
 
         if !description_lines.is_empty() {
             let desc = description_lines.join(" ");
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
             doc.description = Some(desc);
         }
 
@@ -643,15 +639,15 @@ impl DocumentationExtractor {
 
     /// Parse Haddock (Haskell)
     fn parse_haddock(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Haddock uses -- | or {- | -}
         let content = raw
             .lines()
             .map(|l| {
                 l.trim_start_matches("--")
-                    .trim_start_matches("|")
-                    .trim_start_matches("^")
+                    .trim_start_matches('|')
+                    .trim_start_matches('^')
                     .trim()
             })
             .collect::<Vec<_>>()
@@ -660,7 +656,7 @@ impl DocumentationExtractor {
         doc.description = Some(content.clone());
         let sentences: Vec<&str> = content.split(". ").collect();
         if !sentences.is_empty() {
-            doc.summary = Some(sentences[0].to_string());
+            doc.summary = Some(sentences[0].to_owned());
         }
 
         doc
@@ -668,7 +664,7 @@ impl DocumentationExtractor {
 
     /// Parse ExDoc (Elixir)
     fn parse_exdoc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // ExDoc uses @doc """ ... """ or @moduledoc
         let content = raw
@@ -692,15 +688,15 @@ impl DocumentationExtractor {
                 continue;
             }
 
-            if trimmed.starts_with("*") || trimmed.starts_with("-") {
+            if trimmed.starts_with('*') || trimmed.starts_with('-') {
                 // List item - could be a parameter
-                let item = trimmed.trim_start_matches(|c| c == '*' || c == '-').trim();
+                let item = trimmed.trim_start_matches(['*', '-']).trim();
                 if item.contains(':') {
                     let parts: Vec<&str> = item.splitn(2, ':').collect();
                     if parts.len() == 2 {
                         doc.params.push(ParamDoc {
-                            name: parts[0].trim().to_string(),
-                            description: Some(parts[1].trim().to_string()),
+                            name: parts[0].trim().to_owned(),
+                            description: Some(parts[1].trim().to_owned()),
                             ..Default::default()
                         });
                     }
@@ -711,7 +707,7 @@ impl DocumentationExtractor {
         }
 
         if !description_lines.is_empty() {
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
             doc.description = Some(description_lines.join(" "));
         }
 
@@ -720,15 +716,15 @@ impl DocumentationExtractor {
 
     /// Parse Clojure docstring
     fn parse_clojure_doc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Clojure docstrings are simple strings
         let content = raw.trim_matches('"');
 
-        doc.description = Some(content.to_string());
+        doc.description = Some(content.to_owned());
         let sentences: Vec<&str> = content.split(". ").collect();
         if !sentences.is_empty() {
-            doc.summary = Some(sentences[0].to_string());
+            doc.summary = Some(sentences[0].to_owned());
         }
 
         doc
@@ -736,7 +732,7 @@ impl DocumentationExtractor {
 
     /// Parse OCamldoc
     fn parse_ocamldoc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // OCamldoc uses (** ... *)
         let content = raw.trim_start_matches("(**").trim_end_matches("*)").trim();
@@ -755,23 +751,23 @@ impl DocumentationExtractor {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = return_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    description: caps.get(1).map(|m| m.as_str().to_string()),
+                    description: caps.get(1).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = raise_re.captures(line) {
                 doc.throws.push(ThrowsDoc {
                     exception_type: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                 });
             } else if !line.starts_with('@') {
                 description_lines.push(line);
@@ -779,7 +775,7 @@ impl DocumentationExtractor {
         }
 
         if !description_lines.is_empty() {
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
             doc.description = Some(description_lines.join(" "));
         }
 
@@ -788,7 +784,7 @@ impl DocumentationExtractor {
 
     /// Parse LuaDoc
     fn parse_luadoc(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // LuaDoc uses --- or --[[ ]]
         let content: String = raw
@@ -810,16 +806,16 @@ impl DocumentationExtractor {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    type_info: caps.get(2).map(|m| m.as_str().to_string()),
-                    description: caps.get(3).map(|m| m.as_str().to_string()),
+                    type_info: caps.get(2).map(|m| m.as_str().to_owned()),
+                    description: caps.get(3).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = return_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    type_info: caps.get(1).map(|m| m.as_str().to_string()),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    type_info: caps.get(1).map(|m| m.as_str().to_owned()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                 });
             } else if !line.starts_with('@') {
                 description_lines.push(line);
@@ -827,7 +823,7 @@ impl DocumentationExtractor {
         }
 
         if !description_lines.is_empty() {
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
             doc.description = Some(description_lines.join(" "));
         }
 
@@ -836,7 +832,7 @@ impl DocumentationExtractor {
 
     /// Parse Roxygen2 (R)
     fn parse_roxygen(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Roxygen uses #' @param, #' @return, etc.
         let content: String = raw
@@ -857,14 +853,14 @@ impl DocumentationExtractor {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = return_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    description: caps.get(1).map(|m| m.as_str().to_string()),
+                    description: caps.get(1).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if !line.starts_with('@') {
@@ -873,7 +869,7 @@ impl DocumentationExtractor {
         }
 
         if !description_lines.is_empty() {
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
             doc.description = Some(description_lines.join(" "));
         }
 
@@ -882,7 +878,7 @@ impl DocumentationExtractor {
 
     /// Parse Doxygen (C/C++)
     fn parse_doxygen(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Doxygen uses /** */, //!, \param, \return, etc.
         let content = self.strip_comment_markers(raw, "/**", "*/", "*");
@@ -898,28 +894,28 @@ impl DocumentationExtractor {
             let line = line.trim();
 
             if let Some(caps) = brief_re.captures(line) {
-                doc.summary = caps.get(1).map(|m| m.as_str().to_string());
+                doc.summary = caps.get(1).map(|m| m.as_str().to_owned());
             } else if let Some(caps) = param_re.captures(line) {
                 doc.params.push(ParamDoc {
                     name: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = return_re.captures(line) {
                 doc.returns = Some(ReturnDoc {
-                    description: caps.get(1).map(|m| m.as_str().to_string()),
+                    description: caps.get(1).map(|m| m.as_str().to_owned()),
                     ..Default::default()
                 });
             } else if let Some(caps) = throws_re.captures(line) {
                 doc.throws.push(ThrowsDoc {
                     exception_type: caps
                         .get(1)
-                        .map(|m| m.as_str().to_string())
+                        .map(|m| m.as_str().to_owned())
                         .unwrap_or_default(),
-                    description: caps.get(2).map(|m| m.as_str().to_string()),
+                    description: caps.get(2).map(|m| m.as_str().to_owned()),
                 });
             } else if !line.starts_with('@') && !line.starts_with('\\') {
                 description_lines.push(line);
@@ -927,7 +923,7 @@ impl DocumentationExtractor {
         }
 
         if doc.summary.is_none() && !description_lines.is_empty() {
-            doc.summary = Some(description_lines[0].to_string());
+            doc.summary = Some(description_lines[0].to_owned());
         }
         if !description_lines.is_empty() {
             doc.description = Some(description_lines.join(" "));
@@ -938,7 +934,7 @@ impl DocumentationExtractor {
 
     /// Parse bash script comments
     fn parse_bash_comment(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         let content: String = raw
             .lines()
@@ -950,7 +946,7 @@ impl DocumentationExtractor {
         doc.description = Some(content.clone());
         let sentences: Vec<&str> = content.split(". ").collect();
         if !sentences.is_empty() {
-            doc.summary = Some(sentences[0].to_string());
+            doc.summary = Some(sentences[0].to_owned());
         }
 
         doc
@@ -958,7 +954,7 @@ impl DocumentationExtractor {
 
     /// Parse generic comment (fallback)
     fn parse_generic(&self, raw: &str) -> Documentation {
-        let mut doc = Documentation { raw: Some(raw.to_string()), ..Default::default() };
+        let mut doc = Documentation { raw: Some(raw.to_owned()), ..Default::default() };
 
         // Strip common comment markers
         let content: String = raw
@@ -980,7 +976,7 @@ impl DocumentationExtractor {
         doc.description = Some(content.clone());
         let sentences: Vec<&str> = content.split(". ").collect();
         if !sentences.is_empty() {
-            doc.summary = Some(sentences[0].to_string());
+            doc.summary = Some(sentences[0].to_owned());
         }
 
         doc
@@ -993,7 +989,7 @@ impl DocumentationExtractor {
             .trim()
             .trim_start_matches(start)
             .trim_end_matches(end)
-            .to_string();
+            .to_owned();
 
         // Remove line prefixes
         content = content
@@ -1022,7 +1018,7 @@ impl DocumentationExtractor {
                     trimmed[3..].trim_start()
                 } else if trimmed.starts_with("/**") {
                     trimmed[3..].trim_start()
-                } else if trimmed.starts_with("*") {
+                } else if trimmed.starts_with('*') {
                     trimmed[1..].trim_start()
                 } else if trimmed == "*/" {
                     ""

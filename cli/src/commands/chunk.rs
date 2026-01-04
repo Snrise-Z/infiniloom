@@ -15,7 +15,7 @@ use crate::scanner;
 
 /// Split repository into chunks for multi-turn LLM conversations
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_chunk(
+pub(crate) fn cmd_chunk(
     path: PathBuf,
     strategy: infiniloom_engine::ChunkStrategy,
     max_tokens: u32,
@@ -745,16 +745,16 @@ mod tests {
         Chunk {
             index,
             total,
-            focus: focus.to_string(),
+            focus: focus.to_owned(),
             tokens,
             files,
             context: ChunkContext {
                 previous_summary: None,
-                current_focus: focus.to_string(),
+                current_focus: focus.to_owned(),
                 next_preview: None,
                 cross_references: cross_refs,
                 overlap_content: if has_overlap {
-                    Some("overlap content".to_string())
+                    Some("overlap content".to_owned())
                 } else {
                     None
                 },
@@ -764,8 +764,8 @@ mod tests {
 
     fn create_chunk_file(path: &str) -> ChunkFile {
         ChunkFile {
-            path: path.to_string(),
-            content: "// content".to_string(),
+            path: path.to_owned(),
+            content: "// content".to_owned(),
             tokens: 100,
             truncated: false,
         }
@@ -851,14 +851,14 @@ mod tests {
             vec![create_chunk_file("src/a.rs")],
             vec![
                 CrossReference {
-                    symbol: "foo".to_string(),
+                    symbol: "foo".to_owned(),
                     chunk_index: 1,
-                    file: "src/b.rs".to_string(),
+                    file: "src/b.rs".to_owned(),
                 },
                 CrossReference {
-                    symbol: "bar".to_string(),
+                    symbol: "bar".to_owned(),
                     chunk_index: 1,
-                    file: "src/c.rs".to_string(),
+                    file: "src/c.rs".to_owned(),
                 },
             ],
             false,
@@ -911,9 +911,9 @@ mod tests {
                 create_chunk_file("src/api/endpoint2.rs"),
             ],
             vec![CrossReference {
-                symbol: "helper".to_string(),
+                symbol: "helper".to_owned(),
                 chunk_index: 2,
-                file: "src/utils.rs".to_string(),
+                file: "src/utils.rs".to_owned(),
             }],
             true,
         );

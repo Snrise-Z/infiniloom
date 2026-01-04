@@ -367,8 +367,7 @@ impl StreamingProcessor {
             let chunk_end = if end < content.len() {
                 content[offset..end]
                     .rfind('\n')
-                    .map(|i| offset + i + 1)
-                    .unwrap_or(end)
+                    .map_or(end, |i| offset + i + 1)
             } else {
                 end
             };
@@ -432,7 +431,7 @@ mod tests {
         writeln!(temp, "Test content").unwrap();
 
         let mapped = MappedFile::open(temp.path()).unwrap();
-        assert!(mapped.len() > 0);
+        assert!(!mapped.is_empty());
         assert!(!mapped.path().is_empty());
         assert!(mapped
             .path()
@@ -645,7 +644,7 @@ mod tests {
 
         std::fs::write(&file1, "def foo(): pass\n").unwrap();
         std::fs::write(&file2, "fn main() {}\n").unwrap();
-        std::fs::write(&file3, &[0x00, 0x01, 0x02]).unwrap(); // Binary
+        std::fs::write(&file3, [0x00, 0x01, 0x02]).unwrap(); // Binary
 
         let scanner = MmapScanner::new();
         let paths: Vec<&Path> = vec![file1.as_path(), file2.as_path(), file3.as_path()];

@@ -123,8 +123,8 @@ impl EmbedChunker {
 
         if files.is_empty() {
             return Err(EmbedError::NoChunksGenerated {
-                include_patterns: "default".to_string(),
-                exclude_patterns: "default".to_string(),
+                include_patterns: "default".to_owned(),
+                exclude_patterns: "default".to_owned(),
             });
         }
 
@@ -226,8 +226,8 @@ impl EmbedChunker {
         // Check if any chunks were generated
         if all_chunks.is_empty() {
             return Err(EmbedError::NoChunksGenerated {
-                include_patterns: "default".to_string(),
-                exclude_patterns: "default".to_string(),
+                include_patterns: "default".to_owned(),
+                exclude_patterns: "default".to_owned(),
             });
         }
 
@@ -296,7 +296,7 @@ impl EmbedChunker {
                 reverse_calls
                     .entry(callee.clone())
                     .or_default()
-                    .insert(caller_fqn.to_string());
+                    .insert(caller_fqn.to_owned());
             }
         }
 
@@ -577,14 +577,14 @@ impl EmbedChunker {
                     kind: ChunkKind::FunctionPart, // or ClassPart based on symbol.kind
                     source: ChunkSource {
                         repo: self.repo_id.clone(),
-                        file: file.to_string(),
+                        file: file.to_owned(),
                         lines: (
                             base_line + content_start as u32,
                             base_line + content_end as u32 - 1,
                         ),
                         symbol: format!("{}_part{}", symbol.name, part_num),
                         fqn: None,
-                        language: language.to_string(),
+                        language: language.to_owned(),
                         parent: Some(symbol.name.clone()),
                         visibility: symbol.visibility.into(),
                         is_test: false,
@@ -656,7 +656,7 @@ impl EmbedChunker {
             return None;
         }
 
-        let content = top_level_lines.join("\n").trim().to_string();
+        let content = top_level_lines.join("\n").trim().to_owned();
         if content.is_empty() {
             return None;
         }
@@ -678,11 +678,11 @@ impl EmbedChunker {
             kind: ChunkKind::TopLevel,
             source: ChunkSource {
                 repo: self.repo_id.clone(),
-                file: file.to_string(),
+                file: file.to_owned(),
                 lines: (1, lines.len() as u32),
-                symbol: "<top_level>".to_string(),
+                symbol: "<top_level>".to_owned(),
                 fqn: None,
-                language: language.to_string(),
+                language: language.to_owned(),
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
@@ -814,7 +814,7 @@ impl EmbedChunker {
             || signature.contains("suspend")
         // Kotlin coroutines
         {
-            tags.push("async".to_string());
+            tags.push("async".to_owned());
         }
         if name_lower.contains("thread")
             || name_lower.contains("mutex")
@@ -833,7 +833,7 @@ impl EmbedChunker {
             || signature.contains("WaitGroup")
         // Go WaitGroup
         {
-            tags.push("concurrency".to_string());
+            tags.push("concurrency".to_owned());
         }
 
         // Security-related
@@ -848,7 +848,7 @@ impl EmbedChunker {
             || signature.contains("token")
             || signature.contains("secret")
         {
-            tags.push("security".to_string());
+            tags.push("security".to_owned());
         }
 
         // Error handling
@@ -859,7 +859,7 @@ impl EmbedChunker {
             || name_lower.contains("panic")
             || name_lower.contains("unwrap")
         {
-            tags.push("error-handling".to_string());
+            tags.push("error-handling".to_owned());
         }
 
         // Database
@@ -871,7 +871,7 @@ impl EmbedChunker {
             || name_lower.contains("repository")
             || name_lower.contains("transaction")
         {
-            tags.push("database".to_string());
+            tags.push("database".to_owned());
         }
 
         // HTTP/API
@@ -883,7 +883,7 @@ impl EmbedChunker {
             || name_lower.contains("handler")
             || name_lower.contains("middleware")
         {
-            tags.push("http".to_string());
+            tags.push("http".to_owned());
         }
 
         // CLI/Commands
@@ -894,7 +894,7 @@ impl EmbedChunker {
             || name_lower.contains("option")
             || name_lower.contains("subcommand")
         {
-            tags.push("cli".to_string());
+            tags.push("cli".to_owned());
         }
 
         // Configuration
@@ -904,7 +904,7 @@ impl EmbedChunker {
             || name_lower.contains("option")
             || name_lower.contains("env")
         {
-            tags.push("config".to_string());
+            tags.push("config".to_owned());
         }
 
         // Logging
@@ -915,7 +915,7 @@ impl EmbedChunker {
             || name_lower.contains("info")
             || name_lower.contains("metric")
         {
-            tags.push("logging".to_string());
+            tags.push("logging".to_owned());
         }
 
         // Caching
@@ -923,7 +923,7 @@ impl EmbedChunker {
             || name_lower.contains("memoize")
             || name_lower.contains("invalidate")
         {
-            tags.push("cache".to_string());
+            tags.push("cache".to_owned());
         }
 
         // Validation
@@ -933,7 +933,7 @@ impl EmbedChunker {
             || name_lower.contains("assert")
             || name_lower.contains("sanitize")
         {
-            tags.push("validation".to_string());
+            tags.push("validation".to_owned());
         }
 
         // Serialization
@@ -948,7 +948,7 @@ impl EmbedChunker {
             || name_lower.contains("parse")
             || name_lower.contains("format")
         {
-            tags.push("serialization".to_string());
+            tags.push("serialization".to_owned());
         }
 
         // File I/O
@@ -960,7 +960,7 @@ impl EmbedChunker {
             || name_lower.contains("fs")
             || name_lower.contains("io")
         {
-            tags.push("io".to_string());
+            tags.push("io".to_owned());
         }
 
         // Networking
@@ -972,7 +972,7 @@ impl EmbedChunker {
             || name_lower.contains("client")
             || name_lower.contains("server")
         {
-            tags.push("network".to_string());
+            tags.push("network".to_owned());
         }
 
         // Initialization/Setup
@@ -985,7 +985,7 @@ impl EmbedChunker {
             || name_lower.starts_with("create_")
             || name_lower.ends_with("_new")
         {
-            tags.push("init".to_string());
+            tags.push("init".to_owned());
         }
 
         // Cleanup/Teardown
@@ -996,7 +996,7 @@ impl EmbedChunker {
             || name_lower.contains("shutdown")
             || name_lower == "drop"
         {
-            tags.push("cleanup".to_string());
+            tags.push("cleanup".to_owned());
         }
 
         // Test
@@ -1007,12 +1007,12 @@ impl EmbedChunker {
             || name_lower.contains("stub")
             || name_lower.contains("fixture")
         {
-            tags.push("test".to_string());
+            tags.push("test".to_owned());
         }
 
         // Deprecated (check signature for attributes)
         if signature.contains("deprecated") || signature.contains("Deprecated") {
-            tags.push("deprecated".to_string());
+            tags.push("deprecated".to_owned());
         }
 
         // Public API marker (useful for filtering to public interfaces)
@@ -1020,7 +1020,7 @@ impl EmbedChunker {
             || signature.starts_with("pub async fn")
             || signature.starts_with("export")
         {
-            tags.push("public-api".to_string());
+            tags.push("public-api".to_owned());
         }
 
         // Machine Learning / AI
@@ -1050,7 +1050,7 @@ impl EmbedChunker {
             || signature.contains("nn.")
             || signature.contains("nn::")
         {
-            tags.push("ml".to_string());
+            tags.push("ml".to_owned());
         }
 
         // Data Science / Data Processing
@@ -1076,7 +1076,7 @@ impl EmbedChunker {
             || signature.contains("DataFrame")
             || signature.contains("ndarray")
         {
-            tags.push("data-science".to_string());
+            tags.push("data-science".to_owned());
         }
 
         tags
@@ -1220,7 +1220,7 @@ impl EmbedChunker {
         for entry in walker {
             let entry = entry.map_err(|e| EmbedError::IoError {
                 path: repo_root.to_path_buf(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                source: std::io::Error::other(e.to_string()),
             })?;
 
             let path = entry.path();
@@ -1310,8 +1310,7 @@ impl EmbedChunker {
         path.extension()
             .and_then(|e| e.to_str())
             .and_then(Language::from_extension)
-            .map(|l| l.display_name().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+            .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
     }
 
     /// Parse token model string
@@ -1462,11 +1461,11 @@ fn goodbye() {
         let chunker = EmbedChunker::with_defaults(EmbedSettings::default());
 
         let mut symbol = Symbol::new("authenticate_user", crate::types::SymbolKind::Function);
-        symbol.signature = Some("async fn authenticate_user(password: &str)".to_string());
+        symbol.signature = Some("async fn authenticate_user(password: &str)".to_owned());
 
         let tags = chunker.generate_tags(&symbol);
-        assert!(tags.contains(&"async".to_string()));
-        assert!(tags.contains(&"security".to_string()));
+        assert!(tags.contains(&"async".to_owned()));
+        assert!(tags.contains(&"security".to_owned()));
     }
 
     #[test]
@@ -1474,10 +1473,10 @@ fn goodbye() {
         let chunker = EmbedChunker::with_defaults(EmbedSettings::default());
 
         let mut symbol = Symbol::new("fetchData", crate::types::SymbolKind::Function);
-        symbol.signature = Some("suspend fun fetchData(): Result<Data>".to_string());
+        symbol.signature = Some("suspend fun fetchData(): Result<Data>".to_owned());
 
         let tags = chunker.generate_tags(&symbol);
-        assert!(tags.contains(&"async".to_string()), "Kotlin suspend should be tagged as async");
+        assert!(tags.contains(&"async".to_owned()), "Kotlin suspend should be tagged as async");
     }
 
     #[test]
@@ -1485,11 +1484,11 @@ fn goodbye() {
         let chunker = EmbedChunker::with_defaults(EmbedSettings::default());
 
         let mut symbol = Symbol::new("processMessages", crate::types::SymbolKind::Function);
-        symbol.signature = Some("func processMessages(ch chan string)".to_string());
+        symbol.signature = Some("func processMessages(ch chan string)".to_owned());
 
         let tags = chunker.generate_tags(&symbol);
         assert!(
-            tags.contains(&"concurrency".to_string()),
+            tags.contains(&"concurrency".to_owned()),
             "Go channels should be tagged as concurrency"
         );
     }
@@ -1500,24 +1499,24 @@ fn goodbye() {
 
         // Test ML training function
         let mut symbol = Symbol::new("train_model", crate::types::SymbolKind::Function);
-        symbol.signature = Some("def train_model(epochs: int, batch_size: int)".to_string());
+        symbol.signature = Some("def train_model(epochs: int, batch_size: int)".to_owned());
         let tags = chunker.generate_tags(&symbol);
-        assert!(tags.contains(&"ml".to_string()), "train_model should be tagged as ml");
+        assert!(tags.contains(&"ml".to_owned()), "train_model should be tagged as ml");
 
         // Test neural network layer
         let mut symbol2 = Symbol::new("forward_pass", crate::types::SymbolKind::Function);
-        symbol2.signature = Some("def forward_pass(self, x: torch.Tensor)".to_string());
+        symbol2.signature = Some("def forward_pass(self, x: torch.Tensor)".to_owned());
         let tags2 = chunker.generate_tags(&symbol2);
         assert!(
-            tags2.contains(&"ml".to_string()),
+            tags2.contains(&"ml".to_owned()),
             "torch.Tensor in signature should be tagged as ml"
         );
 
         // Test classifier
         let mut symbol3 = Symbol::new("ImageClassifier", crate::types::SymbolKind::Class);
-        symbol3.signature = Some("class ImageClassifier(nn.Module)".to_string());
+        symbol3.signature = Some("class ImageClassifier(nn.Module)".to_owned());
         let tags3 = chunker.generate_tags(&symbol3);
-        assert!(tags3.contains(&"ml".to_string()), "nn.Module should be tagged as ml");
+        assert!(tags3.contains(&"ml".to_owned()), "nn.Module should be tagged as ml");
     }
 
     #[test]
@@ -1526,29 +1525,26 @@ fn goodbye() {
 
         // Test DataFrame operation
         let mut symbol = Symbol::new("preprocess_dataframe", crate::types::SymbolKind::Function);
-        symbol.signature = Some("def preprocess_dataframe(df: pd.DataFrame)".to_string());
+        symbol.signature = Some("def preprocess_dataframe(df: pd.DataFrame)".to_owned());
         let tags = chunker.generate_tags(&symbol);
         assert!(
-            tags.contains(&"data-science".to_string()),
+            tags.contains(&"data-science".to_owned()),
             "DataFrame should be tagged as data-science"
         );
 
         // Test numpy array
         let mut symbol2 = Symbol::new("normalize_array", crate::types::SymbolKind::Function);
-        symbol2.signature = Some("def normalize_array(arr: np.ndarray)".to_string());
+        symbol2.signature = Some("def normalize_array(arr: np.ndarray)".to_owned());
         let tags2 = chunker.generate_tags(&symbol2);
         assert!(
-            tags2.contains(&"data-science".to_string()),
+            tags2.contains(&"data-science".to_owned()),
             "np.ndarray should be tagged as data-science"
         );
 
         // Test ETL pipeline
         let symbol3 = Symbol::new("run_etl_pipeline", crate::types::SymbolKind::Function);
         let tags3 = chunker.generate_tags(&symbol3);
-        assert!(
-            tags3.contains(&"data-science".to_string()),
-            "etl should be tagged as data-science"
-        );
+        assert!(tags3.contains(&"data-science".to_owned()), "etl should be tagged as data-science");
     }
 
     #[test]
@@ -1620,7 +1616,7 @@ fn foo() {
         let loc = chunker.count_lines_of_code(code);
         // Should count: fn foo() {, let x = 1;, let y = 2;, }
         // Should skip: empty lines and comments
-        assert!(loc >= 4 && loc <= 5, "LOC should be ~4, got {}", loc);
+        assert!((4..=5).contains(&loc), "LOC should be ~4, got {}", loc);
     }
 
     #[test]

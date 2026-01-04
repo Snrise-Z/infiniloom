@@ -22,21 +22,21 @@ use infiniloom_engine::types::TokenizerModel;
 use crate::config::load_config_file;
 
 // Submodules
-pub mod context;
-pub mod formatting;
-pub mod git_ops;
+pub(crate) mod context;
+pub(crate) mod formatting;
+pub(crate) mod git_ops;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export commonly used functions and types
-pub use context::{apply_diff_budget, enrich_diff_context};
-pub use formatting::{format_diff_context, FileHistory};
-pub use git_ops::{check_git_available, get_diff_changes, read_file_from_git, resolve_base_ref};
+pub(crate) use context::{apply_diff_budget, enrich_diff_context};
+pub(crate) use formatting::{format_diff_context, FileHistory};
+pub(crate) use git_ops::{check_git_available, get_diff_changes, resolve_base_ref};
 
 /// Get context for a diff
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_diff(
+pub(crate) fn cmd_diff(
     mut path: PathBuf,
     mut reference: Option<String>,
     staged: bool,

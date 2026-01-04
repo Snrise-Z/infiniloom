@@ -161,9 +161,7 @@ where
         let mut all_files = Vec::with_capacity(file_infos.len());
         for chunk in file_infos.chunks(batch_size) {
             let batch_files: Vec<RepoFile> = chunk
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
+                .to_vec()
                 .into_par_iter()
                 .filter_map(|info| processor(info, config))
                 .collect();
@@ -182,8 +180,7 @@ fn compute_metadata(files: &[RepoFile]) -> RepoMetadata {
         .map(|f| {
             f.content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| estimate_lines(f.size_bytes))
+                .map_or_else(|| estimate_lines(f.size_bytes), |c| c.lines().count() as u64)
         })
         .sum();
 
@@ -196,8 +193,7 @@ fn compute_metadata(files: &[RepoFile]) -> RepoMetadata {
             let file_lines = file
                 .content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| estimate_lines(file.size_bytes));
+                .map_or_else(|| estimate_lines(file.size_bytes), |c| c.lines().count() as u64);
             entry.1 += file_lines; // line count
         }
     }
@@ -349,8 +345,8 @@ mod tests {
     fn test_compute_metadata() {
         let files = vec![RepoFile {
             path: std::path::PathBuf::from("test.rs"),
-            relative_path: "test.rs".to_string(),
-            language: Some("rust".to_string()),
+            relative_path: "test.rs".to_owned(),
+            language: Some("rust".to_owned()),
             size_bytes: 100,
             token_count: crate::tokenizer::TokenCounts {
                 o200k: 25,
@@ -366,7 +362,7 @@ mod tests {
             },
             symbols: vec![],
             importance: 0.5,
-            content: Some("fn main() {\n    println!(\"hello\");\n}".to_string()),
+            content: Some("fn main() {\n    println!(\"hello\");\n}".to_owned()),
         }];
 
         let metadata = compute_metadata(&files);
@@ -392,7 +388,7 @@ mod tests {
                 path: dir.path().join(format!("test{}.rs", i)),
                 relative_path: format!("test{}.rs", i),
                 size_bytes: Some(12),
-                language: Some("rust".to_string()),
+                language: Some("rust".to_owned()),
             })
             .collect();
 
@@ -401,8 +397,7 @@ mod tests {
             ..Default::default()
         };
 
-        let files =
-            process_files_batched(infos, &config, |info, cfg| process_file_content_only(info, cfg));
+        let files = process_files_batched(infos, &config, process_file_content_only);
 
         assert_eq!(files.len(), 10);
     }

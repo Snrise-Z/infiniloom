@@ -21,12 +21,12 @@ impl ComplexityCalculator {
     }
 
     /// Get text for a node
-    fn node_text(&self, node: &Node) -> &str {
+    fn node_text(&self, node: &Node<'_>) -> &str {
         node.utf8_text(self.source.as_bytes()).unwrap_or("")
     }
 
     /// Calculate all complexity metrics for a function node
-    pub fn calculate(&self, node: &Node, language: Language) -> ComplexityMetrics {
+    pub fn calculate(&self, node: &Node<'_>, language: Language) -> ComplexityMetrics {
         let cyclomatic = self.cyclomatic_complexity(node, language);
         let cognitive = self.cognitive_complexity(node, language);
         let halstead = self.halstead_metrics(node, language);
@@ -66,7 +66,7 @@ impl ComplexityCalculator {
     /// Simplified: CC = 1 + number of decision points
     ///
     /// Decision points: if, else if, while, for, case, catch, &&, ||, ?:
-    pub fn cyclomatic_complexity(&self, node: &Node, language: Language) -> u32 {
+    pub fn cyclomatic_complexity(&self, node: &Node<'_>, language: Language) -> u32 {
         let mut complexity = 1; // Base complexity
 
         self.walk_tree(node, &mut |child| {
@@ -79,7 +79,7 @@ impl ComplexityCalculator {
     }
 
     /// Check if a node is a decision point (contributes to cyclomatic complexity)
-    fn is_decision_point(&self, node: &Node, language: Language) -> bool {
+    fn is_decision_point(&self, node: &Node<'_>, language: Language) -> bool {
         let kind = node.kind();
 
         // Language-agnostic decision points
@@ -147,13 +147,19 @@ impl ComplexityCalculator {
     ///
     /// Cognitive complexity measures how hard code is to understand.
     /// It penalizes nesting, breaks in linear flow, and complex control structures.
-    pub fn cognitive_complexity(&self, node: &Node, language: Language) -> u32 {
+    pub fn cognitive_complexity(&self, node: &Node<'_>, language: Language) -> u32 {
         let mut complexity = 0;
         self.cognitive_walk(node, language, 0, &mut complexity);
         complexity
     }
 
-    fn cognitive_walk(&self, node: &Node, language: Language, nesting: u32, complexity: &mut u32) {
+    fn cognitive_walk(
+        &self,
+        node: &Node<'_>,
+        language: Language,
+        nesting: u32,
+        complexity: &mut u32,
+    ) {
         let kind = node.kind();
 
         // Increment for control flow structures
@@ -238,7 +244,7 @@ impl ComplexityCalculator {
         )
     }
 
-    fn is_recursion(&self, node: &Node, _language: Language) -> bool {
+    fn is_recursion(&self, node: &Node<'_>, _language: Language) -> bool {
         // Check if this node is a function call to the current function
         // This is a simplified check - full recursion detection would need function context
         if node.kind() == "call_expression" || node.kind() == "function_call" {
@@ -249,7 +255,7 @@ impl ComplexityCalculator {
     }
 
     /// Calculate Halstead complexity metrics
-    pub fn halstead_metrics(&self, node: &Node, language: Language) -> Option<HalsteadMetrics> {
+    pub fn halstead_metrics(&self, node: &Node<'_>, language: Language) -> Option<HalsteadMetrics> {
         let mut operators = HashSet::new();
         let mut operands = HashSet::new();
         let mut total_operators = 0u32;
@@ -260,10 +266,10 @@ impl ComplexityCalculator {
             let text = self.node_text(child);
 
             if self.is_operator(kind, language) {
-                operators.insert(text.to_string());
+                operators.insert(text.to_owned());
                 total_operators += 1;
             } else if self.is_operand(kind, language) {
-                operands.insert(text.to_string());
+                operands.insert(text.to_owned());
                 total_operands += 1;
             }
         });
@@ -379,7 +385,7 @@ impl ComplexityCalculator {
     }
 
     /// Calculate lines of code metrics
-    pub fn loc_metrics(&self, node: &Node) -> LocMetrics {
+    pub fn loc_metrics(&self, node: &Node<'_>) -> LocMetrics {
         let text = self.node_text(node);
         let lines: Vec<&str> = text.lines().collect();
 
@@ -414,13 +420,13 @@ impl ComplexityCalculator {
     }
 
     /// Calculate maximum nesting depth
-    pub fn max_nesting_depth(&self, node: &Node, language: Language) -> u32 {
+    pub fn max_nesting_depth(&self, node: &Node<'_>, language: Language) -> u32 {
         let mut max_depth = 0;
         self.nesting_walk(node, language, 0, &mut max_depth);
         max_depth
     }
 
-    fn nesting_walk(&self, node: &Node, language: Language, depth: u32, max_depth: &mut u32) {
+    fn nesting_walk(&self, node: &Node<'_>, language: Language, depth: u32, max_depth: &mut u32) {
         let kind = node.kind();
 
         let is_nesting =
@@ -439,7 +445,7 @@ impl ComplexityCalculator {
     }
 
     /// Count number of parameters
-    pub fn parameter_count(&self, node: &Node, _language: Language) -> u32 {
+    pub fn parameter_count(&self, node: &Node<'_>, _language: Language) -> u32 {
         let mut count = 0;
 
         // Find parameters node
@@ -461,7 +467,7 @@ impl ComplexityCalculator {
     }
 
     /// Count number of return statements
-    pub fn return_count(&self, node: &Node, _language: Language) -> u32 {
+    pub fn return_count(&self, node: &Node<'_>, _language: Language) -> u32 {
         let mut count = 0;
 
         self.walk_tree(node, &mut |child| {
@@ -479,9 +485,9 @@ impl ComplexityCalculator {
     }
 
     /// Walk tree and apply callback to each node
-    fn walk_tree<F>(&self, node: &Node, callback: &mut F)
+    fn walk_tree<F>(&self, node: &Node<'_>, callback: &mut F)
     where
-        F: FnMut(&Node),
+        F: FnMut(&Node<'_>),
     {
         callback(node);
 
@@ -493,7 +499,11 @@ impl ComplexityCalculator {
 }
 
 /// Calculate complexity for a function given its source code
-pub fn calculate_complexity(source: &str, node: &Node, language: Language) -> ComplexityMetrics {
+pub fn calculate_complexity(
+    source: &str,
+    node: &Node<'_>,
+    language: Language,
+) -> ComplexityMetrics {
     let calculator = ComplexityCalculator::new(source);
     calculator.calculate(node, language)
 }
@@ -533,7 +543,7 @@ pub fn calculate_complexity_from_source(
         Language::FSharp => {
             return Err(
                 "F# complexity analysis not yet supported (no tree-sitter parser available)"
-                    .to_string(),
+                    .to_owned(),
             )
         },
     };
@@ -545,7 +555,7 @@ pub fn calculate_complexity_from_source(
 
     let tree = ts_parser
         .parse(source, None)
-        .ok_or_else(|| "Failed to parse source code".to_string())?;
+        .ok_or_else(|| "Failed to parse source code".to_owned())?;
 
     let calculator = ComplexityCalculator::new(source);
     Ok(calculator.calculate(&tree.root_node(), language))

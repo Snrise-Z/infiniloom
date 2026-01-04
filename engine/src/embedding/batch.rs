@@ -128,7 +128,7 @@ impl BatchRepoConfig {
                     .and_then(|n| n.to_str())
                     .map(String::from)
             })
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| "unknown".to_owned());
 
         RepoIdentifier {
             namespace: self.namespace.clone().unwrap_or_default(),
@@ -528,7 +528,7 @@ mod tests {
         // Test with include pattern override
         let repos = vec![BatchRepoConfig::new(temp_dir.path())
             .with_name("filtered-repo")
-            .with_include_patterns(vec!["src/**/*.rs".to_string()])];
+            .with_include_patterns(vec!["src/**/*.rs".to_owned()])];
 
         let embedder = BatchEmbedder::new(EmbedSettings::default());
         let result = embedder.embed_batch(&repos).unwrap();

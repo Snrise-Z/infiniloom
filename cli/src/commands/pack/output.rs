@@ -18,13 +18,13 @@ use std::path::PathBuf;
 
 // Type definitions for serializable data structures
 #[derive(serde::Serialize)]
-pub struct TokenTreeEntry {
+pub(crate) struct TokenTreeEntry {
     pub path: String,
     pub tokens: u32,
 }
 
 #[derive(serde::Serialize)]
-pub struct SecurityIssueEntry {
+pub(crate) struct SecurityIssueEntry {
     pub file: String,
     pub line: u32,
     pub kind: String,
@@ -40,7 +40,7 @@ pub struct SecurityIssueEntry {
 /// # Returns
 ///
 /// Returns `Some(String)` with file contents if path provided and file exists, `None` otherwise.
-pub fn read_instruction_file(instruction_file: &Option<PathBuf>) -> Result<Option<String>> {
+pub(crate) fn read_instruction_file(instruction_file: &Option<PathBuf>) -> Result<Option<String>> {
     let path = match instruction_file {
         Some(path) => path,
         None => return Ok(None),
@@ -80,7 +80,7 @@ fn security_issue_entries(
 }
 
 /// Append YAML block with multi-line value
-pub fn append_yaml_block(output: &mut String, key: &str, value: &str) {
+pub(crate) fn append_yaml_block(output: &mut String, key: &str, value: &str) {
     output.push_str(&format!("\n{}: |\n", key));
     for line in value.lines() {
         output.push_str(&format!("  {}\n", line));
@@ -206,7 +206,7 @@ fn append_git_context_yaml(output: &mut String, history: &infiniloom_engine::typ
 /// # Returns
 ///
 /// Enriched output text with extras appended/inserted based on format.
-pub fn apply_pack_extras(
+pub(crate) fn apply_pack_extras(
     output_text: String,
     format: OutputFormat,
     repo: &infiniloom_engine::Repository,

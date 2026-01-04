@@ -29,7 +29,6 @@
 //! - Keeps every Nth chunk based on budget ratio
 //! - No similarity computation (all operations return 0.0)
 
-#[cfg(feature = "embeddings")]
 use std::collections::HashMap;
 
 /// Result type for semantic operations
@@ -249,7 +248,7 @@ impl SemanticCompressor {
 
         #[cfg(feature = "embeddings")]
         {
-            return self.compress_with_embeddings(content);
+            self.compress_with_embeddings(content)
         }
 
         #[cfg(not(feature = "embeddings"))]
@@ -345,8 +344,7 @@ impl SemanticCompressor {
         // Also detect line-based repetition (same line repeated many times)
         let lines: Vec<&str> = content.lines().collect();
         if lines.len() >= 3 {
-            let mut line_counts: std::collections::HashMap<&str, usize> =
-                std::collections::HashMap::new();
+            let mut line_counts: HashMap<&str, usize> = HashMap::new();
             for line in &lines {
                 *line_counts.entry(*line).or_insert(0) += 1;
             }
@@ -1039,14 +1037,14 @@ mod tests {
 
     #[test]
     fn test_semantic_error_display() {
-        let err1 = SemanticError::ModelLoadError("test error".to_string());
+        let err1 = SemanticError::ModelLoadError("test error".to_owned());
         assert!(err1.to_string().contains("Model loading failed"));
         assert!(err1.to_string().contains("test error"));
 
-        let err2 = SemanticError::EmbeddingError("embed fail".to_string());
+        let err2 = SemanticError::EmbeddingError("embed fail".to_owned());
         assert!(err2.to_string().contains("Embedding generation failed"));
 
-        let err3 = SemanticError::ClusteringError("cluster fail".to_string());
+        let err3 = SemanticError::ClusteringError("cluster fail".to_owned());
         assert!(err3.to_string().contains("Clustering failed"));
 
         let err4 = SemanticError::FeatureNotEnabled;
@@ -1055,7 +1053,7 @@ mod tests {
 
     #[test]
     fn test_semantic_error_debug() {
-        let err = SemanticError::ModelLoadError("debug test".to_string());
+        let err = SemanticError::ModelLoadError("debug test".to_owned());
         let debug_str = format!("{:?}", err);
         assert!(debug_str.contains("ModelLoadError"));
     }
@@ -1108,7 +1106,7 @@ mod tests {
         #[cfg(not(feature = "embeddings"))]
         assert_eq!(result, 0.0);
         #[cfg(feature = "embeddings")]
-        assert!(result >= -1.0 && result <= 1.0);
+        assert!((-1.0..=1.0).contains(&result));
     }
 
     #[test]
@@ -1144,7 +1142,7 @@ mod tests {
     #[test]
     fn test_code_chunk_debug() {
         let chunk = CodeChunk {
-            content: "test content".to_string(),
+            content: "test content".to_owned(),
             start: 0,
             end: 12,
             embedding: None,
@@ -1158,13 +1156,13 @@ mod tests {
     #[test]
     fn test_code_chunk_clone() {
         let chunk = CodeChunk {
-            content: "original".to_string(),
+            content: "original".to_owned(),
             start: 0,
             end: 8,
             embedding: Some(vec![0.1, 0.2, 0.3]),
             cluster_id: Some(5),
         };
-        let cloned = chunk.clone();
+        let cloned = chunk;
         assert_eq!(cloned.content, "original");
         assert_eq!(cloned.start, 0);
         assert_eq!(cloned.end, 8);
@@ -1448,7 +1446,7 @@ mod tests {
     #[test]
     fn test_code_chunk_with_embedding_and_cluster() {
         let chunk = CodeChunk {
-            content: "fn main() {}".to_string(),
+            content: "fn main() {}".to_owned(),
             start: 0,
             end: 12,
             embedding: Some(vec![0.5; 384]),
@@ -1481,7 +1479,7 @@ mod tests {
 
     #[test]
     fn test_semantic_result_type_ok() {
-        let result: Result<String> = Ok("success".to_string());
+        let result: Result<String> = Ok("success".to_owned());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
     }
@@ -1688,7 +1686,7 @@ mod tests {
 
         // Should contain truncation marker with useful info
         if result.contains("truncated") {
-            assert!(result.contains("%"), "Truncation marker should include percentage");
+            assert!(result.contains('%'), "Truncation marker should include percentage");
             assert!(result.contains("chars"), "Truncation marker should include char count");
         }
     }

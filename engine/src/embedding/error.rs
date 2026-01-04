@@ -357,8 +357,8 @@ mod tests {
     #[test]
     fn test_error_display() {
         let err = EmbedError::InvalidSettings {
-            field: "max_tokens".to_string(),
-            reason: "exceeds limit of 100000".to_string(),
+            field: "max_tokens".to_owned(),
+            reason: "exceeds limit of 100000".to_owned(),
         };
         let msg = err.to_string();
         assert!(msg.contains("max_tokens"));
@@ -379,9 +379,9 @@ mod tests {
             (
                 PathBuf::from("src/bar.rs"),
                 EmbedError::ParseError {
-                    file: "src/bar.rs".to_string(),
+                    file: "src/bar.rs".to_owned(),
                     line: 42,
-                    message: "unexpected token".to_string(),
+                    message: "unexpected token".to_owned(),
                 },
             ),
         ];
@@ -409,9 +409,9 @@ mod tests {
         assert!(EmbedError::FileTooLarge { path: PathBuf::from("big.bin"), size: 100, max: 50 }
             .is_skippable());
         assert!(EmbedError::ParseError {
-            file: "bad.rs".to_string(),
+            file: "bad.rs".to_owned(),
             line: 1,
-            message: "syntax error".to_string(),
+            message: "syntax error".to_owned(),
         }
         .is_skippable());
         assert!(!EmbedError::TooManyChunks { count: 100, max: 50 }.is_skippable());
@@ -420,11 +420,11 @@ mod tests {
     #[test]
     fn test_error_clone() {
         let err = EmbedError::HashCollision {
-            id: "ec_123".to_string(),
-            hash1: "abc".to_string(),
-            hash2: "def".to_string(),
+            id: "ec_123".to_owned(),
+            hash1: "abc".to_owned(),
+            hash2: "def".to_owned(),
         };
-        let cloned = err.clone();
+        let cloned = err;
         assert!(matches!(cloned, EmbedError::HashCollision { .. }));
     }
 
@@ -433,16 +433,16 @@ mod tests {
         // User errors: 1
         assert_eq!(
             EmbedError::InvalidSettings {
-                field: "max_tokens".to_string(),
-                reason: "too high".to_string()
+                field: "max_tokens".to_owned(),
+                reason: "too high".to_owned()
             }
             .exit_code(),
             1
         );
         assert_eq!(
             EmbedError::InvalidPattern {
-                pattern: "**[".to_string(),
-                reason: "unclosed bracket".to_string()
+                pattern: "**[".to_owned(),
+                reason: "unclosed bracket".to_owned()
             }
             .exit_code(),
             1
@@ -451,8 +451,8 @@ mod tests {
         // Input errors: 2
         assert_eq!(
             EmbedError::NoChunksGenerated {
-                include_patterns: "*.xyz".to_string(),
-                exclude_patterns: "".to_string()
+                include_patterns: "*.xyz".to_owned(),
+                exclude_patterns: "".to_owned()
             }
             .exit_code(),
             2
@@ -464,7 +464,7 @@ mod tests {
 
         // Security - secrets: 3
         assert_eq!(
-            EmbedError::SecretsDetected { count: 5, files: "config.py".to_string() }.exit_code(),
+            EmbedError::SecretsDetected { count: 5, files: "config.py".to_owned() }.exit_code(),
             3
         );
 
@@ -486,8 +486,8 @@ mod tests {
         assert_eq!(
             EmbedError::ManifestCorrupted {
                 path: PathBuf::from(".infiniloom-embed.bin"),
-                expected: "abc".to_string(),
-                actual: "def".to_string()
+                expected: "abc".to_owned(),
+                actual: "def".to_owned()
             }
             .exit_code(),
             10
@@ -515,14 +515,14 @@ mod tests {
             .exit_code(),
             12
         );
-        assert_eq!(EmbedError::SerializationError { reason: "failed".to_string() }.exit_code(), 12);
+        assert_eq!(EmbedError::SerializationError { reason: "failed".to_owned() }.exit_code(), 12);
 
         // Internal errors: 13
         assert_eq!(
             EmbedError::HashCollision {
-                id: "ec_123".to_string(),
-                hash1: "abc".to_string(),
-                hash2: "def".to_string()
+                id: "ec_123".to_owned(),
+                hash1: "abc".to_owned(),
+                hash2: "def".to_owned()
             }
             .exit_code(),
             13
@@ -531,9 +531,9 @@ mod tests {
         // Parse errors: 14
         assert_eq!(
             EmbedError::ParseError {
-                file: "bad.rs".to_string(),
+                file: "bad.rs".to_owned(),
                 line: 42,
-                message: "syntax error".to_string()
+                message: "syntax error".to_owned()
             }
             .exit_code(),
             14
@@ -541,7 +541,7 @@ mod tests {
 
         // Multiple errors: 15
         assert_eq!(
-            EmbedError::MultipleErrors { errors: "error1\nerror2".to_string() }.exit_code(),
+            EmbedError::MultipleErrors { errors: "error1\nerror2".to_owned() }.exit_code(),
             15
         );
     }
@@ -549,19 +549,19 @@ mod tests {
     #[test]
     fn test_error_codes() {
         assert_eq!(
-            EmbedError::InvalidSettings { field: "x".to_string(), reason: "y".to_string() }
+            EmbedError::InvalidSettings { field: "x".to_owned(), reason: "y".to_owned() }
                 .error_code(),
             "E001_INVALID_SETTINGS"
         );
         assert_eq!(
-            EmbedError::SecretsDetected { count: 1, files: "f".to_string() }.error_code(),
+            EmbedError::SecretsDetected { count: 1, files: "f".to_owned() }.error_code(),
             "E005_SECRETS_DETECTED"
         );
         assert_eq!(
             EmbedError::HashCollision {
-                id: "i".to_string(),
-                hash1: "a".to_string(),
-                hash2: "b".to_string()
+                id: "i".to_owned(),
+                hash1: "a".to_owned(),
+                hash2: "b".to_owned()
             }
             .error_code(),
             "E040_HASH_COLLISION"

@@ -137,7 +137,7 @@ fn bench_file_traversal(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("file_traversal");
 
-    for (num_files, name) in sizes.iter() {
+    for (num_files, name) in &sizes {
         let temp_dir = create_test_repo(*num_files, 100);
         let path = temp_dir.path().to_path_buf();
 
@@ -166,7 +166,7 @@ fn bench_file_traversal(c: &mut Criterion) {
                     .build()
                     .filter_map(|e| e.ok())
                 {
-                    if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                    if entry.file_type().is_some_and(|t| t.is_file()) {
                         count += 1;
                     }
                 }
@@ -189,7 +189,7 @@ fn bench_file_reading(c: &mut Criterion) {
         .git_ignore(true)
         .build()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
         .map(|e| e.path().to_path_buf())
         .collect();
 
@@ -601,7 +601,7 @@ fn bench_parser(c: &mut Criterion) {
     // Test sizes: 10, 50, 100 functions
     let sizes = [(10, "10_funcs"), (50, "50_funcs"), (100, "100_funcs")];
 
-    for (num_funcs, size_name) in sizes.iter() {
+    for (num_funcs, size_name) in &sizes {
         let python_code = generate_python_code(*num_funcs);
         let rust_code = generate_rust_code(*num_funcs);
         let js_code = generate_js_code(*num_funcs);
@@ -672,12 +672,12 @@ fn bench_parser_reuse(c: &mut Criterion) {
 fn create_repo_file(path: &str, language: &str, content: &str) -> RepoFile {
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some(language.to_string()),
+        relative_path: path.to_owned(),
+        language: Some(language.to_owned()),
         symbols: Vec::new(),
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: Some(content.to_string()),
+        content: Some(content.to_owned()),
         size_bytes: content.len() as u64,
     }
 }
@@ -778,7 +778,7 @@ fn bench_pagerank(c: &mut Criterion) {
     let mut group = c.benchmark_group("pagerank");
 
     // Create repo with varying sizes
-    for (num_files, name) in [(50, "50_files"), (200, "200_files")].iter() {
+    for (num_files, name) in &[(50, "50_files"), (200, "200_files")] {
         let files: Vec<RepoFile> = (0..*num_files)
             .map(|i| {
                 let content = generate_python_code(10);
@@ -975,7 +975,7 @@ fn bench_base64_truncation(c: &mut Criterion) {
 
     let very_large = format!(
         "Before {} Middle {} After",
-        "data:image/png;base64,".to_string() + &"X".repeat(10000),
+        "data:image/png;base64,".to_owned() + &"X".repeat(10000),
         "YZ0123456789+/".repeat(1000)
     );
 

@@ -2247,7 +2247,7 @@ mod tests {
         let tree = parser.parse(code, None)?;
         let root = tree.root_node();
 
-        fn find_node_recursive(node: tree_sitter::Node<'_>, kind: &str) -> Option<usize> {
+        fn find_node_recursive(node: Node<'_>, kind: &str) -> Option<usize> {
             if node.kind() == kind {
                 return Some(node.id());
             }
@@ -2263,10 +2263,7 @@ mod tests {
     }
 
     // Helper to find node by kind in tree
-    fn find_node_in_tree<'a>(
-        node: tree_sitter::Node<'a>,
-        kind: &str,
-    ) -> Option<tree_sitter::Node<'a>> {
+    fn find_node_in_tree<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         if node.kind() == kind {
             return Some(node);
         }
@@ -2532,8 +2529,8 @@ mod tests {
         let func_node = find_node_in_tree(tree.root_node(), "function_definition").unwrap();
 
         let calls = extract_calls(func_node, code, Language::Python);
-        assert!(calls.contains(&"bar".to_string()));
-        assert!(calls.contains(&"custom_func".to_string()));
+        assert!(calls.contains(&"bar".to_owned()));
+        assert!(calls.contains(&"custom_func".to_owned()));
     }
 
     #[test]
@@ -2548,8 +2545,8 @@ mod tests {
 
         let calls = extract_calls(func_node, code, Language::Python);
         // Built-ins should be filtered out
-        assert!(!calls.contains(&"print".to_string()));
-        assert!(!calls.contains(&"len".to_string()));
+        assert!(!calls.contains(&"print".to_owned()));
+        assert!(!calls.contains(&"len".to_owned()));
     }
 
     #[test]
@@ -2563,8 +2560,8 @@ mod tests {
         let func_node = find_node_in_tree(tree.root_node(), "function_item").unwrap();
 
         let calls = extract_calls(func_node, code, Language::Rust);
-        assert!(calls.contains(&"bar".to_string()));
-        assert!(calls.contains(&"baz".to_string()));
+        assert!(calls.contains(&"bar".to_owned()));
+        assert!(calls.contains(&"baz".to_owned()));
     }
 
     #[test]

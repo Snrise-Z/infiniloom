@@ -87,7 +87,7 @@ pub fn hash_content(content: &str) -> HashResult {
 /// The caller must ensure the content is already normalized. If not,
 /// the hash will be different from `hash_content()` for the same original content.
 #[inline]
-pub fn hash_normalized(normalized_content: &str) -> HashResult {
+pub(super) fn hash_normalized(normalized_content: &str) -> HashResult {
     let hash = blake3::hash(normalized_content.as_bytes());
     HashResult::from_hash(hash)
 }
@@ -96,7 +96,7 @@ pub fn hash_normalized(normalized_content: &str) -> HashResult {
 ///
 /// Use for non-text content or when you need raw byte hashing.
 #[inline]
-pub fn hash_bytes(bytes: &[u8]) -> HashResult {
+pub(super) fn hash_bytes(bytes: &[u8]) -> HashResult {
     let hash = blake3::hash(bytes);
     HashResult::from_hash(hash)
 }
@@ -110,12 +110,12 @@ pub fn hash_bytes(bytes: &[u8]) -> HashResult {
 ///
 /// - `Ok(())` if hashes match (no collision)
 /// - `Err(HashCollision)` if hashes differ (collision detected)
-pub fn verify_no_collision(id: &str, hash1: &str, hash2: &str) -> Result<(), EmbedError> {
+pub(super) fn verify_no_collision(id: &str, hash1: &str, hash2: &str) -> Result<(), EmbedError> {
     if hash1 != hash2 {
         return Err(EmbedError::HashCollision {
-            id: id.to_string(),
-            hash1: hash1.to_string(),
-            hash2: hash2.to_string(),
+            id: id.to_owned(),
+            hash1: hash1.to_owned(),
+            hash2: hash2.to_owned(),
         });
     }
     Ok(())
@@ -124,7 +124,7 @@ pub fn verify_no_collision(id: &str, hash1: &str, hash2: &str) -> Result<(), Emb
 /// Compute a hash for manifest integrity verification
 ///
 /// Used to detect tampering with the manifest file.
-pub fn compute_integrity_hash(data: &[u8]) -> String {
+pub(super) fn compute_integrity_hash(data: &[u8]) -> String {
     blake3::hash(data).to_hex().to_string()
 }
 
@@ -141,50 +141,50 @@ pub fn compute_integrity_hash(data: &[u8]) -> String {
 /// hasher.update(b"chunk2");
 /// let result = hasher.finalize();
 /// ```
-pub struct IncrementalHasher {
+pub(super) struct IncrementalHasher {
     hasher: blake3::Hasher,
 }
 
 impl IncrementalHasher {
     /// Create a new incremental hasher
     #[inline]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { hasher: blake3::Hasher::new() }
     }
 
     /// Update the hash with additional data
     #[inline]
-    pub fn update(&mut self, data: &[u8]) {
+    pub(super) fn update(&mut self, data: &[u8]) {
         self.hasher.update(data);
     }
 
     /// Update the hash with a string
     #[inline]
-    pub fn update_str(&mut self, s: &str) {
+    pub(super) fn update_str(&mut self, s: &str) {
         self.hasher.update(s.as_bytes());
     }
 
     /// Update with a u32 value (little-endian)
     #[inline]
-    pub fn update_u32(&mut self, n: u32) {
+    pub(super) fn update_u32(&mut self, n: u32) {
         self.hasher.update(&n.to_le_bytes());
     }
 
     /// Update with a u64 value (little-endian)
     #[inline]
-    pub fn update_u64(&mut self, n: u64) {
+    pub(super) fn update_u64(&mut self, n: u64) {
         self.hasher.update(&n.to_le_bytes());
     }
 
     /// Finalize and return the hash result
     #[inline]
-    pub fn finalize(self) -> HashResult {
+    pub(super) fn finalize(self) -> HashResult {
         HashResult::from_hash(self.hasher.finalize())
     }
 
     /// Finalize and return just the hex string (256 bits)
     #[inline]
-    pub fn finalize_hex(self) -> String {
+    pub(super) fn finalize_hex(self) -> String {
         self.hasher.finalize().to_hex().to_string()
     }
 }

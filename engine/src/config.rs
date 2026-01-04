@@ -562,11 +562,11 @@ fn parse_size(s: &str) -> Option<u64> {
     }
 
     // Parse with suffix
-    let (num_str, multiplier) = if s.ends_with("KB") || s.ends_with("K") {
+    let (num_str, multiplier) = if s.ends_with("KB") || s.ends_with('K') {
         (s.trim_end_matches("KB").trim_end_matches('K'), 1024u64)
-    } else if s.ends_with("MB") || s.ends_with("M") {
+    } else if s.ends_with("MB") || s.ends_with('M') {
         (s.trim_end_matches("MB").trim_end_matches('M'), 1024 * 1024)
-    } else if s.ends_with("GB") || s.ends_with("G") {
+    } else if s.ends_with("GB") || s.ends_with('G') {
         (s.trim_end_matches("GB").trim_end_matches('G'), 1024 * 1024 * 1024)
     } else if s.ends_with('B') {
         (s.trim_end_matches('B'), 1)

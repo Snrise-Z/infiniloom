@@ -328,8 +328,7 @@ impl SymbolInfo {
     pub fn from_index_symbol(sym: &IndexSymbol, index: &SymbolIndex) -> Self {
         let file_path = index
             .get_file_by_id(sym.file_id.as_u32())
-            .map(|f| f.path.clone())
-            .unwrap_or_else(|| "<unknown>".to_owned());
+            .map_or_else(|| "<unknown>".to_owned(), |f| f.path.clone());
 
         Self {
             id: sym.id.as_u32(),
@@ -490,8 +489,7 @@ pub fn get_call_graph_filtered(
 
             let file_path = index
                 .get_file_by_id(caller_sym.file_id.as_u32())
-                .map(|f| f.path.clone())
-                .unwrap_or_else(|| "<unknown>".to_owned());
+                .map_or_else(|| "<unknown>".to_owned(), |f| f.path.clone());
 
             Some(CallGraphEdge {
                 caller_id,
@@ -621,7 +619,7 @@ mod tests {
         // Add test file
         index.files.push(FileEntry {
             id: FileId::new(0),
-            path: "test.py".to_string(),
+            path: "test.py".to_owned(),
             language: Language::Python,
             symbols: 0..2,
             imports: vec![],
@@ -633,11 +631,11 @@ mod tests {
         // Add test symbols
         index.symbols.push(IndexSymbol {
             id: SymbolId::new(0),
-            name: "main".to_string(),
+            name: "main".to_owned(),
             kind: IndexSymbolKind::Function,
             file_id: FileId::new(0),
             span: Span { start_line: 1, start_col: 0, end_line: 10, end_col: 0 },
-            signature: Some("def main()".to_string()),
+            signature: Some("def main()".to_owned()),
             parent: None,
             visibility: Visibility::Public,
             docstring: None,
@@ -645,19 +643,19 @@ mod tests {
 
         index.symbols.push(IndexSymbol {
             id: SymbolId::new(1),
-            name: "helper".to_string(),
+            name: "helper".to_owned(),
             kind: IndexSymbolKind::Function,
             file_id: FileId::new(0),
             span: Span { start_line: 12, start_col: 0, end_line: 20, end_col: 0 },
-            signature: Some("def helper()".to_string()),
+            signature: Some("def helper()".to_owned()),
             parent: None,
             visibility: Visibility::Private,
             docstring: None,
         });
 
         // Build name index
-        index.symbols_by_name.insert("main".to_string(), vec![0]);
-        index.symbols_by_name.insert("helper".to_string(), vec![1]);
+        index.symbols_by_name.insert("main".to_owned(), vec![0]);
+        index.symbols_by_name.insert("helper".to_owned(), vec![1]);
 
         // Create dependency graph with call edge: main -> helper
         let mut graph = DepGraph::new();

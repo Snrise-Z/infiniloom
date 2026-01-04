@@ -638,7 +638,7 @@ fn test_redact_content_directly() {
 
     // The key should be partially redacted
     assert!(redacted.contains("sk_l"), "Should preserve prefix");
-    assert!(redacted.contains("*"), "Should contain redaction stars");
+    assert!(redacted.contains('*'), "Should contain redaction stars");
 }
 
 // ============================================================================

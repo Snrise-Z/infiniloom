@@ -11,7 +11,6 @@ use std::io::{self, BufRead};
 use std::time::Instant;
 
 use infiniloom_engine::{
-    content_processing::truncate_base64,
     git::GitRepo,
     output::{OutputFormat, OutputFormatter},
     remote::RemoteRepo,
@@ -34,8 +33,6 @@ use super::{
     extract_key_symbols_focused,
     extract_key_symbols_only,
     extract_signatures_only,
-    // File filtering functions (from filters module)
-    pattern_matches_file,
     rank_files_fast,
     read_instruction_file,
     recalculate_metadata,
@@ -169,7 +166,7 @@ use super::{
 ///
 /// infiniloom_cli::commands::pack::cmd_pack(config).expect("Pack failed");
 /// ```
-pub fn cmd_pack(config: PackConfig) -> Result<()> {
+pub(crate) fn cmd_pack(config: PackConfig) -> Result<()> {
     let start = Instant::now();
 
     // Extract frequently used values from config for convenience
@@ -306,7 +303,7 @@ pub fn cmd_pack(config: PackConfig) -> Result<()> {
 
         (cloned_path, Some(temp_dir))
     } else {
-        (path.clone(), None)
+        (path, None)
     };
 
     // Load config file

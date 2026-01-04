@@ -282,8 +282,7 @@ fn build_cli_metadata(path: &Path, files: &[RepoFile]) -> RepoMetadata {
         .map(|f| {
             f.content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| estimate_lines(f.size_bytes))
+                .map_or_else(|| estimate_lines(f.size_bytes), |c| c.lines().count() as u64)
         })
         .sum();
 
@@ -296,8 +295,7 @@ fn build_cli_metadata(path: &Path, files: &[RepoFile]) -> RepoMetadata {
             let file_lines = file
                 .content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| estimate_lines(file.size_bytes));
+                .map_or_else(|| estimate_lines(file.size_bytes), |c| c.lines().count() as u64);
             entry.1 += file_lines;
         }
     }

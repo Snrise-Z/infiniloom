@@ -327,8 +327,8 @@ impl AuditLog {
         if !log.verify_integrity() {
             return Err(EmbedError::ManifestCorrupted {
                 path: path.to_path_buf(),
-                expected: "valid hash chain".to_string(),
-                actual: "hash chain broken".to_string(),
+                expected: "valid hash chain".to_owned(),
+                actual: "hash chain broken".to_owned(),
             });
         }
 
@@ -453,14 +453,14 @@ mod tests {
         let mut log = AuditLog::new();
 
         log.record(AuditOperation::EmbedStart {
-            repo_path: "/test/repo".to_string(),
-            settings_hash: "abc123".to_string(),
+            repo_path: "/test/repo".to_owned(),
+            settings_hash: "abc123".to_owned(),
         });
 
         log.record(AuditOperation::EmbedComplete {
             chunks_count: 100,
             total_tokens: 50000,
-            manifest_hash: "def456".to_string(),
+            manifest_hash: "def456".to_owned(),
         });
 
         assert_eq!(log.entries.len(), 3);
@@ -482,7 +482,7 @@ mod tests {
 
         // Tamper with an entry's data
         if let AuditOperation::Custom { ref mut data, .. } = log.entries[5].operation {
-            *data = "tampered".to_string();
+            *data = "tampered".to_owned();
         }
 
         // Integrity should now fail
@@ -494,8 +494,8 @@ mod tests {
         let mut log = AuditLog::new();
 
         log.record(AuditOperation::EmbedStart {
-            repo_path: "/test".to_string(),
-            settings_hash: "hash".to_string(),
+            repo_path: "/test".to_owned(),
+            settings_hash: "hash".to_owned(),
         });
 
         let report = log.verify_integrity_detailed();
@@ -508,11 +508,11 @@ mod tests {
     fn test_tamper_detection_chain_broken() {
         let mut log = AuditLog::new();
 
-        log.record(AuditOperation::Custom { name: "op1".to_string(), data: "data1".to_string() });
-        log.record(AuditOperation::Custom { name: "op2".to_string(), data: "data2".to_string() });
+        log.record(AuditOperation::Custom { name: "op1".to_owned(), data: "data1".to_owned() });
+        log.record(AuditOperation::Custom { name: "op2".to_owned(), data: "data2".to_owned() });
 
         // Break the chain by modifying prev_hash
-        log.entries[2].prev_hash = "fake_hash".to_string();
+        log.entries[2].prev_hash = "fake_hash".to_owned();
 
         let report = log.verify_integrity_detailed();
         assert!(!report.is_valid);
@@ -524,10 +524,10 @@ mod tests {
     fn test_tamper_detection_hash_mismatch() {
         let mut log = AuditLog::new();
 
-        log.record(AuditOperation::Custom { name: "op1".to_string(), data: "data1".to_string() });
+        log.record(AuditOperation::Custom { name: "op1".to_owned(), data: "data1".to_owned() });
 
         // Modify the entry's own hash
-        log.entries[1].hash = "fake_hash".to_string();
+        log.entries[1].hash = "fake_hash".to_owned();
 
         let report = log.verify_integrity_detailed();
         assert!(!report.is_valid);
@@ -544,8 +544,8 @@ mod tests {
         let initial_head = log.head_hash().map(String::from);
         assert!(initial_head.is_some());
 
-        let new_hash = log
-            .record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
+        let new_hash =
+            log.record(AuditOperation::Custom { name: "test".to_owned(), data: "data".to_owned() });
 
         assert_eq!(log.head_hash(), Some(new_hash.as_str()));
         assert_ne!(log.head_hash().map(String::from), initial_head);
@@ -556,17 +556,17 @@ mod tests {
         let mut log = AuditLog::new();
 
         log.record(AuditOperation::EmbedStart {
-            repo_path: "/repo1".to_string(),
-            settings_hash: "h1".to_string(),
+            repo_path: "/repo1".to_owned(),
+            settings_hash: "h1".to_owned(),
         });
         log.record(AuditOperation::EmbedComplete {
             chunks_count: 100,
             total_tokens: 50000,
-            manifest_hash: "m1".to_string(),
+            manifest_hash: "m1".to_owned(),
         });
         log.record(AuditOperation::EmbedStart {
-            repo_path: "/repo2".to_string(),
-            settings_hash: "h2".to_string(),
+            repo_path: "/repo2".to_owned(),
+            settings_hash: "h2".to_owned(),
         });
 
         let starts = log.filter_by_type(|op| matches!(op, AuditOperation::EmbedStart { .. }));
@@ -581,7 +581,7 @@ mod tests {
         let mut log = AuditLog::new();
 
         // All entries will have the same timestamp (or very close)
-        log.record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
+        log.record(AuditOperation::Custom { name: "test".to_owned(), data: "data".to_owned() });
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -599,13 +599,13 @@ mod tests {
 
         let mut log = AuditLog::new();
         log.record(AuditOperation::EmbedStart {
-            repo_path: "/test/repo".to_string(),
-            settings_hash: "abc123".to_string(),
+            repo_path: "/test/repo".to_owned(),
+            settings_hash: "abc123".to_owned(),
         });
         log.record(AuditOperation::EmbedComplete {
             chunks_count: 100,
             total_tokens: 50000,
-            manifest_hash: "def456".to_string(),
+            manifest_hash: "def456".to_owned(),
         });
 
         // Save
@@ -629,7 +629,7 @@ mod tests {
         let log_path = temp_dir.path().join("audit.jsonl");
 
         let mut log = AuditLog::new();
-        log.record(AuditOperation::Custom { name: "test".to_string(), data: "data".to_string() });
+        log.record(AuditOperation::Custom { name: "test".to_owned(), data: "data".to_owned() });
 
         log.save_jsonl(&log_path).unwrap();
 
@@ -667,7 +667,7 @@ mod tests {
 
         log.record(AuditOperation::BatchStart {
             repo_count: 3,
-            total_settings_hash: "settings_hash".to_string(),
+            total_settings_hash: "settings_hash".to_owned(),
         });
 
         for i in 0..3 {
@@ -690,13 +690,13 @@ mod tests {
         let mut log = AuditLog::new();
 
         log.record(AuditOperation::CheckpointCreated {
-            checkpoint_hash: "ckpt_abc123".to_string(),
+            checkpoint_hash: "ckpt_abc123".to_owned(),
             files_processed: 50,
             chunks_generated: 200,
         });
 
         log.record(AuditOperation::ResumeFromCheckpoint {
-            checkpoint_hash: "ckpt_abc123".to_string(),
+            checkpoint_hash: "ckpt_abc123".to_owned(),
             files_remaining: 100,
         });
 

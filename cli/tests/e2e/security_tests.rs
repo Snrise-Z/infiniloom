@@ -145,9 +145,9 @@ fn test_security_scan_reports_count() {
     // Could be "0 secrets found", "2 potential secrets", etc.
     let has_count = combined.contains("found")
         || combined.contains("detected")
-        || combined.contains("0")
-        || combined.contains("1")
-        || combined.contains("2")
+        || combined.contains('0')
+        || combined.contains('1')
+        || combined.contains('2')
         || combined.contains("warning");
 
     assert!(

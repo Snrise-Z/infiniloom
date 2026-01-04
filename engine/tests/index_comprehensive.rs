@@ -431,7 +431,7 @@ fn test_l3_context_full_chain() {
     // utils <- lib <- nothing (no further dependents of lib in our setup)
     // utils <- main <- test_main
     // So test_main should be found as a transitive dependent
-    assert!(context.dependent_files.len() >= 1, "L3 should find transitive dependents");
+    assert!(!context.dependent_files.is_empty(), "L3 should find transitive dependents");
 }
 
 #[test]
@@ -793,7 +793,7 @@ fn test_build_with_options() {
     ]);
 
     // Only include Rust files
-    let options = BuildOptions { include_extensions: vec!["rs".to_string()], ..Default::default() };
+    let options = BuildOptions { include_extensions: vec!["rs".to_owned()], ..Default::default() };
 
     let builder = IndexBuilder::new(tmp.path()).with_options(options);
     let (index, _) = builder.build().unwrap();

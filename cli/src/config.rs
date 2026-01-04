@@ -8,7 +8,7 @@ use std::path::Path;
 
 /// Loaded configuration from file
 #[derive(Default)]
-pub struct LoadedConfig {
+pub(crate) struct LoadedConfig {
     /// Additional exclude patterns from config
     pub exclude_patterns: Vec<String>,
     /// Additional include patterns from config
@@ -137,7 +137,7 @@ struct PartialConfig {
 }
 
 /// Load config file (.infiniloom.yaml, .infiniloom.toml, .infiniloom.json)
-pub fn load_config_file(
+pub(crate) fn load_config_file(
     config_path: Option<&std::path::PathBuf>,
     repo_path: &Path,
 ) -> LoadedConfig {
@@ -177,7 +177,7 @@ pub fn load_config_file(
                             path.with_extension("toml")
                         }
                     } else {
-                        path.clone()
+                        path
                     };
                     parse_config_content(&content, &effective_path, &mut config);
                     break;
@@ -311,7 +311,7 @@ fn parse_config_content(content: &str, path: &Path, config: &mut LoadedConfig) {
 }
 
 /// Parse a size string like "10MB", "500KB", "1GB" into bytes
-pub fn parse_size_string(s: &str) -> u64 {
+pub(crate) fn parse_size_string(s: &str) -> u64 {
     let s = s.trim().to_uppercase();
     let (num_part, suffix) = if s.ends_with("GB") {
         (&s[..s.len() - 2], 1024 * 1024 * 1024u64)

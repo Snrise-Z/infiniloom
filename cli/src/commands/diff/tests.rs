@@ -121,7 +121,7 @@ fn test_merge_snippet_ranges_empty() {
 
 #[test]
 fn test_merge_snippet_ranges_single() {
-    let ranges = vec![SnippetRange { start: 1, end: 5, reasons: vec!["test".to_string()] }];
+    let ranges = vec![SnippetRange { start: 1, end: 5, reasons: vec!["test".to_owned()] }];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].start, 1);
@@ -131,8 +131,8 @@ fn test_merge_snippet_ranges_single() {
 #[test]
 fn test_merge_snippet_ranges_non_overlapping() {
     let ranges = vec![
-        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
-        SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_string()] },
+        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_owned()] },
+        SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 2);
@@ -141,8 +141,8 @@ fn test_merge_snippet_ranges_non_overlapping() {
 #[test]
 fn test_merge_snippet_ranges_overlapping() {
     let ranges = vec![
-        SnippetRange { start: 1, end: 10, reasons: vec!["reason1".to_string()] },
-        SnippetRange { start: 5, end: 15, reasons: vec!["reason2".to_string()] },
+        SnippetRange { start: 1, end: 10, reasons: vec!["reason1".to_owned()] },
+        SnippetRange { start: 5, end: 15, reasons: vec!["reason2".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 1);
@@ -155,8 +155,8 @@ fn test_merge_snippet_ranges_overlapping() {
 fn test_merge_snippet_ranges_adjacent() {
     // Adjacent ranges (end+1 == start of next) should merge
     let ranges = vec![
-        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
-        SnippetRange { start: 6, end: 10, reasons: vec!["reason2".to_string()] },
+        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_owned()] },
+        SnippetRange { start: 6, end: 10, reasons: vec!["reason2".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 1);
@@ -168,8 +168,8 @@ fn test_merge_snippet_ranges_adjacent() {
 fn test_merge_snippet_ranges_unsorted() {
     // Should sort before merging
     let ranges = vec![
-        SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_string()] },
-        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_string()] },
+        SnippetRange { start: 10, end: 15, reasons: vec!["reason2".to_owned()] },
+        SnippetRange { start: 1, end: 5, reasons: vec!["reason1".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 2);
@@ -180,8 +180,8 @@ fn test_merge_snippet_ranges_unsorted() {
 #[test]
 fn test_merge_snippet_ranges_duplicate_reasons() {
     let ranges = vec![
-        SnippetRange { start: 1, end: 10, reasons: vec!["reason".to_string()] },
-        SnippetRange { start: 5, end: 15, reasons: vec!["reason".to_string()] },
+        SnippetRange { start: 1, end: 10, reasons: vec!["reason".to_owned()] },
+        SnippetRange { start: 5, end: 15, reasons: vec!["reason".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 1);
@@ -193,8 +193,8 @@ fn test_merge_snippet_ranges_duplicate_reasons() {
 fn test_merge_snippet_ranges_contained() {
     // One range completely contained in another
     let ranges = vec![
-        SnippetRange { start: 1, end: 20, reasons: vec!["outer".to_string()] },
-        SnippetRange { start: 5, end: 10, reasons: vec!["inner".to_string()] },
+        SnippetRange { start: 1, end: 20, reasons: vec!["outer".to_owned()] },
+        SnippetRange { start: 5, end: 10, reasons: vec!["inner".to_owned()] },
     ];
     let merged = merge_snippet_ranges(ranges);
     assert_eq!(merged.len(), 1);
@@ -212,14 +212,14 @@ fn test_resolve_base_ref_range() {
     // For range refs like "main..HEAD", we want the left side
     // This doesn't require git verification
     let base = resolve_base_ref(Some("main..HEAD"), Path::new("."));
-    assert_eq!(base, Some("main".to_string()));
+    assert_eq!(base, Some("main".to_owned()));
 }
 
 #[test]
 fn test_resolve_base_ref_triple_dot_range() {
     // Also handles triple dot ranges
     let base = resolve_base_ref(Some("develop...feature"), Path::new("."));
-    assert_eq!(base, Some("develop".to_string()));
+    assert_eq!(base, Some("develop".to_owned()));
 }
 
 // ============================================
@@ -229,9 +229,9 @@ fn test_resolve_base_ref_triple_dot_range() {
 fn create_test_context_file(path: &str, tokens: u32) -> infiniloom_engine::index::ContextFile {
     infiniloom_engine::index::ContextFile {
         id: 0,
-        path: path.to_string(),
-        language: "rust".to_string(),
-        relevance_reason: "test".to_string(),
+        path: path.to_owned(),
+        language: "rust".to_owned(),
+        relevance_reason: "test".to_owned(),
         relevance_score: 1.0,
         tokens,
         relevant_sections: vec![],

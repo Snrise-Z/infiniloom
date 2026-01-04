@@ -235,10 +235,10 @@ mod tests {
         fs::write(&file_path, "fn main() {}").unwrap();
 
         let infos = vec![FileInfo {
-            path: file_path.clone(),
-            relative_path: "test.rs".to_string(),
+            path: file_path,
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(12),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         }];
 
         let config = ScannerConfig::default();
@@ -263,7 +263,7 @@ mod tests {
                 path: dir.path().join(format!("test{}.rs", i)),
                 relative_path: format!("test{}.rs", i),
                 size_bytes: Some(15),
-                language: Some("rust".to_string()),
+                language: Some("rust".to_owned()),
             })
             .collect();
 
@@ -280,10 +280,10 @@ mod tests {
         fs::write(&file_path, "fn main() {}").unwrap();
 
         let infos = vec![FileInfo {
-            path: file_path.clone(),
-            relative_path: "test.rs".to_string(),
+            path: file_path,
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(12),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         }];
 
         let config = ScannerConfig { skip_symbols: true, ..Default::default() };
@@ -300,10 +300,10 @@ mod tests {
         fs::write(&file_path, "fn main() {}").unwrap();
 
         let infos = vec![FileInfo {
-            path: file_path.clone(),
-            relative_path: "test.rs".to_string(),
+            path: file_path,
+            relative_path: "test.rs".to_owned(),
             size_bytes: Some(12),
-            language: Some("rust".to_string()),
+            language: Some("rust".to_owned()),
         }];
 
         let config = ScannerConfig { accurate_tokens: true, ..Default::default() };

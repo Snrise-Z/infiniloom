@@ -16,7 +16,7 @@ use infiniloom_engine::embedding::{
 
 /// Output format for embed command
 #[derive(Debug, Clone, Copy, Default)]
-pub enum EmbedOutputFormat {
+pub(crate) enum EmbedOutputFormat {
     /// JSONL envelope format (header, chunks, footer)
     #[default]
     Jsonl,
@@ -25,7 +25,7 @@ pub enum EmbedOutputFormat {
 }
 
 /// Embed command configuration
-pub struct EmbedConfig {
+pub(crate) struct EmbedConfig {
     /// Path to repository
     pub path: PathBuf,
     /// Output format
@@ -80,7 +80,7 @@ impl Default for EmbedConfig {
             max_tokens: 1000, // Matches EmbedSettings::default().max_tokens
             min_tokens: 50,   // Matches EmbedSettings::default().min_tokens
             context_lines: 5, // Matches EmbedSettings::default().context_lines
-            token_model: "claude".to_string(),
+            token_model: "claude".to_owned(),
             include_imports: true, // Include imports by default for dependency tracking
             include_top_level: true,
             security_scan: true, // Enable security scanning by default for safety
@@ -97,7 +97,7 @@ impl Default for EmbedConfig {
 }
 
 /// Run the embed command
-pub fn cmd_embed(config: EmbedConfig) -> Result<()> {
+pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     let start = Instant::now();
 
     // Build settings

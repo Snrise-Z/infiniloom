@@ -253,8 +253,7 @@ impl DependencyGraph {
         let is_js = file
             .language
             .as_deref()
-            .map(|l| matches!(l, "javascript" | "typescript" | "jsx" | "tsx"))
-            .unwrap_or(false);
+            .is_some_and(|l| matches!(l, "javascript" | "typescript" | "jsx" | "tsx"));
 
         if !is_js {
             return;

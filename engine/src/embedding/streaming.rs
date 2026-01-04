@@ -578,8 +578,7 @@ impl ChunkStream {
         path.extension()
             .and_then(|e| e.to_str())
             .and_then(Language::from_extension)
-            .map(|l| l.display_name().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+            .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
     }
 
     /// Compute fully qualified name

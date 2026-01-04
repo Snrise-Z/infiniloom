@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 /// Configuration file format
 #[derive(ValueEnum, Clone, Copy, Debug)]
-pub enum ConfigFormat {
+pub(crate) enum ConfigFormat {
     /// YAML format
     Yaml,
     /// TOML format
@@ -20,7 +20,7 @@ pub enum ConfigFormat {
 
 /// Configuration template for common project types
 #[derive(ValueEnum, Clone, Copy, Debug)]
-pub enum ConfigTemplate {
+pub(crate) enum ConfigTemplate {
     /// Generic template (default)
     Generic,
     /// Rust project (Cargo.toml, *.rs)
@@ -36,7 +36,7 @@ pub enum ConfigTemplate {
 }
 
 /// Initialize a new configuration file
-pub fn cmd_init(
+pub(crate) fn cmd_init(
     path: PathBuf,
     format: ConfigFormat,
     template: ConfigTemplate,

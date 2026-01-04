@@ -296,8 +296,7 @@ impl IncrementalScanner {
             .modified()
             .ok()
             .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
 
         let relative_path = path.to_string_lossy();
         self.cache
@@ -316,8 +315,7 @@ impl IncrementalScanner {
             .modified()
             .ok()
             .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
 
         let content_hash = hash_content(content);
         let relative_path = path.to_string_lossy();

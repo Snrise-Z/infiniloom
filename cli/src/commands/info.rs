@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::config::load_config_file;
 
 /// Show version and configuration info
-pub fn cmd_info(path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn cmd_info(path: Option<PathBuf>) -> Result<()> {
     println!();
     println!("{}", "Infiniloom - Repository Context Generator".cyan().bold());
     println!("{}", "━".repeat(50).dimmed());

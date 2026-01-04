@@ -50,7 +50,7 @@ fn compile_pattern(pattern: &str) -> Option<Pattern> {
     }
 
     let compiled = Pattern::new(pattern).ok();
-    cache_guard.insert(pattern.to_string(), compiled.clone());
+    cache_guard.insert(pattern.to_owned(), compiled.clone());
     compiled
 }
 
@@ -352,8 +352,8 @@ mod tests {
     #[test]
     fn test_apply_exclude_patterns_empty() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "node_modules/lib.js".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "node_modules/lib.js".to_owned() },
         ];
 
         apply_exclude_patterns(&mut files, &[], |f| &f.path);
@@ -363,12 +363,12 @@ mod tests {
     #[test]
     fn test_apply_exclude_patterns_basic() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "node_modules/lib.js".to_string() },
-            TestFile { path: "dist/bundle.js".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "node_modules/lib.js".to_owned() },
+            TestFile { path: "dist/bundle.js".to_owned() },
         ];
 
-        let exclude = vec!["node_modules".to_string(), "dist".to_string()];
+        let exclude = vec!["node_modules".to_owned(), "dist".to_owned()];
         apply_exclude_patterns(&mut files, &exclude, |f| &f.path);
 
         assert_eq!(files.len(), 1);
@@ -378,12 +378,12 @@ mod tests {
     #[test]
     fn test_apply_exclude_patterns_glob() {
         let mut files = vec![
-            TestFile { path: "foo.js".to_string() },
-            TestFile { path: "foo.min.js".to_string() },
-            TestFile { path: "bar.js".to_string() },
+            TestFile { path: "foo.js".to_owned() },
+            TestFile { path: "foo.min.js".to_owned() },
+            TestFile { path: "bar.js".to_owned() },
         ];
 
-        let exclude = vec!["*.min.js".to_string()];
+        let exclude = vec!["*.min.js".to_owned()];
         apply_exclude_patterns(&mut files, &exclude, |f| &f.path);
 
         assert_eq!(files.len(), 2);
@@ -393,8 +393,8 @@ mod tests {
     #[test]
     fn test_apply_include_patterns_empty() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "src/lib.py".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "src/lib.py".to_owned() },
         ];
 
         apply_include_patterns(&mut files, &[], |f| &f.path);
@@ -404,12 +404,12 @@ mod tests {
     #[test]
     fn test_apply_include_patterns_basic() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "src/lib.py".to_string() },
-            TestFile { path: "src/index.ts".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "src/lib.py".to_owned() },
+            TestFile { path: "src/index.ts".to_owned() },
         ];
 
-        let include = vec!["*.rs".to_string(), "*.ts".to_string()];
+        let include = vec!["*.rs".to_owned(), "*.ts".to_owned()];
         apply_include_patterns(&mut files, &include, |f| &f.path);
 
         assert_eq!(files.len(), 2);
@@ -420,12 +420,12 @@ mod tests {
     #[test]
     fn test_apply_include_patterns_substring() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "tests/test.rs".to_string() },
-            TestFile { path: "lib/index.ts".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "tests/test.rs".to_owned() },
+            TestFile { path: "lib/index.ts".to_owned() },
         ];
 
-        let include = vec!["src".to_string()];
+        let include = vec!["src".to_owned()];
         apply_include_patterns(&mut files, &include, |f| &f.path);
 
         assert_eq!(files.len(), 1);
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_compile_patterns() {
-        let patterns = vec!["*.rs".to_string(), "*.ts".to_string(), "src/**/*.js".to_string()];
+        let patterns = vec!["*.rs".to_owned(), "*.ts".to_owned(), "src/**/*.js".to_owned()];
 
         let compiled = compile_patterns(&patterns);
         assert_eq!(compiled.len(), 3);
@@ -443,9 +443,9 @@ mod tests {
     #[test]
     fn test_compile_patterns_invalid() {
         let patterns = vec![
-            "*.rs".to_string(),
-            "[invalid".to_string(), // Invalid glob
-            "*.ts".to_string(),
+            "*.rs".to_owned(),
+            "[invalid".to_owned(), // Invalid glob
+            "*.ts".to_owned(),
         ];
 
         let compiled = compile_patterns(&patterns);
@@ -459,19 +459,19 @@ mod tests {
     #[test]
     fn test_exclude_then_include() {
         let mut files = vec![
-            TestFile { path: "src/main.rs".to_string() },
-            TestFile { path: "src/lib.rs".to_string() },
-            TestFile { path: "src/main.test.rs".to_string() },
-            TestFile { path: "node_modules/lib.js".to_string() },
+            TestFile { path: "src/main.rs".to_owned() },
+            TestFile { path: "src/lib.rs".to_owned() },
+            TestFile { path: "src/main.test.rs".to_owned() },
+            TestFile { path: "node_modules/lib.js".to_owned() },
         ];
 
         // First exclude test files and node_modules
-        let exclude = vec!["node_modules".to_string(), "*.test.rs".to_string()];
+        let exclude = vec!["node_modules".to_owned(), "*.test.rs".to_owned()];
         apply_exclude_patterns(&mut files, &exclude, |f| &f.path);
         assert_eq!(files.len(), 2);
 
         // Then include only Rust files
-        let include = vec!["*.rs".to_string()];
+        let include = vec!["*.rs".to_owned()];
         apply_include_patterns(&mut files, &include, |f| &f.path);
         assert_eq!(files.len(), 2);
         assert!(files.iter().all(|f| f.path.ends_with(".rs")));

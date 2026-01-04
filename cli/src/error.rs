@@ -7,7 +7,7 @@ use thiserror::Error;
 
 /// CLI-specific error type
 #[derive(Debug, Error)]
-pub enum CliError {
+pub(crate) enum CliError {
     /// Engine errors (wrapped from infiniloom_engine::InfiniloomError)
     #[error("Engine error: {0}")]
     Engine(#[from] infiniloom_engine::InfiniloomError),
@@ -120,68 +120,68 @@ pub enum CliError {
 }
 
 /// Convenience type alias for Results using CliError
-pub type Result<T> = std::result::Result<T, CliError>;
+pub(crate) type Result<T> = std::result::Result<T, CliError>;
 
 impl CliError {
     /// Create an invalid argument error
-    pub fn invalid_argument(msg: impl Into<String>) -> Self {
+    pub(crate) fn invalid_argument(msg: impl Into<String>) -> Self {
         Self::InvalidArgument(msg.into())
     }
 
     /// Create a missing argument error
-    pub fn missing_argument(name: impl Into<String>) -> Self {
+    pub(crate) fn missing_argument(name: impl Into<String>) -> Self {
         Self::MissingArgument(name.into())
     }
 
     /// Create an invalid path error
-    pub fn invalid_path(path: impl Into<String>, reason: impl Into<String>) -> Self {
+    pub(crate) fn invalid_path(path: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::InvalidPath { path: path.into(), reason: reason.into() }
     }
 
     /// Create a path not found error
-    pub fn path_not_found(path: impl Into<String>) -> Self {
+    pub(crate) fn path_not_found(path: impl Into<String>) -> Self {
         Self::PathNotFound(path.into())
     }
 
     /// Create a not git repo error
-    pub fn not_git_repo(path: impl Into<String>) -> Self {
+    pub(crate) fn not_git_repo(path: impl Into<String>) -> Self {
         Self::NotGitRepo(path.into())
     }
 
     /// Create an index not found error
-    pub fn index_not_found(path: impl Into<String>) -> Self {
+    pub(crate) fn index_not_found(path: impl Into<String>) -> Self {
         Self::IndexNotFound { path: path.into() }
     }
 
     /// Create a security issues error
-    pub fn security_issues(count: usize, critical: usize) -> Self {
+    pub(crate) fn security_issues(count: usize, critical: usize) -> Self {
         Self::SecurityIssues { count, critical }
     }
 
     /// Create a budget exceeded error
-    pub fn budget_exceeded(used: u32, budget: u32) -> Self {
+    pub(crate) fn budget_exceeded(used: u32, budget: u32) -> Self {
         Self::BudgetExceeded { used, budget }
     }
 
     /// Create a command failed error
-    pub fn command_failed(command: impl Into<String>, reason: impl Into<String>) -> Self {
+    pub(crate) fn command_failed(command: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::CommandFailed { command: command.into(), reason: reason.into() }
     }
 
     /// Create a feature unavailable error
-    pub fn feature_unavailable(feature: impl Into<String>, hint: impl Into<String>) -> Self {
+    pub(crate) fn feature_unavailable(feature: impl Into<String>, hint: impl Into<String>) -> Self {
         Self::FeatureUnavailable { feature: feature.into(), hint: hint.into() }
     }
 
     /// Create a generic error
-    pub fn other(msg: impl Into<String>) -> Self {
+    pub(crate) fn other(msg: impl Into<String>) -> Self {
         Self::Other(msg.into())
     }
 
     /// Check if this is a user error (invalid input, missing args, etc.)
     ///
     /// User errors are typically fixable by the user without code changes.
-    pub fn is_user_error(&self) -> bool {
+    pub(crate) fn is_user_error(&self) -> bool {
         matches!(
             self,
             Self::InvalidArgument(_)
@@ -201,7 +201,7 @@ impl CliError {
     /// Check if this is an internal error (system issues, bugs, etc.)
     ///
     /// Internal errors typically require code fixes or system-level changes.
-    pub fn is_internal_error(&self) -> bool {
+    pub(crate) fn is_internal_error(&self) -> bool {
         matches!(
             self,
             Self::Engine(_) | Self::Io(_) | Self::GitNotAvailable | Self::CommandFailed { .. }
@@ -211,7 +211,7 @@ impl CliError {
     /// Check if this is a recoverable error
     ///
     /// Recoverable errors allow the program to continue with alternative paths.
-    pub fn is_recoverable(&self) -> bool {
+    pub(crate) fn is_recoverable(&self) -> bool {
         matches!(
             self,
             Self::SecurityIssues { .. }
@@ -225,7 +225,7 @@ impl CliError {
     /// Check if this is a critical error
     ///
     /// Critical errors typically require immediate attention and program termination.
-    pub fn is_critical(&self) -> bool {
+    pub(crate) fn is_critical(&self) -> bool {
         matches!(self, Self::Engine(_) | Self::Io(_) | Self::GitNotAvailable)
     }
 
@@ -257,7 +257,7 @@ impl CliError {
     /// | 33 | Internal | Hash collision (extremely rare) |
     /// | 34 | Parse | Source code parse errors |
     /// | 35 | Multiple | Multiple errors encountered |
-    pub fn exit_code(&self) -> i32 {
+    pub(crate) fn exit_code(&self) -> i32 {
         match self {
             // Embed errors: use semantic exit codes in 20-99 range
             // Add 20 to avoid conflicts with general CLI exit codes
@@ -389,7 +389,7 @@ mod tests {
         assert!(CliError::invalid_argument("test").is_user_error());
         assert!(CliError::missing_argument("path").is_user_error());
         assert!(CliError::path_not_found("/test").is_user_error());
-        assert!(CliError::InvalidFormat("badformat".to_string()).is_user_error());
+        assert!(CliError::InvalidFormat("badformat".to_owned()).is_user_error());
         assert!(!CliError::GitNotAvailable.is_user_error());
     }
 
@@ -424,7 +424,7 @@ mod tests {
         // User errors: exit code 1
         assert_eq!(CliError::invalid_argument("test").exit_code(), 1);
         assert_eq!(CliError::missing_argument("path").exit_code(), 1);
-        assert_eq!(CliError::InvalidFormat("bad".to_string()).exit_code(), 1);
+        assert_eq!(CliError::InvalidFormat("bad".to_owned()).exit_code(), 1);
 
         // Git errors: exit code 2
         assert_eq!(CliError::not_git_repo("/tmp").exit_code(), 2);
@@ -474,23 +474,23 @@ mod tests {
 
         // User error: 21 (20 + 1)
         let err: CliError = EmbedError::InvalidSettings {
-            field: "max_tokens".to_string(),
-            reason: "too high".to_string(),
+            field: "max_tokens".to_owned(),
+            reason: "too high".to_owned(),
         }
         .into();
         assert_eq!(err.exit_code(), 21);
 
         // Input error: 22 (20 + 2)
         let err: CliError = EmbedError::NoChunksGenerated {
-            include_patterns: "*.xyz".to_string(),
-            exclude_patterns: "".to_string(),
+            include_patterns: "*.xyz".to_owned(),
+            exclude_patterns: "".to_owned(),
         }
         .into();
         assert_eq!(err.exit_code(), 22);
 
         // Security - secrets: 23 (20 + 3)
         let err: CliError =
-            EmbedError::SecretsDetected { count: 5, files: "config.py".to_string() }.into();
+            EmbedError::SecretsDetected { count: 5, files: "config.py".to_owned() }.into();
         assert_eq!(err.exit_code(), 23);
 
         // Security - path traversal: 24 (20 + 4)
@@ -520,25 +520,25 @@ mod tests {
 
         // Internal error: 33 (20 + 13)
         let err: CliError = EmbedError::HashCollision {
-            id: "ec_123".to_string(),
-            hash1: "abc".to_string(),
-            hash2: "def".to_string(),
+            id: "ec_123".to_owned(),
+            hash1: "abc".to_owned(),
+            hash2: "def".to_owned(),
         }
         .into();
         assert_eq!(err.exit_code(), 33);
 
         // Parse error: 34 (20 + 14)
         let err: CliError = EmbedError::ParseError {
-            file: "bad.rs".to_string(),
+            file: "bad.rs".to_owned(),
             line: 42,
-            message: "syntax error".to_string(),
+            message: "syntax error".to_owned(),
         }
         .into();
         assert_eq!(err.exit_code(), 34);
 
         // Multiple errors: 35 (20 + 15)
         let err: CliError =
-            EmbedError::MultipleErrors { errors: "error1\nerror2".to_string() }.into();
+            EmbedError::MultipleErrors { errors: "error1\nerror2".to_owned() }.into();
         assert_eq!(err.exit_code(), 35);
     }
 }

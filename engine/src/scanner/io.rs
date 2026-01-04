@@ -121,7 +121,7 @@ mod tests {
         fs::write(&file_path, "Hello, World!").unwrap();
 
         let content = smart_read_file(&file_path, 13);
-        assert_eq!(content, Some("Hello, World!".to_string()));
+        assert_eq!(content, Some("Hello, World!".to_owned()));
     }
 
     #[test]
@@ -138,7 +138,7 @@ mod tests {
 
         // Even with large size, mmap is disabled
         let content = smart_read_file_with_options(&file_path, MMAP_THRESHOLD + 1000, false);
-        assert_eq!(content, Some("content".to_string()));
+        assert_eq!(content, Some("content".to_owned()));
     }
 
     #[test]

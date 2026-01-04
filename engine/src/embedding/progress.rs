@@ -94,7 +94,7 @@ impl Default for TerminalProgress {
 
 impl ProgressReporter for TerminalProgress {
     fn set_phase(&self, phase: &str) {
-        *self.phase.write().unwrap() = phase.to_string();
+        *self.phase.write().unwrap() = phase.to_owned();
         if self.show_output {
             eprintln!("[infiniloom] {phase}");
         }
@@ -148,7 +148,7 @@ impl ProgressReporter for QuietProgress {
 /// Callback-based progress reporter
 ///
 /// Allows custom handling of progress events.
-pub struct CallbackProgress<F>
+pub(super) struct CallbackProgress<F>
 where
     F: Fn(ProgressEvent) + Send + Sync,
 {
@@ -162,7 +162,7 @@ where
     F: Fn(ProgressEvent) + Send + Sync,
 {
     /// Create a new callback progress reporter
-    pub fn new(callback: F) -> Self {
+    pub(super) fn new(callback: F) -> Self {
         Self { callback, total: AtomicUsize::new(0), current: AtomicUsize::new(0) }
     }
 }
@@ -172,7 +172,7 @@ where
     F: Fn(ProgressEvent) + Send + Sync,
 {
     fn set_phase(&self, phase: &str) {
-        (self.callback)(ProgressEvent::Phase(phase.to_string()));
+        (self.callback)(ProgressEvent::Phase(phase.to_owned()));
     }
 
     fn set_total(&self, total: usize) {
@@ -193,15 +193,15 @@ where
     }
 
     fn warn(&self, message: &str) {
-        (self.callback)(ProgressEvent::Warning(message.to_string()));
+        (self.callback)(ProgressEvent::Warning(message.to_owned()));
     }
 
     fn info(&self, message: &str) {
-        (self.callback)(ProgressEvent::Info(message.to_string()));
+        (self.callback)(ProgressEvent::Info(message.to_owned()));
     }
 
     fn debug(&self, message: &str) {
-        (self.callback)(ProgressEvent::Debug(message.to_string()));
+        (self.callback)(ProgressEvent::Debug(message.to_owned()));
     }
 
     fn finish(&self) {
@@ -211,7 +211,7 @@ where
 
 /// Progress event for callback-based reporting
 #[derive(Debug, Clone)]
-pub enum ProgressEvent {
+pub(super) enum ProgressEvent {
     /// Phase changed
     Phase(String),
     /// Total items set
@@ -232,18 +232,18 @@ pub enum ProgressEvent {
 ///
 /// Wraps a ProgressReporter in an Arc for sharing across threads.
 #[derive(Clone)]
-pub struct SharedProgress {
+pub(super) struct SharedProgress {
     inner: Arc<dyn ProgressReporter>,
 }
 
 impl SharedProgress {
     /// Create a new shared progress reporter
-    pub fn new<P: ProgressReporter + 'static>(reporter: P) -> Self {
+    pub(super) fn new<P: ProgressReporter + 'static>(reporter: P) -> Self {
         Self { inner: Arc::new(reporter) }
     }
 
     /// Create a quiet shared progress reporter
-    pub fn quiet() -> Self {
+    pub(super) fn quiet() -> Self {
         Self::new(QuietProgress)
     }
 }
@@ -339,7 +339,7 @@ mod tests {
 
         // Clone and use from multiple "threads"
         let p1 = progress.clone();
-        let p2 = progress.clone();
+        let p2 = progress;
 
         p1.set_total(100);
         p2.set_progress(50);

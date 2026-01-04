@@ -64,8 +64,7 @@ pub fn remove_empty_lines(content: &str, preserve_line_numbers: bool) -> String 
         && first_line
             .split(':')
             .next()
-            .map(|s| s.parse::<u32>().is_ok())
-            .unwrap_or(false);
+            .is_some_and(|s| s.parse::<u32>().is_ok());
 
     if has_embedded_nums {
         if preserve_line_numbers {
@@ -213,8 +212,7 @@ pub fn remove_comments(content: &str, language: &str, preserve_line_numbers: boo
         && first_line
             .split(':')
             .next()
-            .map(|s| s.parse::<u32>().is_ok())
-            .unwrap_or(false);
+            .is_some_and(|s| s.parse::<u32>().is_ok());
 
     let mut result = String::new();
     let mut in_block_comment = false;
@@ -832,11 +830,11 @@ mod tests {
         let content = "fn foo() {\n    body\n}\nfn bar() {\n    body\n}\n";
         let symbols = vec![
             Symbol {
-                name: "foo".to_string(),
+                name: "foo".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 1,
                 end_line: 3,
-                signature: Some("fn foo()".to_string()),
+                signature: Some("fn foo()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,
@@ -847,11 +845,11 @@ mod tests {
                 implements: vec![],
             },
             Symbol {
-                name: "bar".to_string(),
+                name: "bar".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 4,
                 end_line: 6,
-                signature: Some("fn bar()".to_string()),
+                signature: Some("fn bar()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,
@@ -872,12 +870,12 @@ mod tests {
     fn test_extract_signatures_with_docstrings() {
         let content = "fn foo() {\n    body\n}\n";
         let symbols = vec![Symbol {
-            name: "foo".to_string(),
+            name: "foo".to_owned(),
             kind: SymbolKind::Function,
             start_line: 1,
             end_line: 3,
-            signature: Some("fn foo()".to_string()),
-            docstring: Some("Does something important".to_string()),
+            signature: Some("fn foo()".to_owned()),
+            docstring: Some("Does something important".to_owned()),
             visibility: Visibility::Public,
             references: 0,
             importance: 0.0,
@@ -897,11 +895,11 @@ mod tests {
         let content = "pub fn foo() {}\nfn bar() {}\npub struct Baz {}\n";
         let symbols = vec![
             Symbol {
-                name: "foo".to_string(),
+                name: "foo".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 1,
                 end_line: 1,
-                signature: Some("pub fn foo()".to_string()),
+                signature: Some("pub fn foo()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,
@@ -912,11 +910,11 @@ mod tests {
                 implements: vec![],
             },
             Symbol {
-                name: "bar".to_string(),
+                name: "bar".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 2,
                 end_line: 2,
-                signature: Some("fn bar()".to_string()),
+                signature: Some("fn bar()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Private,
                 references: 0,
@@ -927,11 +925,11 @@ mod tests {
                 implements: vec![],
             },
             Symbol {
-                name: "Baz".to_string(),
+                name: "Baz".to_owned(),
                 kind: SymbolKind::Struct,
                 start_line: 3,
                 end_line: 3,
-                signature: Some("pub struct Baz".to_string()),
+                signature: Some("pub struct Baz".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,
@@ -961,11 +959,11 @@ mod tests {
     fn test_extract_key_symbols_with_context() {
         let content = "// Setup\npub fn foo() {\n    body\n}\n// Cleanup\n";
         let symbols = vec![Symbol {
-            name: "foo".to_string(),
+            name: "foo".to_owned(),
             kind: SymbolKind::Function,
             start_line: 2,
             end_line: 4,
-            signature: Some("pub fn foo()".to_string()),
+            signature: Some("pub fn foo()".to_owned()),
             docstring: None,
             visibility: Visibility::Public,
             references: 0,
@@ -986,11 +984,11 @@ mod tests {
         let content = "fn foo() {}\nfn bar() {}\nfn baz() {}\n";
         let symbols = vec![
             Symbol {
-                name: "foo".to_string(),
+                name: "foo".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 1,
                 end_line: 1,
-                signature: Some("fn foo()".to_string()),
+                signature: Some("fn foo()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,
@@ -1001,11 +999,11 @@ mod tests {
                 implements: vec![],
             },
             Symbol {
-                name: "bar".to_string(),
+                name: "bar".to_owned(),
                 kind: SymbolKind::Function,
                 start_line: 2,
                 end_line: 2,
-                signature: Some("fn bar()".to_string()),
+                signature: Some("fn bar()".to_owned()),
                 docstring: None,
                 visibility: Visibility::Public,
                 references: 0,

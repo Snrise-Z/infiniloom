@@ -14,7 +14,7 @@ use super::formatting::{line_contains_symbol_name, merge_snippet_ranges, Snippet
 use super::git_ops::read_file_from_git;
 
 /// Enrich diff context with code snippets for changed and dependent files
-pub fn enrich_diff_context(
+pub(crate) fn enrich_diff_context(
     repo_path: &Path,
     changes: &[infiniloom_engine::index::DiffChange],
     base_ref: Option<&str>,
@@ -99,8 +99,7 @@ pub fn enrich_diff_context(
                         file.tokens = file
                             .diff_content
                             .as_deref()
-                            .map(|d| tokenizer.count(d, token_model))
-                            .unwrap_or(0);
+                            .map_or(0, |d| tokenizer.count(d, token_model));
                         return;
                     }
                 },
@@ -181,8 +180,7 @@ pub fn enrich_diff_context(
         let mut tokens = file
             .diff_content
             .as_deref()
-            .map(|d| tokenizer.count(d, token_model))
-            .unwrap_or(0);
+            .map_or(0, |d| tokenizer.count(d, token_model));
 
         for range in merged {
             let start_idx = range.start.saturating_sub(1) as usize;
@@ -204,15 +202,15 @@ pub fn enrich_diff_context(
         file.tokens = tokens;
     };
 
-    for file in context.changed_files.iter_mut() {
+    for file in &mut context.changed_files {
         process_file(file, false);
     }
 
-    for file in context.dependent_files.iter_mut() {
+    for file in &mut context.dependent_files {
         process_file(file, false);
     }
 
-    for file in context.related_tests.iter_mut() {
+    for file in &mut context.related_tests {
         process_file(file, true);
     }
 
@@ -223,7 +221,11 @@ pub fn enrich_diff_context(
 ///
 /// Prioritizes snippets by relevance score and keeps only those within budget.
 /// Changed files are always included regardless of budget.
-pub fn apply_diff_budget(context: &mut ExpandedContext, budget: u32, token_model: TokenModel) {
+pub(crate) fn apply_diff_budget(
+    context: &mut ExpandedContext,
+    budget: u32,
+    token_model: TokenModel,
+) {
     use std::collections::HashSet;
 
     let tokenizer = Tokenizer::new();
@@ -334,7 +336,7 @@ pub fn apply_diff_budget(context: &mut ExpandedContext, budget: u32, token_model
         context.related_tests.retain(|f| !f.snippets.is_empty());
     }
 
-    let allowed_paths: std::collections::HashSet<&str> = context
+    let allowed_paths: HashSet<&str> = context
         .changed_files
         .iter()
         .map(|f| f.path.as_str())

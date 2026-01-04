@@ -3,27 +3,21 @@
 //! This module contains the main pack command logic, refactored to use
 //! PackConfig instead of individual parameters.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use humansize::{format_size, BINARY};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use infiniloom_engine::{
-    git::GitRepo,
-    output::{OutputFormat, OutputFormatter},
+    output::OutputFormat,
     remote::RemoteRepo,
-    repomap::RepoMapGenerator,
-    security::SecurityScanner,
-    tokenizer::{TokenModel, Tokenizer},
     types::{CompressionLevel, TokenizerModel},
 };
 
 use super::PackConfig;
 use crate::config::load_config_file;
-use crate::scanner;
 use crate::watch::{run_watch_mode, WatchConfig};
 
 /// Execute the pack command with the given configuration
@@ -40,7 +34,7 @@ use crate::watch::{run_watch_mode, WatchConfig};
 /// - Repository cannot be scanned
 /// - Output cannot be generated
 /// - Files cannot be written
-pub fn execute(config: PackConfig) -> Result<()> {
+pub(super) fn execute(config: PackConfig) -> Result<()> {
     let start = Instant::now();
 
     // Handle stdin mode - read file paths from stdin

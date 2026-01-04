@@ -624,7 +624,7 @@ fn test_pack_with_full_mode() {
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
 
     // Full mode should include comprehensive analysis
-    assert!(stdout.contains("#") || stdout.contains("Repository"));
+    assert!(stdout.contains('#') || stdout.contains("Repository"));
 }
 
 #[test]

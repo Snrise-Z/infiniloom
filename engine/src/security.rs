@@ -564,7 +564,7 @@ impl SecurityScanner {
             let is_comment = trimmed.starts_with("//")
                 || trimmed.starts_with('#')
                 || trimmed.starts_with("/*")
-                || trimmed.starts_with("*")
+                || trimmed.starts_with('*')
                 || is_jsdoc_continuation;
 
             // Skip obvious false positives (example docs, placeholders, comments)

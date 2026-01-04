@@ -186,9 +186,10 @@ impl From<&EmbedChunk> for ChunkReference {
 }
 
 /// Processing phases for checkpoint
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CheckpointPhase {
     /// Initial file discovery
+    #[default]
     Discovery,
     /// Parsing and chunking files
     Chunking,
@@ -200,12 +201,6 @@ pub enum CheckpointPhase {
     Sorting,
     /// Processing complete
     Complete,
-}
-
-impl Default for CheckpointPhase {
-    fn default() -> Self {
-        Self::Discovery
-    }
 }
 
 impl EmbedCheckpoint {
@@ -247,7 +242,7 @@ impl EmbedCheckpoint {
     pub fn mark_file_processed(&mut self, file: &str, chunks: &[EmbedChunk]) {
         // Move from remaining to processed
         self.remaining_files.retain(|f| f != file);
-        self.processed_files.insert(file.to_string());
+        self.processed_files.insert(file.to_owned());
 
         // Store chunk references
         let refs: Vec<ChunkReference> = chunks.iter().map(ChunkReference::from).collect();
@@ -255,7 +250,7 @@ impl EmbedCheckpoint {
 
         self.total_chunks += chunks.len();
         self.total_tokens += tokens;
-        self.chunks_by_file.insert(file.to_string(), refs);
+        self.chunks_by_file.insert(file.to_owned(), refs);
 
         self.update_timestamp();
     }
@@ -263,8 +258,7 @@ impl EmbedCheckpoint {
     /// Record that a file failed processing
     pub fn mark_file_failed(&mut self, file: &str, error: &str) {
         self.remaining_files.retain(|f| f != file);
-        self.failed_files
-            .insert(file.to_string(), error.to_string());
+        self.failed_files.insert(file.to_owned(), error.to_owned());
         self.update_timestamp();
     }
 
@@ -470,8 +464,8 @@ impl CheckpointManager {
         if !checkpoint.verify_integrity() {
             return Err(EmbedError::ManifestCorrupted {
                 path: self.path.clone(),
-                expected: checkpoint.integrity_hash.clone(),
-                actual: "integrity check failed".to_string(),
+                expected: checkpoint.integrity_hash,
+                actual: "integrity check failed".to_owned(),
             });
         }
 
@@ -634,7 +628,7 @@ mod tests {
             EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
 
         // Set files to process
-        cp.set_files(vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()]);
+        cp.set_files(vec!["a.rs".to_owned(), "b.rs".to_owned(), "c.rs".to_owned()]);
 
         assert_eq!(cp.files_remaining(), 3);
         assert_eq!(cp.files_processed(), 0);
@@ -660,7 +654,7 @@ mod tests {
         let settings = test_settings();
         let mut cp =
             EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
-        cp.set_files(vec!["test.rs".to_string()]);
+        cp.set_files(vec!["test.rs".to_owned()]);
         cp.mark_file_processed("test.rs", &[]);
 
         // Compute and verify integrity
@@ -686,7 +680,7 @@ mod tests {
         assert!(cp.validate(Path::new("/other/repo"), &settings).is_err());
 
         // Should fail for different settings
-        let mut different_settings = settings.clone();
+        let mut different_settings = settings;
         different_settings.max_tokens = 9999;
         assert!(cp
             .validate(Path::new("/test/repo"), &different_settings)
@@ -701,7 +695,7 @@ mod tests {
         let settings = test_settings();
         let mut cp =
             EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
-        cp.set_files(vec!["test.rs".to_string()]);
+        cp.set_files(vec!["test.rs".to_owned()]);
         cp.mark_file_processed("test.rs", &[]);
 
         // Save
@@ -722,7 +716,7 @@ mod tests {
 
         let settings = test_settings();
         let mut cp = EmbedCheckpoint::new(repo_path, RepoIdentifier::default(), &settings);
-        cp.set_files(vec!["test.rs".to_string()]);
+        cp.set_files(vec!["test.rs".to_owned()]);
 
         let manager = CheckpointManager::new(&checkpoint_path);
         manager.save(&mut cp).unwrap();
@@ -732,7 +726,7 @@ mod tests {
         assert!(loaded.is_some());
 
         // Should return None for different settings (not error)
-        let mut different = settings.clone();
+        let mut different = settings;
         different.max_tokens = 9999;
         let loaded = manager.load_validated(repo_path, &different).unwrap();
         assert!(loaded.is_none());
@@ -761,7 +755,7 @@ mod tests {
         let settings = test_settings();
         let mut cp =
             EmbedCheckpoint::new(Path::new("/test/repo"), RepoIdentifier::default(), &settings);
-        cp.set_files(vec!["a.rs".to_string(), "b.rs".to_string()]);
+        cp.set_files(vec!["a.rs".to_owned(), "b.rs".to_owned()]);
         cp.mark_file_processed("a.rs", &[]);
 
         let stats = CheckpointStats::from(&cp);
@@ -778,7 +772,7 @@ mod tests {
         assert_eq!(hash1, hash2);
 
         // Different settings = different hash
-        let mut different = settings.clone();
+        let mut different = settings;
         different.max_tokens = 2000; // Use different value from default (1000)
         let hash3 = compute_settings_hash(&different);
         assert_ne!(hash1, hash3);
@@ -811,7 +805,7 @@ mod tests {
         assert!(!cp.is_chunking_complete());
 
         // Not complete with remaining files
-        cp.set_files(vec!["a.rs".to_string()]);
+        cp.set_files(vec!["a.rs".to_owned()]);
         assert!(!cp.is_chunking_complete());
 
         // Complete when all files processed
@@ -824,18 +818,18 @@ mod tests {
         use super::super::types::{ChunkContext, ChunkKind, ChunkSource};
 
         let chunk = EmbedChunk {
-            id: "ec_abc123".to_string(),
+            id: "ec_abc123".to_owned(),
             full_hash: "deadbeef".repeat(8),
-            content: "fn test() {}".to_string(),
+            content: "fn test() {}".to_owned(),
             tokens: 10,
             kind: ChunkKind::Function,
             source: ChunkSource {
                 repo: RepoIdentifier::default(),
-                file: "test.rs".to_string(),
+                file: "test.rs".to_owned(),
                 lines: (1, 5),
-                symbol: "test".to_string(),
+                symbol: "test".to_owned(),
                 fqn: None,
-                language: "Rust".to_string(),
+                language: "Rust".to_owned(),
                 parent: None,
                 visibility: super::super::types::Visibility::Public,
                 is_test: false,

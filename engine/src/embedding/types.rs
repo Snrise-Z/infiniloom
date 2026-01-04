@@ -396,7 +396,7 @@ impl Default for EmbedSettings {
             context_lines: 5,        // Capture docstrings above functions
             include_imports: true,   // Track dependencies
             include_top_level: true, // Include module-level code
-            token_model: "claude".to_string(),
+            token_model: "claude".to_owned(),
             algorithm_version: 1,
             scan_secrets: true, // Safe default
             fail_on_secrets: false,
@@ -440,14 +440,14 @@ impl EmbedSettings {
     pub fn validate(&self) -> Result<(), EmbedError> {
         if self.max_tokens > Self::MAX_TOKENS_LIMIT {
             return Err(EmbedError::InvalidSettings {
-                field: "max_tokens".to_string(),
+                field: "max_tokens".to_owned(),
                 reason: format!("exceeds limit of {}", Self::MAX_TOKENS_LIMIT),
             });
         }
         if self.min_tokens > self.max_tokens {
             return Err(EmbedError::InvalidSettings {
-                field: "min_tokens".to_string(),
-                reason: "cannot exceed max_tokens".to_string(),
+                field: "min_tokens".to_owned(),
+                reason: "cannot exceed max_tokens".to_owned(),
             });
         }
         if self.algorithm_version > Self::CURRENT_ALGORITHM_VERSION {

@@ -232,7 +232,7 @@ impl BudgetEnforcer {
             TruncationStrategy::Hard => pos,
             TruncationStrategy::Line => {
                 // Find last newline
-                slice.rfind('\n').map(|p| p + 1).unwrap_or(pos)
+                slice.rfind('\n').map_or(pos, |p| p + 1)
             },
             TruncationStrategy::Semantic => {
                 // Try to find function/class boundary first
@@ -240,7 +240,7 @@ impl BudgetEnforcer {
                     return boundary;
                 }
                 // Fall back to line boundary
-                slice.rfind('\n').map(|p| p + 1).unwrap_or(pos)
+                slice.rfind('\n').map_or(pos, |p| p + 1)
             },
         }
     }

@@ -27,14 +27,13 @@ use infiniloom_engine::filtering;
     since = "0.4.12",
     note = "Use infiniloom_engine::filtering::matches_include_pattern instead"
 )]
-pub fn pattern_matches_file(pattern: &glob::Pattern, relative_path: &str) -> bool {
+pub(crate) fn pattern_matches_file(pattern: &glob::Pattern, relative_path: &str) -> bool {
     // Delegate to centralized filtering
     pattern.matches(relative_path)
         || std::path::Path::new(relative_path)
             .file_name()
             .and_then(|f| f.to_str())
-            .map(|f| pattern.matches(f))
-            .unwrap_or(false)
+            .is_some_and(|f| pattern.matches(f))
 }
 
 /// Apply default ignores to a repository
@@ -47,7 +46,7 @@ pub fn pattern_matches_file(pattern: &glob::Pattern, relative_path: &str) -> boo
 /// * `use_default_ignores` - Whether to apply default ignore patterns
 /// * `include_tests` - Whether to include test files
 /// * `include_docs` - Whether to include documentation files
-pub fn apply_default_ignores(
+pub(crate) fn apply_default_ignores(
     repo: &mut infiniloom_engine::Repository,
     use_default_ignores: bool,
     include_tests: bool,
@@ -83,7 +82,7 @@ pub fn apply_default_ignores(
 ///
 /// * `repo` - Mutable reference to repository
 /// * `stdin_paths` - Optional list of paths from stdin
-pub fn filter_stdin_paths(
+pub(crate) fn filter_stdin_paths(
     repo: &mut infiniloom_engine::Repository,
     stdin_paths: &Option<Vec<String>>,
 ) {
@@ -110,7 +109,7 @@ pub fn filter_stdin_paths(
 /// # Returns
 ///
 /// Returns compiled glob patterns for reuse.
-pub fn apply_include_patterns(
+pub(crate) fn apply_include_patterns(
     repo: &mut infiniloom_engine::Repository,
     include_patterns: Vec<String>,
 ) -> Vec<glob::Pattern> {
@@ -135,7 +134,7 @@ pub fn apply_include_patterns(
 /// # Returns
 ///
 /// Returns compiled glob patterns for reuse.
-pub fn apply_exclude_patterns(
+pub(crate) fn apply_exclude_patterns(
     repo: &mut infiniloom_engine::Repository,
     exclude_patterns: Vec<String>,
 ) -> Vec<glob::Pattern> {

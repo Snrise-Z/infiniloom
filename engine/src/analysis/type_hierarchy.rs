@@ -52,7 +52,7 @@ impl TypeHierarchyBuilder {
                 implements: symbol.implements.clone(),
                 mixins: self.extract_mixins(symbol, language),
                 kind: self.symbol_to_ancestor_kind(symbol, language),
-                file_path: Some(file_path.to_string()),
+                file_path: Some(file_path.to_owned()),
             };
 
             // Update children map
@@ -134,7 +134,7 @@ impl TypeHierarchyBuilder {
     /// Get the full type hierarchy for a symbol
     pub fn get_hierarchy(&self, symbol_name: &str) -> TypeHierarchy {
         let mut hierarchy =
-            TypeHierarchy { symbol_name: symbol_name.to_string(), ..Default::default() };
+            TypeHierarchy { symbol_name: symbol_name.to_owned(), ..Default::default() };
 
         if let Some(info) = self.symbols.get(symbol_name) {
             hierarchy.extends = info.extends.clone();
@@ -261,7 +261,7 @@ impl TypeHierarchyBuilder {
     /// Check if one type is a descendant of another
     pub fn is_descendant_of(&self, potential_descendant: &str, symbol_name: &str) -> bool {
         let descendants = self.get_descendants(symbol_name);
-        descendants.contains(&potential_descendant.to_string())
+        descendants.contains(&potential_descendant.to_owned())
     }
 
     /// Get the depth of a type in the hierarchy
@@ -274,7 +274,7 @@ impl TypeHierarchyBuilder {
     pub fn get_implementors(&self, interface_name: &str) -> Vec<String> {
         self.symbols
             .values()
-            .filter(|info| info.implements.contains(&interface_name.to_string()))
+            .filter(|info| info.implements.contains(&interface_name.to_owned()))
             .map(|info| info.name.clone())
             .collect()
     }
@@ -324,7 +324,7 @@ mod tests {
 
     fn make_symbol(name: &str, extends: Option<&str>, implements: Vec<&str>) -> Symbol {
         Symbol {
-            name: name.to_string(),
+            name: name.to_owned(),
             kind: SymbolKind::Class,
             extends: extends.map(String::from),
             implements: implements.into_iter().map(String::from).collect(),
@@ -347,7 +347,7 @@ mod tests {
 
         // Test hierarchy for Labrador
         let hierarchy = builder.get_hierarchy("Labrador");
-        assert_eq!(hierarchy.extends, Some("Dog".to_string()));
+        assert_eq!(hierarchy.extends, Some("Dog".to_owned()));
         assert_eq!(hierarchy.ancestors.len(), 2); // Dog, Animal
         assert_eq!(hierarchy.ancestors[0].name, "Dog");
         assert_eq!(hierarchy.ancestors[0].depth, 1);
@@ -356,9 +356,9 @@ mod tests {
 
         // Test descendants of Animal
         let descendants = builder.get_descendants("Animal");
-        assert!(descendants.contains(&"Dog".to_string()));
-        assert!(descendants.contains(&"Cat".to_string()));
-        assert!(descendants.contains(&"Labrador".to_string()));
+        assert!(descendants.contains(&"Dog".to_owned()));
+        assert!(descendants.contains(&"Cat".to_owned()));
+        assert!(descendants.contains(&"Labrador".to_owned()));
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
 
         let symbols = vec![
             Symbol {
-                name: "Serializable".to_string(),
+                name: "Serializable".to_owned(),
                 kind: SymbolKind::Interface,
                 ..Default::default()
             },
@@ -378,8 +378,8 @@ mod tests {
         builder.add_symbols(&symbols, "test.java", Language::Java);
 
         let implementors = builder.get_implementors("Serializable");
-        assert!(implementors.contains(&"User".to_string()));
-        assert!(implementors.contains(&"Admin".to_string()));
+        assert!(implementors.contains(&"User".to_owned()));
+        assert!(implementors.contains(&"Admin".to_owned()));
     }
 
     #[test]
@@ -412,8 +412,8 @@ mod tests {
 
         builder.add_symbols(&symbols, "test.rs", Language::Rust);
 
-        assert_eq!(builder.get_common_ancestor("LeftChild", "Right"), Some("Base".to_string()));
-        assert_eq!(builder.get_common_ancestor("Left", "Right"), Some("Base".to_string()));
+        assert_eq!(builder.get_common_ancestor("LeftChild", "Right"), Some("Base".to_owned()));
+        assert_eq!(builder.get_common_ancestor("Left", "Right"), Some("Base".to_owned()));
     }
 
     #[test]
@@ -430,13 +430,13 @@ mod tests {
         builder.add_symbols(&symbols, "test.rs", Language::Rust);
 
         let roots = builder.get_roots();
-        assert!(roots.contains(&"Root1".to_string()));
-        assert!(roots.contains(&"Root2".to_string()));
-        assert!(!roots.contains(&"Middle".to_string()));
+        assert!(roots.contains(&"Root1".to_owned()));
+        assert!(roots.contains(&"Root2".to_owned()));
+        assert!(!roots.contains(&"Middle".to_owned()));
 
         let leaves = builder.get_leaves();
-        assert!(leaves.contains(&"Leaf".to_string()));
-        assert!(leaves.contains(&"Root2".to_string()));
-        assert!(!leaves.contains(&"Root1".to_string()));
+        assert!(leaves.contains(&"Leaf".to_owned()));
+        assert!(leaves.contains(&"Root2".to_owned()));
+        assert!(!leaves.contains(&"Root1".to_owned()));
     }
 }

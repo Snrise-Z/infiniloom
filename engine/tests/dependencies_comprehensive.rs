@@ -31,9 +31,9 @@ fn create_symbol(
     end_line: u32,
 ) -> Symbol {
     Symbol {
-        name: name.to_string(),
+        name: name.to_owned(),
         kind,
-        signature: signature.map(|s| s.to_string()),
+        signature: signature.map(|s| s.to_owned()),
         docstring: None,
         start_line,
         end_line,
@@ -73,12 +73,12 @@ fn create_python_file(path: &str, imports: &[&str], content: Option<&str>) -> Re
 
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some("python".to_string()),
+        relative_path: path.to_owned(),
+        language: Some("python".to_owned()),
         symbols,
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: content.map(|s| s.to_string()),
+        content: content.map(|s| s.to_owned()),
         size_bytes: 100,
     }
 }
@@ -109,12 +109,12 @@ fn create_js_file(path: &str, imports: &[&str], content: Option<&str>) -> RepoFi
 
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some("javascript".to_string()),
+        relative_path: path.to_owned(),
+        language: Some("javascript".to_owned()),
         symbols,
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: content.map(|s| s.to_string()),
+        content: content.map(|s| s.to_owned()),
         size_bytes: 100,
     }
 }
@@ -122,7 +122,7 @@ fn create_js_file(path: &str, imports: &[&str], content: Option<&str>) -> RepoFi
 /// Create a TypeScript file with imports
 fn create_ts_file(path: &str, imports: &[&str], content: Option<&str>) -> RepoFile {
     let mut file = create_js_file(path, imports, content);
-    file.language = Some("typescript".to_string());
+    file.language = Some("typescript".to_owned());
     file
 }
 
@@ -152,12 +152,12 @@ fn create_rust_file(path: &str, uses: &[&str], content: Option<&str>) -> RepoFil
 
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some("rust".to_string()),
+        relative_path: path.to_owned(),
+        language: Some("rust".to_owned()),
         symbols,
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: content.map(|s| s.to_string()),
+        content: content.map(|s| s.to_owned()),
         size_bytes: 100,
     }
 }
@@ -188,12 +188,12 @@ fn create_go_file(path: &str, imports: &[&str], content: Option<&str>) -> RepoFi
 
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some("go".to_string()),
+        relative_path: path.to_owned(),
+        language: Some("go".to_owned()),
         symbols,
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: content.map(|s| s.to_string()),
+        content: content.map(|s| s.to_owned()),
         size_bytes: 100,
     }
 }

@@ -17,10 +17,10 @@ use infiniloom_engine::output::{
 };
 
 /// Type alias for file history map (file path -> list of commits)
-pub type FileHistory = HashMap<String, Vec<infiniloom_engine::git::Commit>>;
+pub(crate) type FileHistory = HashMap<String, Vec<infiniloom_engine::git::Commit>>;
 
 /// Generate preamble text for diff context
-pub fn diff_preamble(context: &ExpandedContext) -> String {
+pub(crate) fn diff_preamble(context: &ExpandedContext) -> String {
     format!(
         "Use this diff context to understand changes. Start with changed file snippets, then dependent symbols/files/tests. Impact: {}.",
         context.impact_summary.level.name()
@@ -28,7 +28,7 @@ pub fn diff_preamble(context: &ExpandedContext) -> String {
 }
 
 /// Format diff context for output in the specified format
-pub fn format_diff_context(
+pub(crate) fn format_diff_context(
     context: &ExpandedContext,
     format: OutputFormat,
     history: &FileHistory,
@@ -870,13 +870,13 @@ fn format_diff_context_xml(context: &ExpandedContext, history: &FileHistory) -> 
 // Helper structs and functions for snippet processing
 
 #[derive(Clone)]
-pub struct SnippetRange {
+pub(crate) struct SnippetRange {
     pub start: u32,
     pub end: u32,
     pub reasons: Vec<String>,
 }
 
-pub fn merge_snippet_ranges(mut ranges: Vec<SnippetRange>) -> Vec<SnippetRange> {
+pub(crate) fn merge_snippet_ranges(mut ranges: Vec<SnippetRange>) -> Vec<SnippetRange> {
     ranges.sort_by_key(|r| r.start);
     let mut merged: Vec<SnippetRange> = Vec::new();
 
@@ -900,7 +900,7 @@ pub fn merge_snippet_ranges(mut ranges: Vec<SnippetRange>) -> Vec<SnippetRange> 
     merged
 }
 
-pub fn line_contains_symbol_name(line: &str, name: &str) -> bool {
+pub(crate) fn line_contains_symbol_name(line: &str, name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
@@ -913,8 +913,8 @@ pub fn line_contains_symbol_name(line: &str, name: &str) -> bool {
         let before = line[..start].chars().next_back();
         let after = line[end..].chars().next();
 
-        let before_ok = before.map(|c| !is_word_char(c)).unwrap_or(true);
-        let after_ok = after.map(|c| !is_word_char(c)).unwrap_or(true);
+        let before_ok = before.map_or(true, |c| !is_word_char(c));
+        let after_ok = after.map_or(true, |c| !is_word_char(c));
 
         if before_ok && after_ok {
             return true;

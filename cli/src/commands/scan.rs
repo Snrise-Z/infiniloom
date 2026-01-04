@@ -16,7 +16,7 @@ use infiniloom_engine::types::TokenizerModel;
 use crate::scanner;
 
 /// Scan repository and show statistics
-pub fn cmd_scan(
+pub(crate) fn cmd_scan(
     path: PathBuf,
     model: TokenizerModel,
     include_hidden: bool,
@@ -112,7 +112,7 @@ pub fn cmd_scan(
     {
         use infiniloom_engine::tokenizer::TokenModel;
         let tokenizer = Tokenizer::estimation_only();
-        let token_model: TokenModel = model.into();
+        let token_model: TokenModel = model;
 
         // Count tokens for each file (single model only)
         let mut total: u32 = 0;

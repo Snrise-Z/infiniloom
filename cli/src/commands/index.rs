@@ -11,7 +11,7 @@ use std::time::Instant;
 use infiniloom_engine::index::{BuildOptions, IndexBuilder, IndexStorage};
 
 /// Build or update the symbol index
-pub fn cmd_index(
+pub(crate) fn cmd_index(
     path: PathBuf,
     force: bool,
     status: bool,
@@ -102,20 +102,20 @@ fn build_index(
 
     // Build default exclude directories
     let mut exclude_dirs = vec![
-        "node_modules".to_string(),
-        "target".to_string(),
-        ".git".to_string(),
-        "dist".to_string(),
-        "build".to_string(),
+        "node_modules".to_owned(),
+        "target".to_owned(),
+        ".git".to_owned(),
+        "dist".to_owned(),
+        "build".to_owned(),
     ];
 
     // Exclude test directories unless include_tests is true
     if !include_tests {
         exclude_dirs.extend(vec![
-            "test".to_string(),
-            "tests".to_string(),
-            "__tests__".to_string(),
-            "spec".to_string(),
+            "test".to_owned(),
+            "tests".to_owned(),
+            "__tests__".to_owned(),
+            "spec".to_owned(),
         ]);
     }
 
@@ -340,7 +340,7 @@ mod tests {
         let now = get_current_time();
         let result = chrono_humanize(now - 60);
         assert!(result.contains("minutes ago"));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     #[test]
@@ -355,7 +355,7 @@ mod tests {
         let now = get_current_time();
         let result = chrono_humanize(now - 3600); // Exactly 1 hour
         assert!(result.contains("hours ago"));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     #[test]
@@ -370,7 +370,7 @@ mod tests {
         let now = get_current_time();
         let result = chrono_humanize(now - 86400); // Exactly 1 day
         assert!(result.contains("days ago"));
-        assert!(result.contains("1"));
+        assert!(result.contains('1'));
     }
 
     #[test]

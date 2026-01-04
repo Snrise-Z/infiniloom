@@ -23,7 +23,7 @@ use std::collections::HashMap;
 /// # Returns
 ///
 /// Estimated token count.
-pub fn estimate_tokens(text: &str, model: TokenizerModel) -> usize {
+pub(crate) fn estimate_tokens(text: &str, model: TokenizerModel) -> usize {
     let tokenizer = Tokenizer::new();
     tokenizer.count(text, model) as usize
 }
@@ -41,7 +41,7 @@ pub fn estimate_tokens(text: &str, model: TokenizerModel) -> usize {
 /// # Returns
 ///
 /// Truncated text with notice appended if truncation occurred.
-pub fn truncate_to_tokens(text: &str, max_tokens: usize, model: TokenizerModel) -> String {
+pub(crate) fn truncate_to_tokens(text: &str, max_tokens: usize, model: TokenizerModel) -> String {
     let tokenizer = Tokenizer::new();
     let current = tokenizer.count(text, model) as usize;
 
@@ -82,7 +82,7 @@ pub fn truncate_to_tokens(text: &str, max_tokens: usize, model: TokenizerModel) 
 /// # Arguments
 ///
 /// * `repo` - Mutable reference to repository to rank
-pub fn rank_files_fast(repo: &mut infiniloom_engine::Repository) {
+pub(crate) fn rank_files_fast(repo: &mut infiniloom_engine::Repository) {
     repo.files.sort_by_key(|f| {
         let path = &f.relative_path;
         let mut score: i32 = 1000;
@@ -184,7 +184,7 @@ pub fn rank_files_fast(repo: &mut infiniloom_engine::Repository) {
 /// # Arguments
 ///
 /// * `repo` - Mutable reference to repository
-pub fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
+pub(crate) fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
     // Update file count
     repo.metadata.total_files = repo.files.len() as u32;
 
@@ -195,8 +195,7 @@ pub fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
         .map(|f| {
             f.content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| f.size_bytes / 40)
+                .map_or_else(|| f.size_bytes / 40, |c| c.lines().count() as u64)
         })
         .sum();
 
@@ -224,8 +223,7 @@ pub fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
             let lines = file
                 .content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| file.size_bytes / 40);
+                .map_or_else(|| file.size_bytes / 40, |c| c.lines().count() as u64);
             *language_lines.entry(lang.clone()).or_insert(0) += lines;
         }
     }
@@ -266,7 +264,7 @@ pub fn recalculate_metadata(repo: &mut infiniloom_engine::types::Repository) {
 /// * `cache` - Mutable reference to repository cache
 /// * `repo` - Repository to cache
 /// * `symbols_extracted` - Whether symbols were extracted for files
-pub fn update_repo_cache(
+pub(crate) fn update_repo_cache(
     cache: &mut infiniloom_engine::RepoCache,
     repo: &infiniloom_engine::Repository,
     symbols_extracted: bool,
@@ -287,8 +285,7 @@ pub fn update_repo_cache(
         let content_hash = file
             .content
             .as_ref()
-            .map(|c| hash_content(c.as_bytes()))
-            .unwrap_or(0);
+            .map_or(0, |c| hash_content(c.as_bytes()));
 
         let cached = cache.get(&file.relative_path);
         let changed = cached.map_or(true, |_| {
@@ -307,7 +304,7 @@ pub fn update_repo_cache(
         let symbols_extracted_for_file = if symbols_extracted {
             true
         } else if !changed {
-            cached.map(|c| c.symbols_extracted).unwrap_or(false)
+            cached.is_some_and(|c| c.symbols_extracted)
         } else {
             false
         };
@@ -336,11 +333,7 @@ pub fn update_repo_cache(
                 .collect(),
             symbols_extracted: symbols_extracted_for_file,
             language: file.language.clone(),
-            lines: file
-                .content
-                .as_ref()
-                .map(|c| c.lines().count())
-                .unwrap_or(0),
+            lines: file.content.as_ref().map_or(0, |c| c.lines().count()),
         });
     }
 
@@ -360,7 +353,7 @@ pub fn update_repo_cache(
 /// Convert TokenizerModel to TokenModel for budget enforcement
 ///
 /// Maps the 27 TokenizerModel variants to the 10 TokenModel families used by the tokenizer.
-pub fn budget_token_model_for(model: TokenizerModel) -> TokenModel {
+pub(crate) fn budget_token_model_for(model: TokenizerModel) -> TokenModel {
     match model {
         TokenizerModel::Claude => TokenModel::Claude,
         TokenizerModel::Gpt52
@@ -403,7 +396,7 @@ pub fn budget_token_model_for(model: TokenizerModel) -> TokenModel {
 /// # Returns
 ///
 /// Returns `Some(EnforcementResult)` if budget was enforced, `None` if no limit.
-pub fn enforce_budget(
+pub(crate) fn enforce_budget(
     repo: &mut infiniloom_engine::Repository,
     max_tokens: u32,
     model: TokenizerModel,

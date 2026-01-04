@@ -324,7 +324,7 @@ impl GitRepo {
             let message = lines.next().unwrap_or("").to_owned();
 
             // Skip separator
-            while lines.peek().map(|l| *l != "---COMMIT---").unwrap_or(false) {
+            while lines.peek().is_some_and(|l| *l != "---COMMIT---") {
                 lines.next();
             }
             lines.next(); // Skip the separator

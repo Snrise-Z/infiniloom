@@ -70,8 +70,7 @@ pub fn normalize_for_hash(content: &str) -> String {
     let end = lines
         .iter()
         .rposition(|l| !l.is_empty())
-        .map(|i| i + 1)
-        .unwrap_or(0);
+        .map_or(0, |i| i + 1);
 
     // Handle empty content
     if start >= end {
@@ -138,15 +137,15 @@ pub fn needs_normalization(content: &str) -> bool {
 ///
 /// Useful for processing content line by line.
 #[inline]
-pub fn normalize_line(line: &str) -> String {
-    line.nfc().collect::<String>().trim_end().to_string()
+pub(super) fn normalize_line(line: &str) -> String {
+    line.nfc().collect::<String>().trim_end().to_owned()
 }
 
 /// Check if content is already normalized
 ///
 /// Returns `true` if `normalize_for_hash(content) == content`.
 /// More expensive than `needs_normalization` but more accurate.
-pub fn is_normalized(content: &str) -> bool {
+pub(super) fn is_normalized(content: &str) -> bool {
     normalize_for_hash(content) == content
 }
 

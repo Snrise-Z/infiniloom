@@ -515,8 +515,7 @@ impl RepoMapGenerator {
             .metadata
             .languages
             .first()
-            .map(|l| l.language.as_str())
-            .unwrap_or("unknown");
+            .map_or("unknown", |l| l.language.as_str());
 
         format!(
             "Repository: {} ({} files, {} lines)\n\

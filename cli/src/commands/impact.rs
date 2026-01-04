@@ -11,7 +11,7 @@ use infiniloom_engine::types::TokenizerModel;
 
 /// Analyze impact of changes to a file or symbol
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_impact(
+pub(crate) fn cmd_impact(
     path: PathBuf,
     target: Option<String>,
     is_symbol: bool,
@@ -113,7 +113,7 @@ fn analyze_symbol_impact(
 
     for symbol in &symbols {
         let file = index.get_file_by_id(symbol.file_id.as_u32());
-        let file_path = file.map(|f| f.path.as_str()).unwrap_or("unknown");
+        let file_path = file.map_or("unknown", |f| f.path.as_str());
 
         if json_output {
             let callers = graph.get_callers(symbol.id.as_u32());
@@ -149,7 +149,7 @@ fn analyze_symbol_impact(
                 for &caller_id in callers.iter().take(display_limit) {
                     if let Some(caller) = index.get_symbol(caller_id) {
                         let caller_file = index.get_file_by_id(caller.file_id.as_u32());
-                        let caller_path = caller_file.map(|f| f.path.as_str()).unwrap_or("unknown");
+                        let caller_path = caller_file.map_or("unknown", |f| f.path.as_str());
                         println!("    • {} ({})", caller.name, caller_path);
                     }
                 }
@@ -163,7 +163,7 @@ fn analyze_symbol_impact(
                 for &callee_id in callees.iter().take(display_limit) {
                     if let Some(callee) = index.get_symbol(callee_id) {
                         let callee_file = index.get_file_by_id(callee.file_id.as_u32());
-                        let callee_path = callee_file.map(|f| f.path.as_str()).unwrap_or("unknown");
+                        let callee_path = callee_file.map_or("unknown", |f| f.path.as_str());
                         println!("    • {} ({})", callee.name, callee_path);
                     }
                 }

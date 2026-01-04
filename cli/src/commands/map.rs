@@ -13,7 +13,7 @@ use crate::config::load_config_file;
 use crate::scanner;
 
 /// Generate a repository map with key symbols
-pub fn cmd_map(
+pub(crate) fn cmd_map(
     path: PathBuf,
     budget: u32,
     cli_model: Option<TokenizerModel>,

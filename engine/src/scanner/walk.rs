@@ -51,7 +51,7 @@ pub fn collect_file_infos(base_path: &Path, config: &ScannerConfig) -> Result<Ve
         }
 
         let metadata = entry_path.metadata().ok();
-        let size_bytes = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+        let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
 
         if size_bytes > config.max_file_size {
             continue;
@@ -117,10 +117,10 @@ pub fn collect_file_paths(base_path: &Path, config: &ScannerConfig) -> Result<Ve
             continue;
         }
 
-        let relative_path = entry_path
-            .strip_prefix(&base_path)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| entry_path.to_string_lossy().to_string());
+        let relative_path = entry_path.strip_prefix(&base_path).map_or_else(
+            |_| entry_path.to_string_lossy().to_string(),
+            |p| p.to_string_lossy().to_string(),
+        );
 
         file_infos.push(FileInfo {
             path: entry_path.to_path_buf(),
@@ -158,7 +158,7 @@ mod tests {
 
         assert_eq!(infos.len(), 1);
         assert!(infos[0].relative_path.contains("test.rs"));
-        assert_eq!(infos[0].language, Some("rust".to_string()));
+        assert_eq!(infos[0].language, Some("rust".to_owned()));
     }
 
     #[test]

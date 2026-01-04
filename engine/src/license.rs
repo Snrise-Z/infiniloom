@@ -424,15 +424,14 @@ impl LicenseScanner {
                     .lines()
                     .enumerate()
                     .find(|(_, l)| l.contains(pattern))
-                    .map(|(i, _)| (i + 1) as u32)
-                    .unwrap_or(1);
+                    .map_or(1, |(i, _)| (i + 1) as u32);
 
                 return Some(LicenseFinding {
-                    file: file_path.to_string(),
+                    file: file_path.to_owned(),
                     license,
                     line,
                     confidence,
-                    matched_text: pattern.to_string(),
+                    matched_text: pattern.to_owned(),
                 });
             }
         }
@@ -497,7 +496,7 @@ impl LicenseScanner {
         for (spdx_id, license) in spdx_mappings {
             if line.contains(spdx_id) {
                 return Some(LicenseFinding {
-                    file: file_path.to_string(),
+                    file: file_path.to_owned(),
                     license,
                     line: line_num as u32,
                     confidence: 0.99, // SPDX identifiers are very reliable
@@ -519,8 +518,8 @@ impl LicenseScanner {
         // Must be in a comment
         if !line.contains("//")
             && !line.contains("/*")
-            && !line.contains("*")
-            && !line.contains("#")
+            && !line.contains('*')
+            && !line.contains('#')
         {
             return None;
         }
@@ -540,11 +539,11 @@ impl LicenseScanner {
         for (pattern, license, confidence) in comment_patterns {
             if line.contains(pattern) && license != License::Unknown {
                 return Some(LicenseFinding {
-                    file: file_path.to_string(),
+                    file: file_path.to_owned(),
                     license,
                     line: line_num as u32,
                     confidence,
-                    matched_text: pattern.to_string(),
+                    matched_text: pattern.to_owned(),
                 });
             }
         }
@@ -791,25 +790,25 @@ def main():
     fn test_license_summary() {
         let findings = vec![
             LicenseFinding {
-                file: "lib/a.rs".to_string(),
+                file: "lib/a.rs".to_owned(),
                 license: License::Gpl3,
                 line: 1,
                 confidence: 0.95,
-                matched_text: "gpl-3.0".to_string(),
+                matched_text: "gpl-3.0".to_owned(),
             },
             LicenseFinding {
-                file: "lib/b.rs".to_string(),
+                file: "lib/b.rs".to_owned(),
                 license: License::Mit,
                 line: 1,
                 confidence: 0.9,
-                matched_text: "mit".to_string(),
+                matched_text: "mit".to_owned(),
             },
             LicenseFinding {
-                file: "lib/c.rs".to_string(),
+                file: "lib/c.rs".to_owned(),
                 license: License::Agpl3,
                 line: 1,
                 confidence: 0.95,
-                matched_text: "agpl-3.0".to_string(),
+                matched_text: "agpl-3.0".to_owned(),
             },
         ];
 

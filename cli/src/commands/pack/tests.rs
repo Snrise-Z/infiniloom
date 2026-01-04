@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::commands::pack::budget::{
         budget_token_model_for, estimate_tokens, truncate_to_tokens,
     };
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_token_tree_entry_serialization() {
-        let entry = TokenTreeEntry { path: "src/main.rs".to_string(), tokens: 1000 };
+        let entry = TokenTreeEntry { path: "src/main.rs".to_owned(), tokens: 1000 };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("src/main.rs"));
         assert!(json.contains("1000"));
@@ -377,10 +377,10 @@ mod tests {
     #[test]
     fn test_security_issue_entry_serialization() {
         let entry = SecurityIssueEntry {
-            file: "config.py".to_string(),
+            file: "config.py".to_owned(),
             line: 42,
-            kind: "API_KEY".to_string(),
-            severity: "High".to_string(),
+            kind: "API_KEY".to_owned(),
+            severity: "High".to_owned(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("config.py"));

@@ -74,7 +74,7 @@ impl DeadCodeDetector {
     /// Add a file's symbols for analysis
     pub fn add_file(&mut self, file_path: &str, symbols: &[Symbol], language: Language) {
         self.files.push(FileInfo {
-            path: file_path.to_string(),
+            path: file_path.to_owned(),
             language,
             symbols: symbols.to_vec(),
         });
@@ -87,9 +87,9 @@ impl DeadCodeDetector {
                 symbol.name.clone(),
                 DefinitionInfo {
                     name: symbol.name.clone(),
-                    kind: symbol.kind.clone(),
-                    visibility: symbol.visibility.clone(),
-                    file_path: file_path.to_string(),
+                    kind: symbol.kind,
+                    visibility: symbol.visibility,
+                    file_path: file_path.to_owned(),
                     line: symbol.start_line,
                     is_entry_point,
                 },
@@ -120,9 +120,9 @@ impl DeadCodeDetector {
         self.imports.insert(
             format!("{}:{}", file_path, name),
             ImportInfo {
-                name: name.to_string(),
-                import_path: import_path.to_string(),
-                file_path: file_path.to_string(),
+                name: name.to_owned(),
+                import_path: import_path.to_owned(),
+                file_path: file_path.to_owned(),
                 line,
                 is_used: false,
             },
@@ -131,14 +131,14 @@ impl DeadCodeDetector {
 
     /// Add variable information
     pub fn add_variable(&mut self, name: &str, file_path: &str, line: u32, scope: &str) {
-        let scope_vars = self.variables.entry(scope.to_string()).or_default();
+        let scope_vars = self.variables.entry(scope.to_owned()).or_default();
         scope_vars.insert(
-            name.to_string(),
+            name.to_owned(),
             VariableInfo {
-                name: name.to_string(),
-                file_path: file_path.to_string(),
+                name: name.to_owned(),
+                file_path: file_path.to_owned(),
                 line,
-                scope: scope.to_string(),
+                scope: scope.to_owned(),
                 is_used: false,
             },
         );
@@ -264,7 +264,7 @@ impl DeadCodeDetector {
                 file_path: def.file_path.clone(),
                 line: def.line,
                 confidence,
-                reason: "No references found in analyzed codebase".to_string(),
+                reason: "No references found in analyzed codebase".to_owned(),
             });
         }
 
@@ -421,10 +421,10 @@ pub fn detect_unreachable_code(
 
             // This is unreachable code
             unreachable.push(UnreachableCode {
-                file_path: file_path.to_string(),
+                file_path: file_path.to_owned(),
                 start_line: line_num,
                 end_line: line_num,
-                snippet: trimmed.to_string(),
+                snippet: trimmed.to_owned(),
                 reason: format!("Code after terminator on line {}", terminator_line),
             });
 
@@ -485,7 +485,7 @@ mod tests {
 
     fn make_symbol(name: &str, kind: SymbolKind, visibility: Visibility) -> Symbol {
         Symbol {
-            name: name.to_string(),
+            name: name.to_owned(),
             kind,
             visibility,
             start_line: 1,
@@ -499,17 +499,17 @@ mod tests {
         let mut detector = DeadCodeDetector::new();
 
         // Use C language where public visibility doesn't auto-mark as entry point
-        let symbols = vec![
+        let symbols = [
             make_symbol("used_func", SymbolKind::Function, Visibility::Public),
             make_symbol("unused_func", SymbolKind::Function, Visibility::Public),
         ];
 
         // Add a reference to used_func
         let caller = Symbol {
-            name: "caller".to_string(),
+            name: "caller".to_owned(),
             kind: SymbolKind::Function,
             visibility: Visibility::Private,
-            calls: vec!["used_func".to_string()],
+            calls: vec!["used_func".to_owned()],
             ..Default::default()
         };
 

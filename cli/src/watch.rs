@@ -5,7 +5,6 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use infiniloom_engine::{
@@ -24,7 +23,7 @@ use crate::scanner;
 
 /// Configuration for watch mode
 #[derive(Debug, Clone)]
-pub struct WatchConfig {
+pub(crate) struct WatchConfig {
     /// Repository path to watch
     pub repo_path: std::path::PathBuf,
 
@@ -43,7 +42,7 @@ pub struct WatchConfig {
 
 impl WatchConfig {
     /// Create a new watch configuration
-    pub fn new(
+    pub(crate) fn new(
         repo_path: std::path::PathBuf,
         output_path: std::path::PathBuf,
         pack_config: PackConfig,
@@ -73,7 +72,7 @@ impl WatchConfig {
 /// - File watcher fails to initialize
 /// - Directory cannot be watched
 /// - File operations fail
-pub fn run_watch_mode(config: WatchConfig) -> Result<()> {
+pub(crate) fn run_watch_mode(config: WatchConfig) -> Result<()> {
     use notify::{Config as NotifyConfig, Event, PollWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc::channel;
 
@@ -414,8 +413,7 @@ fn recalculate_metadata(repo: &mut Repository) {
         .map(|f| {
             f.content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| f.size_bytes / 40)
+                .map_or_else(|| f.size_bytes / 40, |c| c.lines().count() as u64)
         })
         .sum();
 
@@ -461,8 +459,7 @@ fn recalculate_metadata(repo: &mut Repository) {
             let file_lines = file
                 .content
                 .as_ref()
-                .map(|c| c.lines().count() as u64)
-                .unwrap_or_else(|| file.size_bytes / 40);
+                .map_or_else(|| file.size_bytes / 40, |c| c.lines().count() as u64);
             entry.1 += file_lines;
         }
     }

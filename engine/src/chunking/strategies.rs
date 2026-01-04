@@ -381,8 +381,7 @@ impl Chunker {
         let source_dir = source_file
             .relative_path
             .rsplit_once('/')
-            .map(|(d, _)| d)
-            .unwrap_or("");
+            .map_or("", |(d, _)| d);
 
         // Convert import to potential paths (handles various languages)
         let normalized = import_name.replace("::", "/").replace(['.', '\\'], "/");

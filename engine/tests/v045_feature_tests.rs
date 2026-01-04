@@ -50,7 +50,7 @@ fn create_deep_call_chain_index() -> (SymbolIndex, DepGraph) {
     for (i, (name, start, end)) in symbols.iter().enumerate() {
         index.symbols.push(IndexSymbol {
             id: SymbolId::new(i as u32),
-            name: name.to_string(),
+            name: (*name).to_string(),
             kind: IndexSymbolKind::Function,
             file_id: FileId::new(0),
             span: Span::new(*start, 0, *end, 0),
@@ -174,7 +174,7 @@ fn create_diamond_dependency_index() -> (SymbolIndex, DepGraph) {
     for (i, (name, start, end)) in symbols.iter().enumerate() {
         index.symbols.push(IndexSymbol {
             id: SymbolId::new(i as u32),
-            name: name.to_string(),
+            name: (*name).to_string(),
             kind: IndexSymbolKind::Function,
             file_id: FileId::new(0),
             span: Span::new(*start, 0, *end, 0),
@@ -880,11 +880,11 @@ fn test_change_type_renamed() {
 fn test_line_context_extraction() {
     // Simulate extracting context around a line
     let lines = [
-        "fn main() {".to_string(),
-        "    let x = 1;".to_string(),
-        "    let y = 2;".to_string(),
-        "    println!(\"{}\", x + y);".to_string(),
-        "}".to_string(),
+        "fn main() {".to_owned(),
+        "    let x = 1;".to_owned(),
+        "    let y = 2;".to_owned(),
+        "    println!(\"{}\", x + y);".to_owned(),
+        "}".to_owned(),
     ];
 
     let target_line = 3; // "let y = 2;" (1-indexed)
@@ -904,8 +904,7 @@ fn test_line_context_extraction() {
 
 #[test]
 fn test_line_context_at_file_start() {
-    let lines =
-        ["// File header".to_string(), "fn foo() {}".to_string(), "fn bar() {}".to_string()];
+    let lines = ["// File header".to_owned(), "fn foo() {}".to_owned(), "fn bar() {}".to_owned()];
 
     let target_line = 1; // First line
     let lines_before = 3; // More than available
@@ -924,8 +923,7 @@ fn test_line_context_at_file_start() {
 
 #[test]
 fn test_line_context_at_file_end() {
-    let lines =
-        ["fn foo() {}".to_string(), "fn bar() {}".to_string(), "// End of file".to_string()];
+    let lines = ["fn foo() {}".to_owned(), "fn bar() {}".to_owned(), "// End of file".to_owned()];
 
     let target_line = 3; // Last line
     let lines_before = 1;

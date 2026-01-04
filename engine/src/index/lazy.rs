@@ -150,7 +150,7 @@ impl LazyContextBuilder {
         let import_depth = context_depth.min(self.max_import_depth);
 
         if import_depth > 0 {
-            let mut files_to_process: Vec<String> = changed_files.clone();
+            let mut files_to_process: Vec<String> = changed_files;
             let mut current_depth = 0;
 
             while current_depth < import_depth && !files_to_process.is_empty() {
@@ -436,14 +436,14 @@ impl LazyContextBuilder {
             source.to_owned(),
             format!("{}.rs", source.replace("::", "/")),
             format!("{}/mod.rs", source.replace("::", "/")),
-            format!("{}.py", source.replace(".", "/")),
-            format!("{}/__init__.py", source.replace(".", "/")),
+            format!("{}.py", source.replace('.', "/")),
+            format!("{}/__init__.py", source.replace('.', "/")),
             format!("{}.ts", source),
             format!("{}.js", source),
             format!("{}/index.ts", source),
             format!("{}/index.js", source),
             format!("src/{}.rs", source.replace("::", "/")),
-            format!("src/{}.py", source.replace(".", "/")),
+            format!("src/{}.py", source.replace('.', "/")),
             format!("src/{}.ts", source),
             format!("src/{}.js", source),
         ];

@@ -34,7 +34,10 @@ use infiniloom_engine::Symbol;
 /// # Returns
 ///
 /// Content with empty lines removed, optionally with line numbers preserved.
-pub fn remove_empty_lines_from_content(content: &str, preserve_line_numbers: bool) -> String {
+pub(crate) fn remove_empty_lines_from_content(
+    content: &str,
+    preserve_line_numbers: bool,
+) -> String {
     content_transformation::remove_empty_lines(content, preserve_line_numbers)
 }
 
@@ -63,7 +66,7 @@ pub fn remove_empty_lines_from_content(content: &str, preserve_line_numbers: boo
 /// # Returns
 ///
 /// Content with comments removed.
-pub fn remove_comments_from_content(
+pub(crate) fn remove_comments_from_content(
     content: &str,
     language: &str,
     preserve_line_numbers: bool,
@@ -88,7 +91,7 @@ pub fn remove_comments_from_content(
 /// # Returns
 ///
 /// Content with only signatures (no function bodies).
-pub fn extract_signatures_only(content: &str, language: &str, symbols: &[Symbol]) -> String {
+pub(crate) fn extract_signatures_only(content: &str, language: &str, symbols: &[Symbol]) -> String {
     content_transformation::extract_signatures(content, language, symbols)
 }
 
@@ -112,7 +115,11 @@ pub fn extract_signatures_only(content: &str, language: &str, symbols: &[Symbol]
 /// # Returns
 ///
 /// Content with only key public symbols (up to 30).
-pub fn extract_key_symbols_only(content: &str, language: &str, symbols: &[Symbol]) -> String {
+pub(crate) fn extract_key_symbols_only(
+    content: &str,
+    language: &str,
+    symbols: &[Symbol],
+) -> String {
     content_transformation::extract_key_symbols(content, language, symbols)
 }
 
@@ -133,7 +140,11 @@ pub fn extract_key_symbols_only(content: &str, language: &str, symbols: &[Symbol
 /// # Returns
 ///
 /// Content with key symbols and 2 lines of context before/after each.
-pub fn extract_key_symbols_focused(content: &str, language: &str, symbols: &[Symbol]) -> String {
+pub(crate) fn extract_key_symbols_focused(
+    content: &str,
+    language: &str,
+    symbols: &[Symbol],
+) -> String {
     content_transformation::extract_key_symbols_with_context(content, language, symbols)
 }
 

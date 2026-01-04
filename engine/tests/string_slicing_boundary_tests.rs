@@ -180,7 +180,7 @@ fn test_budget_enforcer_truncate_at_exact_boundary() {
     for i in 0..196 {
         content.push((b'a' + (i % 26) as u8) as char);
     }
-    content.push_str("🎉"); // 4-byte emoji
+    content.push('🎉'); // 4-byte emoji
 
     // Try different budgets that might land in the middle of the emoji
     for budget in [45, 46, 47, 48, 49, 50, 51, 52] {

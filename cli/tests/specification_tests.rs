@@ -318,7 +318,7 @@ fn tc_scan_001_basic_statistics() {
     let stdout = stdout_str(&output);
 
     // Should show file statistics
-    assert!(stdout.contains("3") || stdout.contains("files"), "Should show file count");
+    assert!(stdout.contains('3') || stdout.contains("files"), "Should show file count");
 
     // Should show language breakdown
     assert!(

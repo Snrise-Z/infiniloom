@@ -22,12 +22,12 @@ impl TypeSignatureExtractor {
     }
 
     /// Get text for a node
-    fn node_text(&self, node: &Node) -> &str {
+    fn node_text(&self, node: &Node<'_>) -> &str {
         node.utf8_text(self.source.as_bytes()).unwrap_or("")
     }
 
     /// Extract type signature from a function/method node
-    pub fn extract(&self, node: &Node, language: Language) -> TypeSignature {
+    pub fn extract(&self, node: &Node<'_>, language: Language) -> TypeSignature {
         match language {
             Language::Python => self.extract_python(node),
             Language::JavaScript => self.extract_javascript(node),
@@ -56,7 +56,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Python type signature
-    fn extract_python(&self, node: &Node) -> TypeSignature {
+    fn extract_python(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for async def
@@ -80,7 +80,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_python_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_python_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
         let mut seen_star = false;
@@ -91,7 +91,7 @@ impl TypeSignatureExtractor {
                 "identifier" => {
                     // Simple parameter
                     params.push(ParameterInfo {
-                        name: self.node_text(&child).to_string(),
+                        name: self.node_text(&child).to_owned(),
                         kind: if seen_star {
                             ParameterKind::KeywordOnly
                         } else {
@@ -105,10 +105,10 @@ impl TypeSignatureExtractor {
 
                     // Get name
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     } else if let Some(first) = child.child(0) {
                         if first.kind() == "identifier" {
-                            param.name = self.node_text(&first).to_string();
+                            param.name = self.node_text(&first).to_owned();
                         }
                     }
 
@@ -119,7 +119,7 @@ impl TypeSignatureExtractor {
 
                     // Get default value
                     if let Some(default) = child.child_by_field_name("value") {
-                        param.default_value = Some(self.node_text(&default).to_string());
+                        param.default_value = Some(self.node_text(&default).to_owned());
                         param.is_optional = true;
                     }
 
@@ -139,7 +139,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child(1) {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -151,7 +151,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child(1) {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -171,9 +171,9 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_python_type(&self, node: &Node) -> TypeInfo {
+    fn parse_python_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         match node.kind() {
             "type" => {
@@ -184,7 +184,7 @@ impl TypeSignatureExtractor {
             "subscript" => {
                 // Generic type like List[int] or Optional[str]
                 if let Some(value) = node.child_by_field_name("value") {
-                    type_info.name = self.node_text(&value).to_string();
+                    type_info.name = self.node_text(&value).to_owned();
                 }
                 if let Some(subscript) = node.child_by_field_name("subscript") {
                     type_info.generic_args = self.extract_generic_args(&subscript);
@@ -203,7 +203,7 @@ impl TypeSignatureExtractor {
                         type_info.union_types.push(self.parse_python_type(&child));
                     }
                 }
-                type_info.name = "Union".to_string();
+                type_info.name = "Union".to_owned();
             },
             _ => {},
         }
@@ -211,7 +211,7 @@ impl TypeSignatureExtractor {
         type_info
     }
 
-    fn extract_generic_args(&self, node: &Node) -> Vec<TypeInfo> {
+    fn extract_generic_args(&self, node: &Node<'_>) -> Vec<TypeInfo> {
         let mut args = Vec::new();
         let mut cursor = node.walk();
 
@@ -224,7 +224,7 @@ impl TypeSignatureExtractor {
         args
     }
 
-    fn contains_yield(&self, node: &Node) -> bool {
+    fn contains_yield(&self, node: &Node<'_>) -> bool {
         if node.kind() == "yield" || node.kind() == "yield_expression" {
             return true;
         }
@@ -238,7 +238,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract JavaScript type signature
-    fn extract_javascript(&self, node: &Node) -> TypeSignature {
+    fn extract_javascript(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for async
@@ -255,7 +255,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_js_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_js_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -263,7 +263,7 @@ impl TypeSignatureExtractor {
             match child.kind() {
                 "identifier" => {
                     params.push(ParameterInfo {
-                        name: self.node_text(&child).to_string(),
+                        name: self.node_text(&child).to_owned(),
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
@@ -275,10 +275,10 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(left) = child.child_by_field_name("left") {
-                        param.name = self.node_text(&left).to_string();
+                        param.name = self.node_text(&left).to_owned();
                     }
                     if let Some(right) = child.child_by_field_name("right") {
-                        param.default_value = Some(self.node_text(&right).to_string());
+                        param.default_value = Some(self.node_text(&right).to_owned());
                     }
                     params.push(param);
                 },
@@ -289,7 +289,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child(1) {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -301,7 +301,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract TypeScript type signature
-    fn extract_typescript(&self, node: &Node) -> TypeSignature {
+    fn extract_typescript(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = self.extract_javascript(node);
 
         // Extract TypeScript-specific type annotations
@@ -322,7 +322,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_ts_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_ts_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -336,7 +336,7 @@ impl TypeSignatureExtractor {
                     };
 
                     if let Some(pattern) = child.child_by_field_name("pattern") {
-                        param.name = self.node_text(&pattern).to_string();
+                        param.name = self.node_text(&pattern).to_owned();
                     }
 
                     if let Some(type_ann) = child.child_by_field_name("type") {
@@ -344,7 +344,7 @@ impl TypeSignatureExtractor {
                     }
 
                     if let Some(value) = child.child_by_field_name("value") {
-                        param.default_value = Some(self.node_text(&value).to_string());
+                        param.default_value = Some(self.node_text(&value).to_owned());
                         param.is_optional = true;
                     }
 
@@ -357,7 +357,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child(1) {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -368,9 +368,9 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_ts_type(&self, node: &Node) -> TypeInfo {
+    fn parse_ts_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         match node.kind() {
             "type_annotation" => {
@@ -380,7 +380,7 @@ impl TypeSignatureExtractor {
             },
             "generic_type" => {
                 if let Some(name) = node.child_by_field_name("name") {
-                    type_info.name = self.node_text(&name).to_string();
+                    type_info.name = self.node_text(&name).to_owned();
                 }
                 if let Some(args) = node.child_by_field_name("type_arguments") {
                     type_info.generic_args = self.extract_ts_type_args(&args);
@@ -393,7 +393,7 @@ impl TypeSignatureExtractor {
                         type_info.union_types.push(self.parse_ts_type(&child));
                     }
                 }
-                type_info.name = "Union".to_string();
+                type_info.name = "Union".to_owned();
             },
             "array_type" => {
                 if let Some(elem) = node.child(0) {
@@ -402,7 +402,7 @@ impl TypeSignatureExtractor {
                 }
             },
             "predefined_type" | "type_identifier" => {
-                type_info.name = text.to_string();
+                type_info.name = text.to_owned();
             },
             _ => {},
         }
@@ -410,7 +410,7 @@ impl TypeSignatureExtractor {
         type_info
     }
 
-    fn extract_ts_type_args(&self, node: &Node) -> Vec<TypeInfo> {
+    fn extract_ts_type_args(&self, node: &Node<'_>) -> Vec<TypeInfo> {
         let mut args = Vec::new();
         let mut cursor = node.walk();
 
@@ -423,7 +423,7 @@ impl TypeSignatureExtractor {
         args
     }
 
-    fn extract_ts_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_ts_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -432,17 +432,17 @@ impl TypeSignatureExtractor {
                 let mut param = GenericParam::default();
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(constraint) = child.child_by_field_name("constraint") {
                     param
                         .constraints
-                        .push(self.node_text(&constraint).to_string());
+                        .push(self.node_text(&constraint).to_owned());
                 }
 
                 if let Some(default) = child.child_by_field_name("value") {
-                    param.default_type = Some(self.node_text(&default).to_string());
+                    param.default_type = Some(self.node_text(&default).to_owned());
                 }
 
                 generics.push(param);
@@ -453,7 +453,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Rust type signature
-    fn extract_rust(&self, node: &Node) -> TypeSignature {
+    fn extract_rust(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for async
@@ -480,7 +480,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_rust_params(&self, params_node: &Node) -> (Vec<ParameterInfo>, Option<String>) {
+    fn extract_rust_params(&self, params_node: &Node<'_>) -> (Vec<ParameterInfo>, Option<String>) {
         let mut params = Vec::new();
         let mut receiver = None;
         let mut cursor = params_node.walk();
@@ -488,14 +488,14 @@ impl TypeSignatureExtractor {
         for child in params_node.children(&mut cursor) {
             match child.kind() {
                 "self_parameter" => {
-                    receiver = Some(self.node_text(&child).to_string());
+                    receiver = Some(self.node_text(&child).to_owned());
                 },
                 "parameter" => {
                     let mut param =
                         ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                     if let Some(pattern) = child.child_by_field_name("pattern") {
-                        param.name = self.node_text(&pattern).to_string();
+                        param.name = self.node_text(&pattern).to_owned();
                     }
 
                     if let Some(type_node) = child.child_by_field_name("type") {
@@ -511,9 +511,9 @@ impl TypeSignatureExtractor {
         (params, receiver)
     }
 
-    fn parse_rust_type(&self, node: &Node) -> TypeInfo {
+    fn parse_rust_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         match node.kind() {
             "reference_type" => {
@@ -528,7 +528,7 @@ impl TypeSignatureExtractor {
             },
             "generic_type" => {
                 if let Some(name) = node.child_by_field_name("type") {
-                    type_info.name = self.node_text(&name).to_string();
+                    type_info.name = self.node_text(&name).to_owned();
                 }
                 if let Some(args) = node.child_by_field_name("type_arguments") {
                     type_info.generic_args = self.extract_rust_type_args(&args);
@@ -547,7 +547,7 @@ impl TypeSignatureExtractor {
                 }
             },
             "type_identifier" | "primitive_type" => {
-                type_info.name = text.to_string();
+                type_info.name = text.to_owned();
             },
             _ => {},
         }
@@ -555,7 +555,7 @@ impl TypeSignatureExtractor {
         type_info
     }
 
-    fn extract_rust_type_args(&self, node: &Node) -> Vec<TypeInfo> {
+    fn extract_rust_type_args(&self, node: &Node<'_>) -> Vec<TypeInfo> {
         let mut args = Vec::new();
         let mut cursor = node.walk();
 
@@ -572,7 +572,7 @@ impl TypeSignatureExtractor {
         args
     }
 
-    fn extract_rust_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_rust_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -580,17 +580,17 @@ impl TypeSignatureExtractor {
             match child.kind() {
                 "type_identifier" => {
                     generics.push(GenericParam {
-                        name: self.node_text(&child).to_string(),
+                        name: self.node_text(&child).to_owned(),
                         ..Default::default()
                     });
                 },
                 "constrained_type_parameter" => {
                     let mut param = GenericParam::default();
                     if let Some(name) = child.child(0) {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     if let Some(bounds) = child.child_by_field_name("bounds") {
-                        param.constraints.push(self.node_text(&bounds).to_string());
+                        param.constraints.push(self.node_text(&bounds).to_owned());
                     }
                     generics.push(param);
                 },
@@ -602,7 +602,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Go type signature
-    fn extract_go(&self, node: &Node) -> TypeSignature {
+    fn extract_go(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -617,7 +617,7 @@ impl TypeSignatureExtractor {
 
         // Extract receiver for methods
         if let Some(receiver) = node.child_by_field_name("receiver") {
-            sig.receiver = Some(self.node_text(&receiver).to_string());
+            sig.receiver = Some(self.node_text(&receiver).to_owned());
         }
 
         // Extract type parameters (Go 1.18+ generics)
@@ -628,7 +628,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_go_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_go_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -645,7 +645,7 @@ impl TypeSignatureExtractor {
                 for param_child in child.children(&mut param_cursor) {
                     match param_child.kind() {
                         "identifier" => {
-                            names.push(self.node_text(&param_child).to_string());
+                            names.push(self.node_text(&param_child).to_owned());
                         },
                         _ if param_child.kind().contains("type") => {
                             type_node = Some(param_child);
@@ -678,7 +678,7 @@ impl TypeSignatureExtractor {
                     ..Default::default()
                 };
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
                 if let Some(type_node) = child.child_by_field_name("type") {
                     param.type_info = Some(self.parse_go_type(&type_node));
@@ -690,12 +690,12 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_go_type(&self, node: &Node) -> TypeInfo {
+    fn parse_go_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        TypeInfo { name: text.to_string(), ..Default::default() }
+        TypeInfo { name: text.to_owned(), ..Default::default() }
     }
 
-    fn extract_go_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_go_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -703,12 +703,12 @@ impl TypeSignatureExtractor {
             if child.kind() == "type_parameter_declaration" {
                 let mut param = GenericParam::default();
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
                 if let Some(constraint) = child.child_by_field_name("constraint") {
                     param
                         .constraints
-                        .push(self.node_text(&constraint).to_string());
+                        .push(self.node_text(&constraint).to_owned());
                 }
                 generics.push(param);
             }
@@ -718,7 +718,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Java type signature
-    fn extract_java(&self, node: &Node) -> TypeSignature {
+    fn extract_java(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -744,7 +744,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_java_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_java_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -757,7 +757,7 @@ impl TypeSignatureExtractor {
                 };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -771,14 +771,14 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_java_type(&self, node: &Node) -> TypeInfo {
+    fn parse_java_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         match node.kind() {
             "generic_type" => {
                 if let Some(name) = node.child(0) {
-                    type_info.name = self.node_text(&name).to_string();
+                    type_info.name = self.node_text(&name).to_owned();
                 }
                 if let Some(args) = node.child_by_field_name("arguments") {
                     let mut arg_cursor = args.walk();
@@ -802,7 +802,7 @@ impl TypeSignatureExtractor {
         type_info
     }
 
-    fn extract_java_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_java_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -811,11 +811,11 @@ impl TypeSignatureExtractor {
                 let mut param = GenericParam::default();
 
                 if let Some(name) = child.child(0) {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(bounds) = child.child_by_field_name("bounds") {
-                    param.constraints.push(self.node_text(&bounds).to_string());
+                    param.constraints.push(self.node_text(&bounds).to_owned());
                 }
 
                 generics.push(param);
@@ -825,13 +825,13 @@ impl TypeSignatureExtractor {
         generics
     }
 
-    fn extract_java_throws(&self, throws_node: &Node) -> Vec<String> {
+    fn extract_java_throws(&self, throws_node: &Node<'_>) -> Vec<String> {
         let mut throws = Vec::new();
         let mut cursor = throws_node.walk();
 
         for child in throws_node.children(&mut cursor) {
             if child.kind() == "type_identifier" || child.kind() == "generic_type" {
-                throws.push(self.node_text(&child).to_string());
+                throws.push(self.node_text(&child).to_owned());
             }
         }
 
@@ -839,13 +839,13 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract C type signature
-    fn extract_c(&self, node: &Node) -> TypeSignature {
+    fn extract_c(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract return type
         if let Some(return_type) = node.child_by_field_name("type") {
             sig.return_type = Some(TypeInfo {
-                name: self.node_text(&return_type).to_string(),
+                name: self.node_text(&return_type).to_owned(),
                 ..Default::default()
             });
         }
@@ -860,7 +860,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_c_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_c_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -871,19 +871,19 @@ impl TypeSignatureExtractor {
 
                 if let Some(type_node) = child.child_by_field_name("type") {
                     param.type_info = Some(TypeInfo {
-                        name: self.node_text(&type_node).to_string(),
+                        name: self.node_text(&type_node).to_owned(),
                         ..Default::default()
                     });
                 }
 
                 if let Some(declarator) = child.child_by_field_name("declarator") {
-                    param.name = self.node_text(&declarator).to_string();
+                    param.name = self.node_text(&declarator).to_owned();
                 }
 
                 params.push(param);
             } else if child.kind() == "variadic_parameter" {
                 params.push(ParameterInfo {
-                    name: "...".to_string(),
+                    name: "...".to_owned(),
                     kind: ParameterKind::VarPositional,
                     is_variadic: true,
                     ..Default::default()
@@ -895,7 +895,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract C++ type signature
-    fn extract_cpp(&self, node: &Node) -> TypeSignature {
+    fn extract_cpp(&self, node: &Node<'_>) -> TypeSignature {
         // C++ is similar to C but with additional features
         let mut sig = self.extract_c(node);
 
@@ -917,7 +917,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_cpp_template_params(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_cpp_template_params(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -926,13 +926,13 @@ impl TypeSignatureExtractor {
                 "type_parameter_declaration" => {
                     let mut param = GenericParam::default();
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     generics.push(param);
                 },
                 "template_parameter_declaration" => {
                     let mut param = GenericParam::default();
-                    param.name = self.node_text(&child).to_string();
+                    param.name = self.node_text(&child).to_owned();
                     generics.push(param);
                 },
                 _ => {},
@@ -943,7 +943,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract C# type signature
-    fn extract_csharp(&self, node: &Node) -> TypeSignature {
+    fn extract_csharp(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for async
@@ -968,7 +968,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_csharp_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_csharp_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -978,7 +978,7 @@ impl TypeSignatureExtractor {
                     ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -986,7 +986,7 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(default) = child.child_by_field_name("default_value") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
@@ -1004,27 +1004,27 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_csharp_type(&self, node: &Node) -> TypeInfo {
+    fn parse_csharp_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         // Check for nullable
         if text.ends_with('?') {
             type_info.is_nullable = true;
-            type_info.name = text.trim_end_matches('?').to_string();
+            type_info.name = text.trim_end_matches('?').to_owned();
         }
 
         type_info
     }
 
-    fn extract_csharp_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_csharp_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
         for child in node.children(&mut cursor) {
             if child.kind() == "type_parameter" {
                 let mut param = GenericParam::default();
-                param.name = self.node_text(&child).to_string();
+                param.name = self.node_text(&child).to_owned();
 
                 // Check for variance
                 let text = self.node_text(&child);
@@ -1044,7 +1044,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Ruby type signature (limited type info available)
-    fn extract_ruby(&self, node: &Node) -> TypeSignature {
+    fn extract_ruby(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -1055,7 +1055,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_ruby_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_ruby_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1063,7 +1063,7 @@ impl TypeSignatureExtractor {
             match child.kind() {
                 "identifier" => {
                     params.push(ParameterInfo {
-                        name: self.node_text(&child).to_string(),
+                        name: self.node_text(&child).to_owned(),
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
@@ -1075,10 +1075,10 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     if let Some(value) = child.child_by_field_name("value") {
-                        param.default_value = Some(self.node_text(&value).to_string());
+                        param.default_value = Some(self.node_text(&value).to_owned());
                     }
                     params.push(param);
                 },
@@ -1089,7 +1089,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -1100,7 +1100,7 @@ impl TypeSignatureExtractor {
                         ..Default::default()
                     };
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     params.push(param);
                 },
@@ -1108,10 +1108,10 @@ impl TypeSignatureExtractor {
                     let mut param =
                         ParameterInfo { kind: ParameterKind::Keyword, ..Default::default() };
                     if let Some(name) = child.child_by_field_name("name") {
-                        param.name = self.node_text(&name).to_string();
+                        param.name = self.node_text(&name).to_owned();
                     }
                     if let Some(value) = child.child_by_field_name("value") {
-                        param.default_value = Some(self.node_text(&value).to_string());
+                        param.default_value = Some(self.node_text(&value).to_owned());
                         param.is_optional = true;
                     }
                     params.push(param);
@@ -1132,7 +1132,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract PHP type signature
-    fn extract_php(&self, node: &Node) -> TypeSignature {
+    fn extract_php(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -1148,7 +1148,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_php_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_php_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1161,7 +1161,7 @@ impl TypeSignatureExtractor {
                 };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -1169,7 +1169,7 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(default) = child.child_by_field_name("default_value") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
@@ -1180,9 +1180,9 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_php_type(&self, node: &Node) -> TypeInfo {
+    fn parse_php_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         // Check for nullable
         if text.starts_with('?') {
@@ -1194,7 +1194,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Kotlin type signature
-    fn extract_kotlin(&self, node: &Node) -> TypeSignature {
+    fn extract_kotlin(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for suspend (coroutine)
@@ -1222,7 +1222,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_kotlin_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_kotlin_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1232,7 +1232,7 @@ impl TypeSignatureExtractor {
                     ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -1240,7 +1240,7 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(default) = child.child_by_field_name("default_value") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
@@ -1258,20 +1258,20 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_kotlin_type(&self, node: &Node) -> TypeInfo {
+    fn parse_kotlin_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         // Check for nullable
         if text.ends_with('?') {
             type_info.is_nullable = true;
-            type_info.name = text.trim_end_matches('?').to_string();
+            type_info.name = text.trim_end_matches('?').to_owned();
         }
 
         type_info
     }
 
-    fn extract_kotlin_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_kotlin_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -1280,7 +1280,7 @@ impl TypeSignatureExtractor {
                 let mut param = GenericParam::default();
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 // Check for variance
@@ -1292,7 +1292,7 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(bounds) = child.child_by_field_name("bounds") {
-                    param.constraints.push(self.node_text(&bounds).to_string());
+                    param.constraints.push(self.node_text(&bounds).to_owned());
                 }
 
                 generics.push(param);
@@ -1303,14 +1303,14 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Swift type signature
-    fn extract_swift(&self, node: &Node) -> TypeSignature {
+    fn extract_swift(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Check for async/throws
         let text = self.node_text(node);
         sig.is_async = text.contains(" async ");
         if text.contains(" throws ") {
-            sig.throws.push("Error".to_string());
+            sig.throws.push("Error".to_owned());
         }
 
         // Extract parameters
@@ -1331,7 +1331,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_swift_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_swift_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1341,7 +1341,7 @@ impl TypeSignatureExtractor {
                     ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -1349,7 +1349,7 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(default) = child.child_by_field_name("default_value") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
@@ -1367,32 +1367,32 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_swift_type(&self, node: &Node) -> TypeInfo {
+    fn parse_swift_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
+        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
 
         // Check for optional
         if text.ends_with('?') || text.ends_with('!') {
             type_info.is_nullable = true;
-            type_info.name = text.trim_end_matches(|c| c == '?' || c == '!').to_string();
+            type_info.name = text.trim_end_matches(['?', '!']).to_owned();
         }
 
         type_info
     }
 
-    fn extract_swift_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_swift_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
         for child in node.children(&mut cursor) {
             if child.kind() == "type_parameter" {
                 let mut param = GenericParam::default();
-                param.name = self.node_text(&child).to_string();
+                param.name = self.node_text(&child).to_owned();
 
                 if let Some(constraint) = child.child_by_field_name("constraint") {
                     param
                         .constraints
-                        .push(self.node_text(&constraint).to_string());
+                        .push(self.node_text(&constraint).to_owned());
                 }
 
                 generics.push(param);
@@ -1403,7 +1403,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Scala type signature
-    fn extract_scala(&self, node: &Node) -> TypeSignature {
+    fn extract_scala(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -1424,7 +1424,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_scala_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_scala_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1434,7 +1434,7 @@ impl TypeSignatureExtractor {
                     ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(type_node) = child.child_by_field_name("type") {
@@ -1442,13 +1442,13 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(default) = child.child_by_field_name("default") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
                 // Check for varargs (*)
                 let param_text = self.node_text(&child);
-                if param_text.contains("*") {
+                if param_text.contains('*') {
                     param.is_variadic = true;
                     param.kind = ParameterKind::VarPositional;
                 }
@@ -1460,12 +1460,12 @@ impl TypeSignatureExtractor {
         params
     }
 
-    fn parse_scala_type(&self, node: &Node) -> TypeInfo {
+    fn parse_scala_type(&self, node: &Node<'_>) -> TypeInfo {
         let text = self.node_text(node);
-        TypeInfo { name: text.to_string(), ..Default::default() }
+        TypeInfo { name: text.to_owned(), ..Default::default() }
     }
 
-    fn extract_scala_generics(&self, node: &Node) -> Vec<GenericParam> {
+    fn extract_scala_generics(&self, node: &Node<'_>) -> Vec<GenericParam> {
         let mut generics = Vec::new();
         let mut cursor = node.walk();
 
@@ -1482,11 +1482,11 @@ impl TypeSignatureExtractor {
                     param.variance = Variance::Contravariant;
                     param.name = text[1..].to_string();
                 } else {
-                    param.name = text.to_string();
+                    param.name = text.to_owned();
                 }
 
                 if let Some(bounds) = child.child_by_field_name("bounds") {
-                    param.constraints.push(self.node_text(&bounds).to_string());
+                    param.constraints.push(self.node_text(&bounds).to_owned());
                 }
 
                 generics.push(param);
@@ -1497,7 +1497,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Haskell type signature
-    fn extract_haskell(&self, node: &Node) -> TypeSignature {
+    fn extract_haskell(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Haskell functions are defined with type signatures separately
@@ -1507,7 +1507,7 @@ impl TypeSignatureExtractor {
             // Parse :: type
             if let Some(type_part) = text.split("::").nth(1) {
                 sig.return_type =
-                    Some(TypeInfo { name: type_part.trim().to_string(), ..Default::default() });
+                    Some(TypeInfo { name: type_part.trim().to_owned(), ..Default::default() });
             }
         }
 
@@ -1515,7 +1515,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Elixir type signature
-    fn extract_elixir(&self, node: &Node) -> TypeSignature {
+    fn extract_elixir(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -1526,14 +1526,14 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_elixir_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_elixir_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "identifier" {
                 params.push(ParameterInfo {
-                    name: self.node_text(&child).to_string(),
+                    name: self.node_text(&child).to_owned(),
                     kind: ParameterKind::Positional,
                     ..Default::default()
                 });
@@ -1545,10 +1545,10 @@ impl TypeSignatureExtractor {
                     ..Default::default()
                 };
                 if let Some(left) = child.child_by_field_name("left") {
-                    param.name = self.node_text(&left).to_string();
+                    param.name = self.node_text(&left).to_owned();
                 }
                 if let Some(right) = child.child_by_field_name("right") {
-                    param.default_value = Some(self.node_text(&right).to_string());
+                    param.default_value = Some(self.node_text(&right).to_owned());
                 }
                 params.push(param);
             }
@@ -1558,7 +1558,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Clojure type signature (limited - dynamically typed)
-    fn extract_clojure(&self, node: &Node) -> TypeSignature {
+    fn extract_clojure(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Clojure uses vector for params in defn
@@ -1574,13 +1574,13 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_clojure_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_clojure_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "sym_lit" {
-                let name = self.node_text(&child).to_string();
+                let name = self.node_text(&child).to_owned();
                 // Check for &rest
                 if name == "&" {
                     continue;
@@ -1597,7 +1597,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract OCaml type signature
-    fn extract_ocaml(&self, node: &Node) -> TypeSignature {
+    fn extract_ocaml(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters from let binding
@@ -1608,7 +1608,7 @@ impl TypeSignatureExtractor {
         // Extract return type from type annotation
         if let Some(return_type) = node.child_by_field_name("type") {
             sig.return_type = Some(TypeInfo {
-                name: self.node_text(&return_type).to_string(),
+                name: self.node_text(&return_type).to_owned(),
                 ..Default::default()
             });
         }
@@ -1616,13 +1616,13 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_ocaml_params(&self, _params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_ocaml_params(&self, _params_node: &Node<'_>) -> Vec<ParameterInfo> {
         // OCaml parameter extraction would require more complex pattern matching
         Vec::new()
     }
 
     /// Extract Lua type signature (dynamically typed)
-    fn extract_lua(&self, node: &Node) -> TypeSignature {
+    fn extract_lua(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters
@@ -1633,7 +1633,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_lua_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_lua_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1641,14 +1641,14 @@ impl TypeSignatureExtractor {
             match child.kind() {
                 "identifier" => {
                     params.push(ParameterInfo {
-                        name: self.node_text(&child).to_string(),
+                        name: self.node_text(&child).to_owned(),
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
                 },
                 "spread" | "vararg_expression" => {
                     params.push(ParameterInfo {
-                        name: "...".to_string(),
+                        name: "...".to_owned(),
                         kind: ParameterKind::VarPositional,
                         is_variadic: true,
                         ..Default::default()
@@ -1662,7 +1662,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract R type signature
-    fn extract_r(&self, node: &Node) -> TypeSignature {
+    fn extract_r(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
         // Extract parameters from formal_parameters
@@ -1673,7 +1673,7 @@ impl TypeSignatureExtractor {
         sig
     }
 
-    fn extract_r_params(&self, params_node: &Node) -> Vec<ParameterInfo> {
+    fn extract_r_params(&self, params_node: &Node<'_>) -> Vec<ParameterInfo> {
         let mut params = Vec::new();
         let mut cursor = params_node.walk();
 
@@ -1683,11 +1683,11 @@ impl TypeSignatureExtractor {
                     ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
-                    param.name = self.node_text(&name).to_string();
+                    param.name = self.node_text(&name).to_owned();
                 }
 
                 if let Some(default) = child.child_by_field_name("default") {
-                    param.default_value = Some(self.node_text(&default).to_string());
+                    param.default_value = Some(self.node_text(&default).to_owned());
                     param.is_optional = true;
                 }
 
@@ -1705,7 +1705,7 @@ impl TypeSignatureExtractor {
     }
 
     /// Extract Bash type signature (no types, just parameters)
-    fn extract_bash(&self, node: &Node) -> TypeSignature {
+    fn extract_bash(&self, node: &Node<'_>) -> TypeSignature {
         // Bash functions don't have explicit parameters in their definition
         // They use $1, $2, etc.
         TypeSignature::default()

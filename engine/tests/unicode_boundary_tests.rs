@@ -95,7 +95,7 @@ fn test_signature_extraction_exact_200_byte_multibyte_boundary() {
     for i in 0..196 {
         content.push((b'a' + (i % 26) as u8) as char);
     }
-    content.push_str("🎉"); // 4-byte emoji
+    content.push('🎉'); // 4-byte emoji
 
     let code = format!("def f(): # {}\n    pass", content);
 

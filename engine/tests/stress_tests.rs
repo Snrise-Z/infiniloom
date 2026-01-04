@@ -19,12 +19,12 @@ use std::time::Instant;
 fn create_file(path: &str, language: &str, content: &str) -> RepoFile {
     RepoFile {
         path: PathBuf::from(format!("/tmp/test/{}", path)),
-        relative_path: path.to_string(),
-        language: Some(language.to_string()),
+        relative_path: path.to_owned(),
+        language: Some(language.to_owned()),
         symbols: Vec::new(),
         token_count: TokenCounts::default(),
         importance: 0.0,
-        content: Some(content.to_string()),
+        content: Some(content.to_owned()),
         size_bytes: content.len() as u64,
     }
 }
@@ -467,8 +467,8 @@ fn stress_test_empty_and_minimal_files() {
     for i in 0..100 {
         let content = match i % 4 {
             0 => String::new(),                       // Empty
-            1 => "# Comment only\n".to_string(),      // Comment only
-            2 => "x = 1\n".to_string(),               // Minimal
+            1 => "# Comment only\n".to_owned(),       // Comment only
+            2 => "x = 1\n".to_owned(),                // Minimal
             _ => format!("def func_{}(): pass\n", i), // Normal
         };
         files.push(create_file(&format!("src/file_{}.py", i), "python", &content));

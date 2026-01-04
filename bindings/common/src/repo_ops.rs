@@ -503,7 +503,7 @@ mod tests {
         let result = apply_token_budget(&mut repo, 0, TokenModel::Claude);
         assert_eq!(result, 0);
         // Files should be unchanged when budget is 0
-        assert!(repo.files.is_empty() || repo.files.len() > 0);
+        assert!(repo.files.is_empty() || !repo.files.is_empty());
     }
 
     #[test]
@@ -521,7 +521,7 @@ mod tests {
         let mut repo = create_test_repo();
         let result = apply_token_budget(&mut repo, 10, TokenModel::Claude);
         // Should keep at least one file
-        assert!(repo.files.len() >= 1);
+        assert!(!repo.files.is_empty());
         assert!(result > 0);
     }
 
@@ -607,7 +607,7 @@ mod tests {
         let tokens = apply_token_budget(&mut repo, 100_000, TokenModel::Claude);
 
         // Verify result
-        assert!(repo.files.len() >= 1);
+        assert!(!repo.files.is_empty());
         assert!(tokens > 0);
     }
 }

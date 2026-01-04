@@ -84,10 +84,10 @@ impl BreakingChangeDetector {
         SymbolSnapshot {
             name: symbol.name.clone(),
             qualified_name,
-            kind: symbol.kind.clone(),
+            kind: symbol.kind,
             signature: symbol.signature.clone(),
-            visibility: symbol.visibility.clone(),
-            file_path: file_path.to_string(),
+            visibility: symbol.visibility,
+            file_path: file_path.to_owned(),
             line: symbol.start_line,
             extends: symbol.extends.clone(),
             implements: symbol.implements.clone(),
@@ -129,12 +129,12 @@ impl BreakingChangeDetector {
 
             // Try to extract return type (after -> or :)
             if let Some(arrow_pos) = sig.find("->") {
-                return_type = Some(sig[arrow_pos + 2..].trim().to_string());
+                return_type = Some(sig[arrow_pos + 2..].trim().to_owned());
             } else if let Some(colon_pos) = sig.rfind(':') {
                 // Check if this colon is for return type (not in parameter type)
                 let after = &sig[colon_pos + 1..];
                 if !after.contains(',') && !after.contains('(') {
-                    return_type = Some(after.trim().to_string());
+                    return_type = Some(after.trim().to_owned());
                 }
             }
         }
@@ -161,7 +161,7 @@ impl BreakingChangeDetector {
                 ',' if depth == 0 => {
                     let trimmed = current.trim();
                     if !trimmed.is_empty() {
-                        params.push(trimmed.to_string());
+                        params.push(trimmed.to_owned());
                     }
                     current.clear();
                 },
@@ -171,7 +171,7 @@ impl BreakingChangeDetector {
 
         let trimmed = current.trim();
         if !trimmed.is_empty() {
-            params.push(trimmed.to_string());
+            params.push(trimmed.to_owned());
         }
 
         params
@@ -275,7 +275,7 @@ impl BreakingChangeDetector {
                 ),
                 severity: ChangeSeverity::Critical,
                 migration_hint: Some(
-                    "This symbol may no longer be accessible from your code".to_string(),
+                    "This symbol may no longer be accessible from your code".to_owned(),
                 ),
             });
         }
@@ -316,8 +316,8 @@ impl BreakingChangeDetector {
                 symbol_kind: format!("{:?}", old.kind),
                 file_path: new.file_path.clone(),
                 line: Some(new.line),
-                old_signature: Some(if old.is_async { "async" } else { "sync" }.to_string()),
-                new_signature: Some(if new.is_async { "async" } else { "sync" }.to_string()),
+                old_signature: Some(if old.is_async { "async" } else { "sync" }.to_owned()),
+                new_signature: Some(if new.is_async { "async" } else { "sync" }.to_owned()),
                 description: format!(
                     "'{}' changed from {} to {}",
                     old.name,
@@ -348,7 +348,7 @@ impl BreakingChangeDetector {
                     old.name, old.generic_count, new.generic_count
                 ),
                 severity: ChangeSeverity::High,
-                migration_hint: Some("Update type arguments at call sites".to_string()),
+                migration_hint: Some("Update type arguments at call sites".to_owned()),
             });
         }
 
@@ -525,7 +525,7 @@ mod tests {
         signature: Option<&str>,
     ) -> Symbol {
         Symbol {
-            name: name.to_string(),
+            name: name.to_owned(),
             kind,
             visibility,
             signature: signature.map(String::from),
