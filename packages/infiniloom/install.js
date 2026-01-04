@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
-const { execSync, spawn } = require("child_process");
+const { execSync } = require("child_process");
 
 const VERSION = require("./package.json").version;
 const REPO = "Topos-Labs/infiniloom";
@@ -19,9 +19,6 @@ function getArtifactInfo() {
     "darwin-arm64": { artifact: "infiniloom-darwin-arm64.tar.gz", binary: "infiniloom" },
     "linux-x64": { artifact: "infiniloom-linux-x64.tar.gz", binary: "infiniloom" },
     "linux-arm64": { artifact: "infiniloom-linux-arm64.tar.gz", binary: "infiniloom" },
-    "win32-x64": { artifact: "infiniloom-windows-x64.zip", binary: "infiniloom.exe" },
-    // Note: Windows ARM64 not currently built in release workflow
-    "win32-arm64": { artifact: "infiniloom-windows-x64.zip", binary: "infiniloom.exe" },
   };
 
   const key = `${platform}-${arch}`;
@@ -29,7 +26,7 @@ function getArtifactInfo() {
 
   if (!info) {
     console.error(`Unsupported platform: ${platform}-${arch}`);
-    console.error("Supported: darwin-x64, darwin-arm64, linux-x64, linux-arm64, win32-x64, win32-arm64");
+    console.error("Supported: darwin-x64, darwin-arm64, linux-x64, linux-arm64");
     console.error("");
     console.error("Install from source instead:");
     console.error("  cargo install infiniloom");
@@ -84,28 +81,18 @@ async function install() {
     await downloadFile(url, archivePath);
 
     // Extract archive
-    if (artifact.endsWith(".tar.gz")) {
-      execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { stdio: "pipe" });
-    } else if (artifact.endsWith(".zip")) {
-      if (process.platform === "win32") {
-        execSync(`powershell -Command "Expand-Archive -Path '${archivePath}' -DestinationPath '${tmpDir}' -Force"`, { stdio: "pipe" });
-      } else {
-        execSync(`unzip -o "${archivePath}" -d "${tmpDir}"`, { stdio: "pipe" });
-      }
-    }
+    execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { stdio: "pipe" });
 
     // Find and move binary
     const srcPath = path.join(tmpDir, binary);
-    const destPath = path.join(binDir, process.platform === "win32" ? "infiniloom.exe" : "infiniloom-bin");
+    const destPath = path.join(binDir, "infiniloom-bin");
 
     if (!fs.existsSync(srcPath)) {
       throw new Error(`Binary not found in archive: ${binary}`);
     }
 
     fs.copyFileSync(srcPath, destPath);
-    if (process.platform !== "win32") {
-      fs.chmodSync(destPath, 0o755);
-    }
+    fs.chmodSync(destPath, 0o755);
 
     // Clean up
     fs.rmSync(tmpDir, { recursive: true, force: true });

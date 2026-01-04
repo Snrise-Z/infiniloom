@@ -51,11 +51,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact: infiniloom-darwin-arm64
             ext: ''
-          # Windows x64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: infiniloom-windows-x64
-            ext: '.exe'
 
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +126,6 @@ jobs:
             target: x86_64
           - os: macos-latest
             target: aarch64
-          - os: windows-latest
-            target: x64
 
     steps:
       - uses: actions/checkout@v4
@@ -165,14 +158,6 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
-          sccache: 'true'
-          working-directory: bindings/python
-
-      - name: Build wheels (Windows)
-        if: runner.os == 'Windows'
-        uses: PyO3/maturin-action@v1
-        with:
           args: --release --out dist
           sccache: 'true'
           working-directory: bindings/python
@@ -226,9 +211,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             node_arch: darwin-arm64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            node_arch: win32-x64-msvc
 
     steps:
       - uses: actions/checkout@v4

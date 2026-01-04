@@ -5,9 +5,7 @@ const path = require("path");
 const fs = require("fs");
 
 const binDir = __dirname;
-const platform = process.platform;
-const binName = platform === "win32" ? "infiniloom.exe" : "infiniloom-bin";
-const binPath = path.join(binDir, binName);
+const binPath = path.join(binDir, "infiniloom-bin");
 
 if (!fs.existsSync(binPath)) {
   console.error("Error: infiniloom binary not found.");
