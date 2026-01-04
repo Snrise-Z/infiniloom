@@ -1,6 +1,6 @@
 [package]
 name = "infiniloom"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 rust-version = "1.91"
 description = "High-performance repository context generator for LLMs - Claude, GPT-4, Gemini optimized"
