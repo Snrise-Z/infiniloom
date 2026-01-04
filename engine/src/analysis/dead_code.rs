@@ -116,13 +116,7 @@ impl DeadCodeDetector {
     }
 
     /// Add import information
-    pub fn add_import(
-        &mut self,
-        name: &str,
-        import_path: &str,
-        file_path: &str,
-        line: u32,
-    ) {
+    pub fn add_import(&mut self, name: &str, import_path: &str, file_path: &str, line: u32) {
         self.imports.insert(
             format!("{}:{}", file_path, name),
             ImportInfo {
@@ -136,13 +130,7 @@ impl DeadCodeDetector {
     }
 
     /// Add variable information
-    pub fn add_variable(
-        &mut self,
-        name: &str,
-        file_path: &str,
-        line: u32,
-        scope: &str,
-    ) {
+    pub fn add_variable(&mut self, name: &str, file_path: &str, line: u32, scope: &str) {
         let scope_vars = self.variables.entry(scope.to_string()).or_default();
         scope_vars.insert(
             name.to_string(),
@@ -196,47 +184,42 @@ impl DeadCodeDetector {
             Language::Python => {
                 // __all__ exports, __main__, decorators like @app.route
                 name.starts_with("__") && name.ends_with("__")
-            }
+            },
             Language::JavaScript | Language::TypeScript => {
                 // Module exports, React components, etc.
                 name.chars().next().is_some_and(|c| c.is_uppercase())
                     && matches!(symbol.kind, SymbolKind::Class | SymbolKind::Function)
-            }
+            },
             Language::Rust => {
                 // pub items, #[test], #[no_mangle]
                 matches!(symbol.visibility, Visibility::Public)
-            }
+            },
             Language::Go => {
                 // Exported (capitalized) names
                 name.chars().next().is_some_and(|c| c.is_uppercase())
-            }
+            },
             Language::Java | Language::Kotlin => {
                 // public static void main, @Test, @Bean, etc.
                 name == "main"
                     || matches!(symbol.visibility, Visibility::Public)
-                    && matches!(symbol.kind, SymbolKind::Method)
-            }
+                        && matches!(symbol.kind, SymbolKind::Method)
+            },
             Language::Ruby => {
                 // initialize, Rails callbacks
-                name == "initialize"
-                    || name.starts_with("before_")
-                    || name.starts_with("after_")
-            }
+                name == "initialize" || name.starts_with("before_") || name.starts_with("after_")
+            },
             Language::Php => {
                 // __construct, __destruct, magic methods
                 name.starts_with("__")
-            }
+            },
             Language::Swift => {
                 // @main, viewDidLoad, etc.
-                name == "viewDidLoad"
-                    || name == "applicationDidFinishLaunching"
-            }
+                name == "viewDidLoad" || name == "applicationDidFinishLaunching"
+            },
             Language::Elixir => {
                 // start, init, handle_* callbacks
-                name == "start"
-                    || name.starts_with("handle_")
-                    || name == "child_spec"
-            }
+                name == "start" || name.starts_with("handle_") || name == "child_spec"
+            },
             _ => false,
         }
     }
@@ -372,7 +355,7 @@ impl DeadCodeDetector {
             SymbolKind::Function | SymbolKind::Method => confidence += 0.1,
             SymbolKind::Class | SymbolKind::Struct => confidence += 0.05,
             SymbolKind::Variable | SymbolKind::Constant => confidence += 0.15,
-            _ => {}
+            _ => {},
         }
 
         // Cap at 0.95 since we can't be 100% sure without full program analysis
@@ -626,15 +609,9 @@ fn example() {
         let result = detector.detect();
 
         // _unused should be ignored (intentionally unused)
-        assert!(!result
-            .unused_variables
-            .iter()
-            .any(|v| v.name == "_unused"));
+        assert!(!result.unused_variables.iter().any(|v| v.name == "_unused"));
 
         // not_used should be flagged
-        assert!(result
-            .unused_variables
-            .iter()
-            .any(|v| v.name == "not_used"));
+        assert!(result.unused_variables.iter().any(|v| v.name == "not_used"));
     }
 }

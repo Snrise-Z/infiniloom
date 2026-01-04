@@ -68,7 +68,8 @@ impl MultiRepoIndexBuilder {
 
     /// Register an import path pattern for a repository
     pub fn register_import_path(&mut self, pattern: impl Into<String>, repo_id: impl Into<String>) {
-        self.import_path_to_repo.insert(pattern.into(), repo_id.into());
+        self.import_path_to_repo
+            .insert(pattern.into(), repo_id.into());
     }
 
     /// Add symbols from a file
@@ -79,12 +80,7 @@ impl MultiRepoIndexBuilder {
         symbols: &[Symbol],
     ) -> &mut Self {
         // Update repo stats
-        if let Some(repo) = self
-            .index
-            .repositories
-            .iter_mut()
-            .find(|r| r.id == repo_id)
-        {
+        if let Some(repo) = self.index.repositories.iter_mut().find(|r| r.id == repo_id) {
             repo.file_count += 1;
             repo.symbol_count += symbols.len() as u32;
         }
@@ -545,11 +541,7 @@ mod tests {
         builder.register_import_path("core::", "core");
 
         // App calls core
-        let app_symbols = vec![make_symbol(
-            "AppMain",
-            SymbolKind::Class,
-            vec!["core::CoreUtil"],
-        )];
+        let app_symbols = vec![make_symbol("AppMain", SymbolKind::Class, vec!["core::CoreUtil"])];
         builder.add_file_symbols("app", "src/main.rs", &app_symbols);
 
         let index = builder.build();
@@ -605,7 +597,11 @@ mod tests {
         ];
 
         builder.add_file_symbols("repo1", "file.rs", &symbols);
-        builder.add_file_symbols("repo2", "file.rs", &[make_symbol("func3", SymbolKind::Function, vec![])]);
+        builder.add_file_symbols(
+            "repo2",
+            "file.rs",
+            &[make_symbol("func3", SymbolKind::Function, vec![])],
+        );
 
         let index = builder.build();
         let query = MultiRepoQuery::new(&index);

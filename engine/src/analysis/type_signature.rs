@@ -3,10 +3,10 @@
 //! Extracts full type signatures including parameters, return types, generics, and throws
 //! from AST nodes across all 21 supported languages.
 
-use crate::parser::Language;
 use crate::analysis::types::{
     GenericParam, ParameterInfo, ParameterKind, TypeInfo, TypeSignature, Variance,
 };
+use crate::parser::Language;
 use tree_sitter::Node;
 
 /// Extracts type signatures from AST nodes
@@ -18,9 +18,7 @@ pub struct TypeSignatureExtractor {
 impl TypeSignatureExtractor {
     /// Create a new extractor with the given source code
     pub fn new(source: impl Into<String>) -> Self {
-        Self {
-            source: source.into(),
-        }
+        Self { source: source.into() }
     }
 
     /// Get text for a node
@@ -62,8 +60,7 @@ impl TypeSignatureExtractor {
         let mut sig = TypeSignature::default();
 
         // Check for async def
-        sig.is_async = node.kind() == "async_function_definition"
-            || node.kind().contains("async");
+        sig.is_async = node.kind() == "async_function_definition" || node.kind().contains("async");
 
         // Extract parameters
         if let Some(params) = node.child_by_field_name("parameters") {
@@ -102,7 +99,7 @@ impl TypeSignatureExtractor {
                         },
                         ..Default::default()
                     });
-                }
+                },
                 "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
                     let mut param = ParameterInfo::default();
 
@@ -133,7 +130,7 @@ impl TypeSignatureExtractor {
                     };
 
                     params.push(param);
-                }
+                },
                 "list_splat_pattern" | "list_splat" => {
                     seen_star = true;
                     let mut param = ParameterInfo {
@@ -145,7 +142,7 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
+                },
                 "dictionary_splat_pattern" | "dictionary_splat" => {
                     seen_double_star = true;
                     let mut param = ParameterInfo {
@@ -157,14 +154,14 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
+                },
                 "*" => {
                     seen_star = true;
-                }
+                },
                 "**" => {
                     seen_double_star = true;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -176,17 +173,14 @@ impl TypeSignatureExtractor {
 
     fn parse_python_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         match node.kind() {
             "type" => {
                 if let Some(inner) = node.child(0) {
                     return self.parse_python_type(&inner);
                 }
-            }
+            },
             "subscript" => {
                 // Generic type like List[int] or Optional[str]
                 if let Some(value) = node.child_by_field_name("value") {
@@ -200,7 +194,7 @@ impl TypeSignatureExtractor {
                 if type_info.name == "Optional" {
                     type_info.is_nullable = true;
                 }
-            }
+            },
             "binary_operator" => {
                 // Union type: X | Y
                 let mut cursor = node.walk();
@@ -210,8 +204,8 @@ impl TypeSignatureExtractor {
                     }
                 }
                 type_info.name = "Union".to_string();
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         type_info
@@ -273,7 +267,7 @@ impl TypeSignatureExtractor {
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
-                }
+                },
                 "assignment_pattern" => {
                     let mut param = ParameterInfo {
                         is_optional: true,
@@ -287,7 +281,7 @@ impl TypeSignatureExtractor {
                         param.default_value = Some(self.node_text(&right).to_string());
                     }
                     params.push(param);
-                }
+                },
                 "rest_pattern" => {
                     let mut param = ParameterInfo {
                         kind: ParameterKind::VarPositional,
@@ -298,8 +292,8 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -355,7 +349,7 @@ impl TypeSignatureExtractor {
                     }
 
                     params.push(param);
-                }
+                },
                 "rest_pattern" => {
                     let mut param = ParameterInfo {
                         kind: ParameterKind::VarPositional,
@@ -366,8 +360,8 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -376,17 +370,14 @@ impl TypeSignatureExtractor {
 
     fn parse_ts_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         match node.kind() {
             "type_annotation" => {
                 if let Some(inner) = node.child(1) {
                     return self.parse_ts_type(&inner);
                 }
-            }
+            },
             "generic_type" => {
                 if let Some(name) = node.child_by_field_name("name") {
                     type_info.name = self.node_text(&name).to_string();
@@ -394,7 +385,7 @@ impl TypeSignatureExtractor {
                 if let Some(args) = node.child_by_field_name("type_arguments") {
                     type_info.generic_args = self.extract_ts_type_args(&args);
                 }
-            }
+            },
             "union_type" => {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
@@ -403,17 +394,17 @@ impl TypeSignatureExtractor {
                     }
                 }
                 type_info.name = "Union".to_string();
-            }
+            },
             "array_type" => {
                 if let Some(elem) = node.child(0) {
                     type_info = self.parse_ts_type(&elem);
                     type_info.array_dimensions += 1;
                 }
-            }
+            },
             "predefined_type" | "type_identifier" => {
                 type_info.name = text.to_string();
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         type_info
@@ -445,7 +436,9 @@ impl TypeSignatureExtractor {
                 }
 
                 if let Some(constraint) = child.child_by_field_name("constraint") {
-                    param.constraints.push(self.node_text(&constraint).to_string());
+                    param
+                        .constraints
+                        .push(self.node_text(&constraint).to_string());
                 }
 
                 if let Some(default) = child.child_by_field_name("value") {
@@ -496,12 +489,10 @@ impl TypeSignatureExtractor {
             match child.kind() {
                 "self_parameter" => {
                     receiver = Some(self.node_text(&child).to_string());
-                }
+                },
                 "parameter" => {
-                    let mut param = ParameterInfo {
-                        kind: ParameterKind::Positional,
-                        ..Default::default()
-                    };
+                    let mut param =
+                        ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                     if let Some(pattern) = child.child_by_field_name("pattern") {
                         param.name = self.node_text(&pattern).to_string();
@@ -512,8 +503,8 @@ impl TypeSignatureExtractor {
                     }
 
                     params.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -522,10 +513,7 @@ impl TypeSignatureExtractor {
 
     fn parse_rust_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         match node.kind() {
             "reference_type" => {
@@ -537,7 +525,7 @@ impl TypeSignatureExtractor {
                 }
                 // Check for mut
                 type_info.is_mutable = text.contains("&mut");
-            }
+            },
             "generic_type" => {
                 if let Some(name) = node.child_by_field_name("type") {
                     type_info.name = self.node_text(&name).to_string();
@@ -550,18 +538,18 @@ impl TypeSignatureExtractor {
                 if type_info.name == "Option" {
                     type_info.is_nullable = true;
                 }
-            }
+            },
             "array_type" => {
                 type_info.array_dimensions = 1;
                 if let Some(elem) = node.child_by_field_name("element") {
                     let elem_type = self.parse_rust_type(&elem);
                     type_info.name = elem_type.name;
                 }
-            }
+            },
             "type_identifier" | "primitive_type" => {
                 type_info.name = text.to_string();
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         type_info
@@ -595,7 +583,7 @@ impl TypeSignatureExtractor {
                         name: self.node_text(&child).to_string(),
                         ..Default::default()
                     });
-                }
+                },
                 "constrained_type_parameter" => {
                     let mut param = GenericParam::default();
                     if let Some(name) = child.child(0) {
@@ -605,8 +593,8 @@ impl TypeSignatureExtractor {
                         param.constraints.push(self.node_text(&bounds).to_string());
                     }
                     generics.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -646,10 +634,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter_declaration" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 // Go parameters can have multiple names for same type
                 let mut names = Vec::new();
@@ -660,11 +646,11 @@ impl TypeSignatureExtractor {
                     match param_child.kind() {
                         "identifier" => {
                             names.push(self.node_text(&param_child).to_string());
-                        }
+                        },
                         _ if param_child.kind().contains("type") => {
                             type_node = Some(param_child);
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
 
@@ -706,10 +692,7 @@ impl TypeSignatureExtractor {
 
     fn parse_go_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        }
+        TypeInfo { name: text.to_string(), ..Default::default() }
     }
 
     fn extract_go_generics(&self, node: &Node) -> Vec<GenericParam> {
@@ -723,7 +706,9 @@ impl TypeSignatureExtractor {
                     param.name = self.node_text(&name).to_string();
                 }
                 if let Some(constraint) = child.child_by_field_name("constraint") {
-                    param.constraints.push(self.node_text(&constraint).to_string());
+                    param
+                        .constraints
+                        .push(self.node_text(&constraint).to_string());
                 }
                 generics.push(param);
             }
@@ -788,10 +773,7 @@ impl TypeSignatureExtractor {
 
     fn parse_java_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         match node.kind() {
             "generic_type" => {
@@ -801,22 +783,20 @@ impl TypeSignatureExtractor {
                 if let Some(args) = node.child_by_field_name("arguments") {
                     let mut arg_cursor = args.walk();
                     for arg in args.children(&mut arg_cursor) {
-                        if arg.kind() == "type_identifier"
-                            || arg.kind() == "generic_type"
-                        {
+                        if arg.kind() == "type_identifier" || arg.kind() == "generic_type" {
                             type_info.generic_args.push(self.parse_java_type(&arg));
                         }
                     }
                 }
-            }
+            },
             "array_type" => {
                 type_info.array_dimensions = 1;
                 if let Some(elem) = node.child_by_field_name("element") {
                     let elem_type = self.parse_java_type(&elem);
                     type_info.name = elem_type.name;
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         type_info
@@ -886,10 +866,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter_declaration" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(type_node) = child.child_by_field_name("type") {
                     param.type_info = Some(TypeInfo {
@@ -951,13 +929,13 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     generics.push(param);
-                }
+                },
                 "template_parameter_declaration" => {
                     let mut param = GenericParam::default();
                     param.name = self.node_text(&child).to_string();
                     generics.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -996,10 +974,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
                     param.name = self.node_text(&name).to_string();
@@ -1030,10 +1006,7 @@ impl TypeSignatureExtractor {
 
     fn parse_csharp_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         // Check for nullable
         if text.ends_with('?') {
@@ -1094,7 +1067,7 @@ impl TypeSignatureExtractor {
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
-                }
+                },
                 "optional_parameter" => {
                     let mut param = ParameterInfo {
                         is_optional: true,
@@ -1108,7 +1081,7 @@ impl TypeSignatureExtractor {
                         param.default_value = Some(self.node_text(&value).to_string());
                     }
                     params.push(param);
-                }
+                },
                 "splat_parameter" => {
                     let mut param = ParameterInfo {
                         kind: ParameterKind::VarPositional,
@@ -1119,7 +1092,7 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
+                },
                 "hash_splat_parameter" => {
                     let mut param = ParameterInfo {
                         kind: ParameterKind::VarKeyword,
@@ -1130,12 +1103,10 @@ impl TypeSignatureExtractor {
                         param.name = self.node_text(&name).to_string();
                     }
                     params.push(param);
-                }
+                },
                 "keyword_parameter" => {
-                    let mut param = ParameterInfo {
-                        kind: ParameterKind::Keyword,
-                        ..Default::default()
-                    };
+                    let mut param =
+                        ParameterInfo { kind: ParameterKind::Keyword, ..Default::default() };
                     if let Some(name) = child.child_by_field_name("name") {
                         param.name = self.node_text(&name).to_string();
                     }
@@ -1144,18 +1115,16 @@ impl TypeSignatureExtractor {
                         param.is_optional = true;
                     }
                     params.push(param);
-                }
+                },
                 "block_parameter" => {
-                    let mut param = ParameterInfo {
-                        kind: ParameterKind::Positional,
-                        ..Default::default()
-                    };
+                    let mut param =
+                        ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
                     if let Some(name) = child.child_by_field_name("name") {
                         param.name = format!("&{}", self.node_text(&name));
                     }
                     params.push(param);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -1213,10 +1182,7 @@ impl TypeSignatureExtractor {
 
     fn parse_php_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         // Check for nullable
         if text.starts_with('?') {
@@ -1236,7 +1202,8 @@ impl TypeSignatureExtractor {
         sig.is_async = text.contains("suspend ");
 
         // Extract parameters
-        if let Some(params) = node.child_by_field_name("value_parameters")
+        if let Some(params) = node
+            .child_by_field_name("value_parameters")
             .or_else(|| node.child_by_field_name("parameters"))
         {
             sig.parameters = self.extract_kotlin_params(&params);
@@ -1261,10 +1228,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
                     param.name = self.node_text(&name).to_string();
@@ -1295,10 +1260,7 @@ impl TypeSignatureExtractor {
 
     fn parse_kotlin_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         // Check for nullable
         if text.ends_with('?') {
@@ -1375,10 +1337,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
                     param.name = self.node_text(&name).to_string();
@@ -1409,10 +1369,7 @@ impl TypeSignatureExtractor {
 
     fn parse_swift_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        let mut type_info = TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        };
+        let mut type_info = TypeInfo { name: text.to_string(), ..Default::default() };
 
         // Check for optional
         if text.ends_with('?') || text.ends_with('!') {
@@ -1433,7 +1390,9 @@ impl TypeSignatureExtractor {
                 param.name = self.node_text(&child).to_string();
 
                 if let Some(constraint) = child.child_by_field_name("constraint") {
-                    param.constraints.push(self.node_text(&constraint).to_string());
+                    param
+                        .constraints
+                        .push(self.node_text(&constraint).to_string());
                 }
 
                 generics.push(param);
@@ -1471,10 +1430,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
                     param.name = self.node_text(&name).to_string();
@@ -1505,10 +1462,7 @@ impl TypeSignatureExtractor {
 
     fn parse_scala_type(&self, node: &Node) -> TypeInfo {
         let text = self.node_text(node);
-        TypeInfo {
-            name: text.to_string(),
-            ..Default::default()
-        }
+        TypeInfo { name: text.to_string(), ..Default::default() }
     }
 
     fn extract_scala_generics(&self, node: &Node) -> Vec<GenericParam> {
@@ -1552,10 +1506,8 @@ impl TypeSignatureExtractor {
             let text = self.node_text(node);
             // Parse :: type
             if let Some(type_part) = text.split("::").nth(1) {
-                sig.return_type = Some(TypeInfo {
-                    name: type_part.trim().to_string(),
-                    ..Default::default()
-                });
+                sig.return_type =
+                    Some(TypeInfo { name: type_part.trim().to_string(), ..Default::default() });
             }
         }
 
@@ -1693,7 +1645,7 @@ impl TypeSignatureExtractor {
                         kind: ParameterKind::Positional,
                         ..Default::default()
                     });
-                }
+                },
                 "spread" | "vararg_expression" => {
                     params.push(ParameterInfo {
                         name: "...".to_string(),
@@ -1701,8 +1653,8 @@ impl TypeSignatureExtractor {
                         is_variadic: true,
                         ..Default::default()
                     });
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -1727,10 +1679,8 @@ impl TypeSignatureExtractor {
 
         for child in params_node.children(&mut cursor) {
             if child.kind() == "parameter" {
-                let mut param = ParameterInfo {
-                    kind: ParameterKind::Positional,
-                    ..Default::default()
-                };
+                let mut param =
+                    ParameterInfo { kind: ParameterKind::Positional, ..Default::default() };
 
                 if let Some(name) = child.child_by_field_name("name") {
                     param.name = self.node_text(&name).to_string();

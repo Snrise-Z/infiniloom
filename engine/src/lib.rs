@@ -219,6 +219,67 @@ pub use tokenizer::TokenCounts as AccurateTokenCounts;
 pub use tokenizer::Tokenizer;
 // Note: IncrementalScanner is available via incremental:: module but not re-exported
 // at top level since CLI uses RepoCache directly
+pub use analysis::{
+    build_multi_repo_index,
+    build_type_hierarchy,
+    calculate_complexity,
+    calculate_complexity_from_source,
+    check_complexity,
+    detect_breaking_changes,
+    detect_dead_code,
+    detect_unreachable_code,
+    AncestorInfo,
+    AncestorKind,
+    // Breaking change detection
+    BreakingChange,
+    BreakingChangeDetector,
+    BreakingChangeReport,
+    BreakingChangeSummary,
+    BreakingChangeType,
+    ChangeSeverity,
+    ComplexityCalculator,
+    // Complexity metrics
+    ComplexityMetrics,
+    ComplexitySeverity,
+    ComplexityThresholds,
+    CrossRepoLink,
+    CrossRepoLinkType,
+    DeadCodeDetector,
+    // Dead code detection
+    DeadCodeInfo,
+    // Documentation extraction
+    Documentation,
+    DocumentationExtractor,
+    Example,
+    GenericParam,
+    HalsteadMetrics,
+    LocMetrics,
+    // Multi-repository index
+    MultiRepoIndex,
+    MultiRepoIndexBuilder,
+    MultiRepoQuery,
+    MultiRepoStats,
+    ParamDoc,
+    ParameterInfo,
+    ParameterKind,
+    RepoEntry,
+    ReturnDoc,
+    ThrowsDoc,
+    // Type hierarchy navigation
+    TypeHierarchy,
+    TypeHierarchyBuilder,
+    TypeInfo,
+    // Type signature extraction
+    TypeSignature,
+    TypeSignatureExtractor,
+    UnifiedSymbolRef,
+    UnreachableCode,
+    UnusedExport,
+    UnusedImport,
+    UnusedSymbol,
+    UnusedVariable,
+    Variance,
+};
 pub use audit::{
     get_global_logger,
     log_event,
@@ -306,67 +367,6 @@ pub use license::{
     LicenseScanConfig,
     LicenseScanner,
     LicenseSummary,
-};
-pub use analysis::{
-    // Type signature extraction
-    TypeSignature,
-    ParameterInfo,
-    ParameterKind,
-    TypeInfo,
-    GenericParam,
-    Variance,
-    TypeSignatureExtractor,
-    // Type hierarchy navigation
-    TypeHierarchy,
-    AncestorInfo,
-    AncestorKind,
-    TypeHierarchyBuilder,
-    build_type_hierarchy,
-    // Documentation extraction
-    Documentation,
-    ParamDoc,
-    ReturnDoc,
-    ThrowsDoc,
-    Example,
-    DocumentationExtractor,
-    // Complexity metrics
-    ComplexityMetrics,
-    HalsteadMetrics,
-    LocMetrics,
-    ComplexityCalculator,
-    ComplexityThresholds,
-    ComplexitySeverity,
-    calculate_complexity,
-    calculate_complexity_from_source,
-    check_complexity,
-    // Dead code detection
-    DeadCodeInfo,
-    UnusedExport,
-    UnreachableCode,
-    UnusedSymbol,
-    UnusedImport,
-    UnusedVariable,
-    DeadCodeDetector,
-    detect_dead_code,
-    detect_unreachable_code,
-    // Breaking change detection
-    BreakingChange,
-    BreakingChangeType,
-    ChangeSeverity,
-    BreakingChangeReport,
-    BreakingChangeSummary,
-    BreakingChangeDetector,
-    detect_breaking_changes,
-    // Multi-repository index
-    MultiRepoIndex,
-    RepoEntry,
-    CrossRepoLink,
-    CrossRepoLinkType,
-    UnifiedSymbolRef,
-    MultiRepoIndexBuilder,
-    MultiRepoQuery,
-    MultiRepoStats,
-    build_multi_repo_index,
 };
 
 /// Library version

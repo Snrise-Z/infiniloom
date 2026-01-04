@@ -36,10 +36,7 @@ struct SymbolInheritance {
 impl TypeHierarchyBuilder {
     /// Create a new empty builder
     pub fn new() -> Self {
-        Self {
-            symbols: HashMap::new(),
-            children_map: HashMap::new(),
-        }
+        Self { symbols: HashMap::new(), children_map: HashMap::new() }
     }
 
     /// Add symbols from parsed files
@@ -97,12 +94,12 @@ impl TypeHierarchyBuilder {
             Language::Ruby => {
                 // Would need to analyze include/extend statements
                 Vec::new()
-            }
+            },
             // Scala has traits that can be mixed in
             Language::Scala => {
                 // "with Trait1 with Trait2" would be in implements
                 Vec::new()
-            }
+            },
             _ => Vec::new(),
         }
     }
@@ -123,14 +120,12 @@ impl TypeHierarchyBuilder {
                 } else {
                     AncestorKind::Class
                 }
-            }
-            SymbolKind::Interface => {
-                match language {
-                    Language::Swift => AncestorKind::Protocol,
-                    Language::Rust => AncestorKind::Trait,
-                    _ => AncestorKind::Interface,
-                }
-            }
+            },
+            SymbolKind::Interface => match language {
+                Language::Swift => AncestorKind::Protocol,
+                Language::Rust => AncestorKind::Trait,
+                _ => AncestorKind::Interface,
+            },
             SymbolKind::Trait => AncestorKind::Trait,
             _ => AncestorKind::Class,
         }
@@ -138,10 +133,8 @@ impl TypeHierarchyBuilder {
 
     /// Get the full type hierarchy for a symbol
     pub fn get_hierarchy(&self, symbol_name: &str) -> TypeHierarchy {
-        let mut hierarchy = TypeHierarchy {
-            symbol_name: symbol_name.to_string(),
-            ..Default::default()
-        };
+        let mut hierarchy =
+            TypeHierarchy { symbol_name: symbol_name.to_string(), ..Default::default() };
 
         if let Some(info) = self.symbols.get(symbol_name) {
             hierarchy.extends = info.extends.clone();
@@ -189,12 +182,7 @@ impl TypeHierarchyBuilder {
 
             let file_path = self.symbols.get(&name).and_then(|i| i.file_path.clone());
 
-            ancestors.push(AncestorInfo {
-                name: name.clone(),
-                kind,
-                depth,
-                file_path,
-            });
+            ancestors.push(AncestorInfo { name: name.clone(), kind, depth, file_path });
 
             // Add this ancestor's parents
             if let Some(info) = self.symbols.get(&name) {
@@ -319,9 +307,7 @@ impl Default for TypeHierarchyBuilder {
 }
 
 /// Extract type hierarchy from a collection of files
-pub fn build_type_hierarchy(
-    files: &[(String, Vec<Symbol>, Language)],
-) -> TypeHierarchyBuilder {
+pub fn build_type_hierarchy(files: &[(String, Vec<Symbol>, Language)]) -> TypeHierarchyBuilder {
     let mut builder = TypeHierarchyBuilder::new();
 
     for (file_path, symbols, language) in files {
@@ -426,14 +412,8 @@ mod tests {
 
         builder.add_symbols(&symbols, "test.rs", Language::Rust);
 
-        assert_eq!(
-            builder.get_common_ancestor("LeftChild", "Right"),
-            Some("Base".to_string())
-        );
-        assert_eq!(
-            builder.get_common_ancestor("Left", "Right"),
-            Some("Base".to_string())
-        );
+        assert_eq!(builder.get_common_ancestor("LeftChild", "Right"), Some("Base".to_string()));
+        assert_eq!(builder.get_common_ancestor("Left", "Right"), Some("Base".to_string()));
     }
 
     #[test]

@@ -153,18 +153,18 @@ impl BreakingChangeDetector {
                 '<' | '(' | '[' | '{' => {
                     depth += 1;
                     current.push(c);
-                }
+                },
                 '>' | ')' | ']' | '}' => {
                     depth -= 1;
                     current.push(c);
-                }
+                },
                 ',' if depth == 0 => {
                     let trimmed = current.trim();
                     if !trimmed.is_empty() {
                         params.push(trimmed.to_string());
                     }
                     current.clear();
-                }
+                },
                 _ => current.push(c),
             }
         }
@@ -201,9 +201,16 @@ impl BreakingChangeDetector {
                     line: None,
                     old_signature: old.signature.clone(),
                     new_signature: None,
-                    description: format!("Public {} '{}' was removed", format!("{:?}", old.kind).to_lowercase(), old.name),
+                    description: format!(
+                        "Public {} '{}' was removed",
+                        format!("{:?}", old.kind).to_lowercase(),
+                        old.name
+                    ),
                     severity: ChangeSeverity::Critical,
-                    migration_hint: Some(format!("Remove usage of '{}' or find an alternative", old.name)),
+                    migration_hint: Some(format!(
+                        "Remove usage of '{}' or find an alternative",
+                        old.name
+                    )),
                 });
             }
         }
@@ -267,7 +274,9 @@ impl BreakingChangeDetector {
                     old.name, old.visibility, new.visibility
                 ),
                 severity: ChangeSeverity::Critical,
-                migration_hint: Some("This symbol may no longer be accessible from your code".to_string()),
+                migration_hint: Some(
+                    "This symbol may no longer be accessible from your code".to_string(),
+                ),
             });
         }
 
@@ -366,7 +375,11 @@ impl BreakingChangeDetector {
     }
 
     /// Compare parameters between old and new versions
-    fn compare_parameters(&self, old: &SymbolSnapshot, new: &SymbolSnapshot) -> Vec<BreakingChange> {
+    fn compare_parameters(
+        &self,
+        old: &SymbolSnapshot,
+        new: &SymbolSnapshot,
+    ) -> Vec<BreakingChange> {
         let mut changes = Vec::new();
 
         // Check if required parameters were added
@@ -381,10 +394,7 @@ impl BreakingChangeDetector {
                 line: Some(new.line),
                 old_signature: old.signature.clone(),
                 new_signature: new.signature.clone(),
-                description: format!(
-                    "'{}' has {} new parameter(s)",
-                    old.name, added_count
-                ),
+                description: format!("'{}' has {} new parameter(s)", old.name, added_count),
                 severity: ChangeSeverity::High,
                 migration_hint: Some(format!(
                     "Add {} new argument(s) to calls to '{}'",
@@ -404,10 +414,7 @@ impl BreakingChangeDetector {
                 line: Some(new.line),
                 old_signature: old.signature.clone(),
                 new_signature: new.signature.clone(),
-                description: format!(
-                    "'{}' has {} fewer parameter(s)",
-                    old.name, removed_count
-                ),
+                description: format!("'{}' has {} fewer parameter(s)", old.name, removed_count),
                 severity: ChangeSeverity::High,
                 migration_hint: Some(format!(
                     "Remove {} argument(s) from calls to '{}'",
@@ -462,10 +469,8 @@ impl BreakingChangeDetector {
 
     /// Build summary statistics
     fn build_summary(&self, changes: &[BreakingChange]) -> BreakingChangeSummary {
-        let mut summary = BreakingChangeSummary {
-            total: changes.len() as u32,
-            ..Default::default()
-        };
+        let mut summary =
+            BreakingChangeSummary { total: changes.len() as u32, ..Default::default() };
 
         let mut affected_files = std::collections::HashSet::new();
         let mut affected_symbols = std::collections::HashSet::new();
@@ -535,13 +540,26 @@ mod tests {
         let mut detector = BreakingChangeDetector::new("v1.0", "v2.0");
 
         let old_symbols = vec![
-            make_symbol("removed_func", SymbolKind::Function, Visibility::Public, Some("fn removed_func()")),
-            make_symbol("kept_func", SymbolKind::Function, Visibility::Public, Some("fn kept_func()")),
+            make_symbol(
+                "removed_func",
+                SymbolKind::Function,
+                Visibility::Public,
+                Some("fn removed_func()"),
+            ),
+            make_symbol(
+                "kept_func",
+                SymbolKind::Function,
+                Visibility::Public,
+                Some("fn kept_func()"),
+            ),
         ];
 
-        let new_symbols = vec![
-            make_symbol("kept_func", SymbolKind::Function, Visibility::Public, Some("fn kept_func()")),
-        ];
+        let new_symbols = vec![make_symbol(
+            "kept_func",
+            SymbolKind::Function,
+            Visibility::Public,
+            Some("fn kept_func()"),
+        )];
 
         detector.add_old_symbols("test.rs", &old_symbols);
         detector.add_new_symbols("test.rs", &new_symbols);
@@ -577,8 +595,7 @@ mod tests {
         let report = detector.detect();
 
         assert!(report.changes.iter().any(|c| {
-            c.symbol_name == "my_func"
-                && c.change_type == BreakingChangeType::VisibilityReduced
+            c.symbol_name == "my_func" && c.change_type == BreakingChangeType::VisibilityReduced
         }));
     }
 
@@ -606,8 +623,7 @@ mod tests {
         let report = detector.detect();
 
         assert!(report.changes.iter().any(|c| {
-            c.symbol_name == "my_func"
-                && c.change_type == BreakingChangeType::ParameterAdded
+            c.symbol_name == "my_func" && c.change_type == BreakingChangeType::ParameterAdded
         }));
     }
 
@@ -667,12 +683,22 @@ mod tests {
 
         let old_symbols = vec![
             make_symbol("func1", SymbolKind::Function, Visibility::Public, Some("fn func1()")),
-            make_symbol("func2", SymbolKind::Function, Visibility::Public, Some("fn func2(a: i32)")),
+            make_symbol(
+                "func2",
+                SymbolKind::Function,
+                Visibility::Public,
+                Some("fn func2(a: i32)"),
+            ),
         ];
 
         let new_symbols = vec![
             // func1 removed
-            make_symbol("func2", SymbolKind::Function, Visibility::Public, Some("fn func2(a: i32, b: i32)")),
+            make_symbol(
+                "func2",
+                SymbolKind::Function,
+                Visibility::Public,
+                Some("fn func2(a: i32, b: i32)"),
+            ),
         ];
 
         detector.add_old_symbols("test.rs", &old_symbols);

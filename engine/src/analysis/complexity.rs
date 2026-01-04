@@ -17,9 +17,7 @@ pub struct ComplexityCalculator {
 impl ComplexityCalculator {
     /// Create a new calculator with the given source code
     pub fn new(source: impl Into<String>) -> Self {
-        Self {
-            source: source.into(),
-        }
+        Self { source: source.into() }
     }
 
     /// Get text for a node
@@ -120,17 +118,20 @@ impl ComplexityCalculator {
         // Check for && and || operators in binary expressions
         if kind == "binary_expression" || kind == "binary_operator" {
             let text = self.node_text(node);
-            if text.contains("&&") || text.contains("||") || text.contains(" and ") || text.contains(" or ") {
+            if text.contains("&&")
+                || text.contains("||")
+                || text.contains(" and ")
+                || text.contains(" or ")
+            {
                 return true;
             }
         }
 
         // Language-specific decision points
         match language {
-            Language::Rust => matches!(
-                kind,
-                "match_expression" | "if_let_expression" | "while_let_expression"
-            ),
+            Language::Rust => {
+                matches!(kind, "match_expression" | "if_let_expression" | "while_let_expression")
+            },
             Language::Go => matches!(kind, "select_statement" | "type_switch_statement"),
             Language::Swift => matches!(kind, "guard_statement" | "switch_statement"),
             Language::Kotlin => matches!(kind, "when_expression"),
@@ -280,8 +281,7 @@ impl ComplexityCalculator {
         let length = nn1 + nn2;
 
         // Calculated length: n1 * log2(n1) + n2 * log2(n2)
-        let calculated_length =
-            (n1 as f32) * (n1 as f32).log2() + (n2 as f32) * (n2 as f32).log2();
+        let calculated_length = (n1 as f32) * (n1 as f32).log2() + (n2 as f32) * (n2 as f32).log2();
 
         // Volume: N * log2(n)
         let volume = (length as f32) * (vocabulary as f32).log2();
@@ -398,12 +398,7 @@ impl ComplexityCalculator {
             }
         }
 
-        LocMetrics {
-            total: lines.len() as u32,
-            source,
-            comments,
-            blank,
-        }
+        LocMetrics { total: lines.len() as u32, source, comments, blank }
     }
 
     fn is_comment_line(&self, line: &str) -> bool {
@@ -428,8 +423,8 @@ impl ComplexityCalculator {
     fn nesting_walk(&self, node: &Node, language: Language, depth: u32, max_depth: &mut u32) {
         let kind = node.kind();
 
-        let is_nesting = self.is_control_flow(kind, language)
-            || self.is_nesting_structure(kind, language);
+        let is_nesting =
+            self.is_control_flow(kind, language) || self.is_nesting_structure(kind, language);
 
         let new_depth = if is_nesting { depth + 1 } else { depth };
 
@@ -535,7 +530,12 @@ pub fn calculate_complexity_from_source(
         Language::R => tree_sitter_r::LANGUAGE.into(),
         Language::Bash => tree_sitter_bash::LANGUAGE.into(),
         // FSharp doesn't have tree-sitter support yet
-        Language::FSharp => return Err("F# complexity analysis not yet supported (no tree-sitter parser available)".to_string()),
+        Language::FSharp => {
+            return Err(
+                "F# complexity analysis not yet supported (no tree-sitter parser available)"
+                    .to_string(),
+            )
+        },
     };
 
     let mut ts_parser = tree_sitter::Parser::new();
@@ -755,8 +755,8 @@ fn example() {
 
         // Should have errors for all metrics
         assert!(issues.len() >= 4);
-        assert!(issues.iter().any(|(msg, sev)| {
-            msg.contains("Cyclomatic") && *sev == ComplexitySeverity::Error
-        }));
+        assert!(issues
+            .iter()
+            .any(|(msg, sev)| { msg.contains("Cyclomatic") && *sev == ComplexitySeverity::Error }));
     }
 }
