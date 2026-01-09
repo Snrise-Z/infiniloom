@@ -202,6 +202,8 @@ from ._infiniloom import (
     get_callees,
     get_references,
     get_call_graph,
+    find_circular_dependencies,
+    get_exported_symbols,
     # Chunk API
     chunk,
     # Impact & Diff Context API
@@ -251,6 +253,8 @@ __all__ = [
     "get_callees",
     "get_references",
     "get_call_graph",
+    "find_circular_dependencies",
+    "get_exported_symbols",
     # Chunk API
     "chunk",
     # Impact & Diff Context API
