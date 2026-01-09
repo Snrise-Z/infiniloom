@@ -48,9 +48,10 @@ pub use context::{
 };
 pub use lazy::{LazyContextBuilder, LazyError};
 pub use query::{
-    find_symbol, get_call_graph, get_call_graph_filtered, get_callees_by_id, get_callees_by_name,
-    get_callers_by_id, get_callers_by_name, get_references_by_name, CallGraph, CallGraphEdge,
-    CallGraphStats, ReferenceInfo, SymbolInfo,
+    find_circular_dependencies, find_symbol, get_call_graph, get_call_graph_filtered,
+    get_callees_by_id, get_callees_by_name, get_callers_by_id, get_callers_by_name,
+    get_exported_symbols, get_exported_symbols_in_file, get_references_by_name, CallGraph,
+    CallGraphEdge, CallGraphStats, DependencyCycle, ReferenceInfo, SymbolInfo,
 };
 pub use storage::{IndexMeta, IndexStorage, StorageError};
 pub use types::{

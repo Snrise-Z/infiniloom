@@ -576,6 +576,172 @@ pub fn get_callees_by_id(index: &SymbolIndex, graph: &DepGraph, symbol_id: u32) 
         .collect()
 }
 
+/// A cycle in the dependency graph
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyCycle {
+    /// File IDs forming the cycle (for file-level cycles)
+    pub file_ids: Vec<u32>,
+    /// File paths forming the cycle
+    pub files: Vec<String>,
+    /// Cycle length
+    pub length: usize,
+}
+
+/// Find circular dependencies in file imports
+///
+/// Uses DFS to detect cycles in the file import graph.
+/// Returns all distinct cycles found.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let cycles = find_circular_dependencies(&index, &graph);
+/// for cycle in cycles {
+///     println!("Cycle: {} -> {}", cycle.files.join(" -> "), cycle.files[0]);
+/// }
+/// ```
+pub fn find_circular_dependencies(index: &SymbolIndex, graph: &DepGraph) -> Vec<DependencyCycle> {
+    use std::collections::HashSet;
+
+    let mut cycles = Vec::new();
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    // Get all file IDs
+    let file_ids: Vec<u32> = index.files.iter().map(|f| f.id.as_u32()).collect();
+
+    fn dfs(
+        node: u32,
+        graph: &DepGraph,
+        index: &SymbolIndex,
+        visited: &mut HashSet<u32>,
+        rec_stack: &mut HashSet<u32>,
+        path: &mut Vec<u32>,
+        cycles: &mut Vec<DependencyCycle>,
+    ) {
+        visited.insert(node);
+        rec_stack.insert(node);
+        path.push(node);
+
+        for &neighbor in graph.imports_adj.get(&node).unwrap_or(&Vec::new()) {
+            if !visited.contains(&neighbor) {
+                dfs(neighbor, graph, index, visited, rec_stack, path, cycles);
+            } else if rec_stack.contains(&neighbor) {
+                // Found a cycle - extract it from the path
+                if let Some(start_idx) = path.iter().position(|&n| n == neighbor) {
+                    let cycle_ids: Vec<u32> = path[start_idx..].to_vec();
+                    let cycle_files: Vec<String> = cycle_ids
+                        .iter()
+                        .filter_map(|&id| index.get_file_by_id(id).map(|f| f.path.clone()))
+                        .collect();
+
+                    if !cycle_files.is_empty() {
+                        cycles.push(DependencyCycle {
+                            length: cycle_ids.len(),
+                            file_ids: cycle_ids,
+                            files: cycle_files,
+                        });
+                    }
+                }
+            }
+        }
+
+        path.pop();
+        rec_stack.remove(&node);
+    }
+
+    for &file_id in &file_ids {
+        if !visited.contains(&file_id) {
+            dfs(file_id, graph, index, &mut visited, &mut rec_stack, &mut path, &mut cycles);
+        }
+    }
+
+    // Deduplicate cycles (same cycle can be found from different starting points)
+    let mut seen_cycles: HashSet<Vec<u32>> = HashSet::new();
+    cycles.retain(|cycle| {
+        // Normalize cycle by rotating to start with smallest ID
+        let mut normalized = cycle.file_ids.clone();
+        if let Some(min_pos) = normalized.iter().enumerate().min_by_key(|(_, &id)| id).map(|(i, _)| i) {
+            normalized.rotate_left(min_pos);
+        }
+        seen_cycles.insert(normalized)
+    });
+
+    cycles
+}
+
+/// Get all exported/public symbols from the index
+///
+/// Returns symbols that are either:
+/// - Explicitly marked as exports (IndexSymbolKind::Export)
+/// - Public visibility functions, classes, etc.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let exports = get_exported_symbols(&index);
+/// for sym in exports {
+///     println!("Export: {} ({}) in {}", sym.name, sym.kind, sym.file);
+/// }
+/// ```
+pub fn get_exported_symbols(index: &SymbolIndex) -> Vec<SymbolInfo> {
+    index
+        .symbols
+        .iter()
+        .filter(|sym| {
+            // Include explicit exports
+            sym.kind == IndexSymbolKind::Export
+                // Include public functions, classes, structs, traits, enums
+                || (sym.visibility == Visibility::Public
+                    && matches!(
+                        sym.kind,
+                        IndexSymbolKind::Function
+                            | IndexSymbolKind::Class
+                            | IndexSymbolKind::Struct
+                            | IndexSymbolKind::Trait
+                            | IndexSymbolKind::Enum
+                            | IndexSymbolKind::Interface
+                            | IndexSymbolKind::Constant
+                            | IndexSymbolKind::TypeAlias
+                    ))
+        })
+        .map(|sym| SymbolInfo::from_index_symbol(sym, index))
+        .collect()
+}
+
+/// Get exported symbols filtered by file path
+///
+/// Returns public API symbols from a specific file.
+pub fn get_exported_symbols_in_file(index: &SymbolIndex, file_path: &str) -> Vec<SymbolInfo> {
+    let file_id = match index.file_by_path.get(file_path) {
+        Some(&id) => id,
+        None => return Vec::new(),
+    };
+
+    index
+        .symbols
+        .iter()
+        .filter(|sym| {
+            sym.file_id.as_u32() == file_id
+                && (sym.kind == IndexSymbolKind::Export
+                    || (sym.visibility == Visibility::Public
+                        && matches!(
+                            sym.kind,
+                            IndexSymbolKind::Function
+                                | IndexSymbolKind::Class
+                                | IndexSymbolKind::Struct
+                                | IndexSymbolKind::Trait
+                                | IndexSymbolKind::Enum
+                                | IndexSymbolKind::Interface
+                                | IndexSymbolKind::Constant
+                                | IndexSymbolKind::TypeAlias
+                        )))
+        })
+        .map(|sym| SymbolInfo::from_index_symbol(sym, index))
+        .collect()
+}
+
 // Helper functions
 
 fn format_symbol_kind(kind: IndexSymbolKind) -> String {
@@ -653,9 +819,8 @@ mod tests {
             docstring: None,
         });
 
-        // Build name index
-        index.symbols_by_name.insert("main".to_owned(), vec![0]);
-        index.symbols_by_name.insert("helper".to_owned(), vec![1]);
+        // Build lookup tables (including file_by_path)
+        index.rebuild_lookups();
 
         // Create dependency graph with call edge: main -> helper
         let mut graph = DepGraph::new();
@@ -707,5 +872,89 @@ mod tests {
         // Check edge
         assert_eq!(call_graph.edges[0].caller, "main");
         assert_eq!(call_graph.edges[0].callee, "helper");
+    }
+
+    #[test]
+    fn test_find_circular_dependencies_no_cycles() {
+        let (index, graph) = create_test_index();
+
+        // The test index has no file imports, so no cycles
+        let cycles = find_circular_dependencies(&index, &graph);
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn test_find_circular_dependencies_with_cycle() {
+        let mut index = SymbolIndex::default();
+
+        // Create 3 files: a.py -> b.py -> c.py -> a.py (cycle)
+        index.files.push(FileEntry {
+            id: FileId::new(0),
+            path: "a.py".to_owned(),
+            language: Language::Python,
+            symbols: 0..0,
+            imports: vec![],
+            content_hash: [0u8; 32],
+            lines: 10,
+            tokens: 50,
+        });
+        index.files.push(FileEntry {
+            id: FileId::new(1),
+            path: "b.py".to_owned(),
+            language: Language::Python,
+            symbols: 0..0,
+            imports: vec![],
+            content_hash: [0u8; 32],
+            lines: 10,
+            tokens: 50,
+        });
+        index.files.push(FileEntry {
+            id: FileId::new(2),
+            path: "c.py".to_owned(),
+            language: Language::Python,
+            symbols: 0..0,
+            imports: vec![],
+            content_hash: [0u8; 32],
+            lines: 10,
+            tokens: 50,
+        });
+
+        index.rebuild_lookups();
+
+        let mut graph = DepGraph::new();
+        graph.add_file_import(0, 1); // a -> b
+        graph.add_file_import(1, 2); // b -> c
+        graph.add_file_import(2, 0); // c -> a (creates cycle)
+
+        let cycles = find_circular_dependencies(&index, &graph);
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].length, 3);
+        assert!(cycles[0].files.contains(&"a.py".to_owned()));
+        assert!(cycles[0].files.contains(&"b.py".to_owned()));
+        assert!(cycles[0].files.contains(&"c.py".to_owned()));
+    }
+
+    #[test]
+    fn test_get_exported_symbols() {
+        let (index, _graph) = create_test_index();
+
+        // main is public, helper is private
+        let exports = get_exported_symbols(&index);
+        assert_eq!(exports.len(), 1);
+        assert_eq!(exports[0].name, "main");
+        assert_eq!(exports[0].visibility, "public");
+    }
+
+    #[test]
+    fn test_get_exported_symbols_in_file() {
+        let (index, _graph) = create_test_index();
+
+        let exports = get_exported_symbols_in_file(&index, "test.py");
+        assert_eq!(exports.len(), 1);
+        assert_eq!(exports[0].name, "main");
+
+        // Non-existent file returns empty
+        let no_exports = get_exported_symbols_in_file(&index, "nonexistent.py");
+        assert!(no_exports.is_empty());
     }
 }

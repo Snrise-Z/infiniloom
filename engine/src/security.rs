@@ -654,10 +654,17 @@ impl SecurityScanner {
 
     /// Redact secrets from content, returning the redacted content
     /// This replaces detected secrets with redacted versions in the actual content
+    ///
+    /// # Implementation Note
+    /// Uses a two-pass approach to handle multiple secrets on the same line correctly:
+    /// 1. First pass: collect all matches with their positions
+    /// 2. Second pass: replace in reverse order (right to left) so positions don't shift
     pub fn redact_content(&self, content: &str, _file_path: &str) -> String {
-        let mut result = content.to_owned();
+        // Collect all matches that need redaction: (start_byte, end_byte, redacted_text)
+        let mut replacements: Vec<(usize, usize, String)> = Vec::new();
 
-        for (line_num, line) in content.lines().enumerate() {
+        let mut current_byte_offset = 0usize;
+        for line in content.lines() {
             let trimmed = line.trim();
 
             // Skip obvious false positives (example docs, placeholders)
@@ -665,61 +672,78 @@ impl SecurityScanner {
                 || trimmed.to_lowercase().contains("placeholder")
                 || trimmed.contains("xxxxx");
 
-            if is_obvious_false_positive {
-                continue;
-            }
-
-            for pattern in &self.patterns {
-                // Use find_iter to catch ALL matches on a line, not just the first
-                for m in pattern.regex.find_iter(line) {
-                    let matched = m.as_str();
-
-                    // Check allowlist
-                    if self.allowlist.iter().any(|a| matched.contains(a)) {
-                        continue;
-                    }
-
-                    // Only redact high severity and above
+            if !is_obvious_false_positive {
+                // Check built-in patterns
+                for pattern in &self.patterns {
                     if pattern.severity >= Severity::High {
-                        let redacted = redact(matched);
-                        // Replace in result - use line number to find the right occurrence
-                        let line_start = result
-                            .lines()
-                            .take(line_num)
-                            .map(|l| l.len() + 1)
-                            .sum::<usize>();
-                        if let Some(pos) = result[line_start..].find(matched) {
-                            let abs_pos = line_start + pos;
-                            result.replace_range(abs_pos..abs_pos + matched.len(), &redacted);
+                        for m in pattern.regex.find_iter(line) {
+                            let matched = m.as_str();
+
+                            // Check allowlist
+                            if self.allowlist.iter().any(|a| matched.contains(a)) {
+                                continue;
+                            }
+
+                            let start = current_byte_offset + m.start();
+                            let end = current_byte_offset + m.end();
+                            replacements.push((start, end, redact(matched)));
+                        }
+                    }
+                }
+
+                // Check custom patterns
+                for custom in &self.custom_patterns {
+                    if custom.severity >= Severity::High {
+                        for m in custom.regex.find_iter(line) {
+                            let matched = m.as_str();
+
+                            // Check allowlist
+                            if self.allowlist.iter().any(|a| matched.contains(a)) {
+                                continue;
+                            }
+
+                            let start = current_byte_offset + m.start();
+                            let end = current_byte_offset + m.end();
+                            replacements.push((start, end, redact(matched)));
                         }
                     }
                 }
             }
 
-            // Check custom patterns for redaction
-            for custom in &self.custom_patterns {
-                for m in custom.regex.find_iter(line) {
-                    let matched = m.as_str();
+            // Move to next line (+1 for newline character)
+            current_byte_offset += line.len() + 1;
+        }
 
-                    // Check allowlist
-                    if self.allowlist.iter().any(|a| matched.contains(a)) {
-                        continue;
-                    }
+        // Sort replacements by length first (shorter = more specific), then by position
+        // This ensures more specific patterns (Stripe key) are preferred over
+        // generic patterns (api_key=xxx) that might include the key name
+        replacements.sort_by(|a, b| {
+            let a_len = a.1 - a.0;
+            let b_len = b.1 - b.0;
+            a_len.cmp(&b_len).then(a.0.cmp(&b.0))
+        });
 
-                    // Only redact high severity and above
-                    if custom.severity >= Severity::High {
-                        let redacted = redact(matched);
-                        let line_start = result
-                            .lines()
-                            .take(line_num)
-                            .map(|l| l.len() + 1)
-                            .sum::<usize>();
-                        if let Some(pos) = result[line_start..].find(matched) {
-                            let abs_pos = line_start + pos;
-                            result.replace_range(abs_pos..abs_pos + matched.len(), &redacted);
-                        }
-                    }
-                }
+        // Remove overlapping ranges, keeping the more specific (shorter) match
+        // Since we sorted by length first, shorter matches are processed first
+        let mut filtered: Vec<(usize, usize, String)> = Vec::new();
+        for replacement in replacements {
+            // Check if this overlaps with any existing replacement
+            let overlaps = filtered.iter().any(|(start, end, _)| {
+                // Two ranges overlap if one starts before the other ends and vice versa
+                replacement.0 < *end && *start < replacement.1
+            });
+
+            if !overlaps {
+                filtered.push(replacement);
+            }
+            // If overlaps, skip this one (we already have the shorter/more specific match)
+        }
+
+        // Apply replacements in reverse order so positions don't shift
+        let mut result = content.to_owned();
+        for (start, end, redacted) in filtered.into_iter().rev() {
+            if end <= result.len() {
+                result.replace_range(start..end, &redacted);
             }
         }
 
@@ -929,5 +953,44 @@ mod tests {
         // Should not panic, invalid patterns are ignored
         let content = "INVALID_[PATTERN here";
         let _findings = scanner.scan(content, "test.py");
+    }
+
+    #[test]
+    fn test_multiple_secrets_same_line() {
+        let scanner = SecurityScanner::new();
+
+        // Two GitHub tokens on the same line
+        let content = r#"TOKEN1="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" TOKEN2="ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb""#;
+
+        let findings = scanner.scan(content, "test.env");
+        assert_eq!(findings.len(), 2, "Should detect both tokens on the same line");
+
+        // Test redaction of multiple secrets on same line
+        let (redacted, _) = scanner.scan_and_redact(content, "test.env");
+
+        // Both tokens should be redacted
+        assert!(
+            !redacted.contains("ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            "First token should be redacted"
+        );
+        assert!(
+            !redacted.contains("ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            "Second token should be redacted"
+        );
+        assert!(redacted.contains('*'), "Redacted content should contain asterisks");
+    }
+
+    #[test]
+    fn test_redaction_preserves_structure() {
+        let scanner = SecurityScanner::new();
+        let content = "line1\napi_key = 'secret_key_12345678901234567890'\nline3";
+
+        let (redacted, _) = scanner.scan_and_redact(content, "test.py");
+
+        // Should preserve newlines and structure
+        let lines: Vec<&str> = redacted.lines().collect();
+        assert_eq!(lines.len(), 3, "Should preserve line count");
+        assert_eq!(lines[0], "line1");
+        assert_eq!(lines[2], "line3");
     }
 }

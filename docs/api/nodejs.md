@@ -569,6 +569,83 @@ for (const site of sites) {
 
 ---
 
+### `findCircularDependencies()`
+
+Detect circular import/dependency cycles in the codebase.
+
+```typescript
+function findCircularDependencies(path?: string): DependencyCycle[]
+
+interface DependencyCycle {
+  files: string[];      // File paths forming the cycle
+  fileIds: number[];    // Internal file IDs
+  length: number;       // Number of files in the cycle
+}
+```
+
+**Example:**
+```javascript
+const { findCircularDependencies, buildIndex } = require('infiniloom-node');
+
+// Build index first
+buildIndex('./my-repo');
+
+// Find circular dependencies
+const cycles = findCircularDependencies('./my-repo');
+if (cycles.length > 0) {
+  console.log(`Found ${cycles.length} circular dependency cycles:`);
+  for (const cycle of cycles) {
+    console.log(`  Cycle of ${cycle.length} files: ${cycle.files.join(' -> ')}`);
+  }
+} else {
+  console.log('No circular dependencies found');
+}
+```
+
+**Async version:** `findCircularDependenciesAsync(path)`
+
+---
+
+### `getExportedSymbols()`
+
+Get all public/exported symbols in the repository or a specific file.
+
+```typescript
+function getExportedSymbols(path?: string, filePath?: string): SymbolInfo[]
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `string` | Path to repository |
+| `filePath` | `string` | Optional file path to filter symbols |
+
+**Returns:** Array of `SymbolInfo` objects for public/exported symbols only.
+
+**Example:**
+```javascript
+const { getExportedSymbols, buildIndex } = require('infiniloom-node');
+
+// Build index first
+buildIndex('./my-repo');
+
+// Get all exported symbols
+const exports = getExportedSymbols('./my-repo');
+console.log(`Found ${exports.length} exported symbols`);
+
+for (const sym of exports) {
+  console.log(`  ${sym.visibility} ${sym.kind}: ${sym.name} at ${sym.file}:${sym.line}`);
+}
+
+// Get exports from a specific file
+const fileExports = getExportedSymbols('./my-repo', 'src/lib.rs');
+console.log(`Exports from src/lib.rs: ${fileExports.map(s => s.name).join(', ')}`);
+```
+
+**Async version:** `getExportedSymbolsAsync(path, filePath)`
+
+---
+
 ## Diff Context API
 
 ### `getDiffContext()`

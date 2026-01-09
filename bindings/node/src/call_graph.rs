@@ -8,12 +8,15 @@
 //! - Filtering results by symbol kind
 //! - Async versions of all operations
 
-use crate::types::{CallGraph, CallGraphOptions, QueryFilter, ReferenceInfo, SymbolInfo};
+use crate::types::{CallGraph, CallGraphOptions, DependencyCycle, QueryFilter, ReferenceInfo, SymbolInfo};
 use crate::validation::{validate_path_option, validate_symbol_name_option};
 use infiniloom_engine::index::{
+    find_circular_dependencies as engine_find_circular_dependencies,
     find_symbol as engine_find_symbol, get_call_graph as engine_get_call_graph,
-    get_call_graph_filtered, get_callees_by_name, get_callers_by_name, get_references_by_name,
-    CallGraph as EngineCallGraph, CallGraphStats as EngineCallGraphStats, IndexStorage,
+    get_call_graph_filtered, get_callees_by_name, get_callers_by_name,
+    get_exported_symbols as engine_get_exported_symbols, get_exported_symbols_in_file,
+    get_references_by_name, CallGraph as EngineCallGraph, CallGraphStats as EngineCallGraphStats,
+    IndexStorage,
 };
 use napi::{Error, Result, Status};
 use napi_derive::napi;
@@ -600,6 +603,127 @@ pub async fn get_call_graph_async(
     options: Option<CallGraphOptions>,
 ) -> Result<CallGraph> {
     tokio::task::spawn_blocking(move || get_call_graph(path, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+// ============================================================================
+// Circular Dependencies & Exports
+// ============================================================================
+
+/// Find circular dependencies in the codebase
+///
+/// Detects cycles in file import relationships (e.g., A imports B imports C imports A).
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+///
+/// # Returns
+/// Array of cycles, where each cycle contains:
+/// - `files`: Array of file paths in the cycle
+/// - `fileIds`: Array of internal file IDs
+/// - `length`: Number of files in the cycle
+///
+/// # Example
+/// ```javascript
+/// const { findCircularDependencies, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+/// const cycles = findCircularDependencies('./my-repo');
+/// if (cycles.length > 0) {
+///   console.log(`Found ${cycles.length} circular dependencies:`);
+///   for (const cycle of cycles) {
+///     console.log(`  ${cycle.files.join(' -> ')} -> ${cycle.files[0]}`);
+///   }
+/// } else {
+///   console.log('No circular dependencies found');
+/// }
+/// ```
+#[napi]
+pub fn find_circular_dependencies(path: Option<String>) -> Result<Vec<DependencyCycle>> {
+    let path = validate_path_option(path.as_deref())?;
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load graph: {}", e)))?;
+
+    let cycles = engine_find_circular_dependencies(&index, &graph);
+    Ok(cycles.into_iter().map(Into::into).collect())
+}
+
+/// Async version of findCircularDependencies
+#[napi]
+pub async fn find_circular_dependencies_async(path: Option<String>) -> Result<Vec<DependencyCycle>> {
+    tokio::task::spawn_blocking(move || find_circular_dependencies(path))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Get all exported/public symbols in the codebase
+///
+/// Returns symbols that are either:
+/// - Explicitly exported (e.g., JavaScript/TypeScript exports)
+/// - Public functions, classes, structs, traits, enums, etc.
+///
+/// Requires an index to be built first (use `buildIndex`).
+///
+/// # Arguments
+/// * `path` - Path to repository root
+/// * `filePath` - Optional file path to filter results (relative to repo root)
+///
+/// # Returns
+/// Array of symbols that are part of the public API
+///
+/// # Example
+/// ```javascript
+/// const { getExportedSymbols, buildIndex } = require('infiniloom-node');
+///
+/// buildIndex('./my-repo');
+///
+/// // Get all exports in the codebase
+/// const exports = getExportedSymbols('./my-repo');
+/// console.log(`Found ${exports.length} public API symbols`);
+///
+/// // Get exports from a specific file
+/// const fileExports = getExportedSymbols('./my-repo', 'src/auth.ts');
+/// for (const sym of fileExports) {
+///   console.log(`  ${sym.kind} ${sym.name}`);
+/// }
+/// ```
+#[napi]
+pub fn get_exported_symbols(
+    path: Option<String>,
+    file_path: Option<String>,
+) -> Result<Vec<SymbolInfo>> {
+    let path = validate_path_option(path.as_deref())?;
+    let path_buf = PathBuf::from(&path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to load index: {}", e)))?;
+
+    let results = match file_path {
+        Some(fp) => get_exported_symbols_in_file(&index, &fp),
+        None => engine_get_exported_symbols(&index),
+    };
+
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Async version of getExportedSymbols
+#[napi]
+pub async fn get_exported_symbols_async(
+    path: Option<String>,
+    file_path: Option<String>,
+) -> Result<Vec<SymbolInfo>> {
+    tokio::task::spawn_blocking(move || get_exported_symbols(path, file_path))
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
 }

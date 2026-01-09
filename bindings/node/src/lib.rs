@@ -28,10 +28,11 @@ pub use types::*;
 
 // Re-export public functions from modules
 pub use call_graph::{
-    find_symbol, find_symbol_async, find_symbol_filtered, find_symbol_filtered_async,
-    get_call_graph, get_call_graph_async, get_callees, get_callees_async, get_callees_filtered,
-    get_callees_filtered_async, get_callers, get_callers_async, get_callers_filtered,
-    get_callers_filtered_async, get_references, get_references_async, get_references_filtered,
+    find_circular_dependencies, find_circular_dependencies_async, find_symbol, find_symbol_async,
+    find_symbol_filtered, find_symbol_filtered_async, get_call_graph, get_call_graph_async,
+    get_callees, get_callees_async, get_callees_filtered, get_callees_filtered_async, get_callers,
+    get_callers_async, get_callers_filtered, get_callers_filtered_async, get_exported_symbols,
+    get_exported_symbols_async, get_references, get_references_async, get_references_filtered,
     get_references_filtered_async,
 };
 pub use chunk::chunk;

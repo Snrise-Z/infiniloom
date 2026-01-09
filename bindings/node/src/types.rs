@@ -6,8 +6,8 @@
 use napi_derive::napi;
 use infiniloom_engine::index::{
     CallGraph as EngineCallGraph, CallGraphEdge as EngineCallGraphEdge,
-    CallGraphStats as EngineCallGraphStats, ReferenceInfo as EngineReferenceInfo,
-    SymbolInfo as EngineSymbolInfo,
+    CallGraphStats as EngineCallGraphStats, DependencyCycle as EngineDependencyCycle,
+    ReferenceInfo as EngineReferenceInfo, SymbolInfo as EngineSymbolInfo,
 };
 
 // ============================================================================
@@ -388,6 +388,27 @@ impl From<EngineCallGraph> for CallGraph {
             nodes: g.nodes.into_iter().map(Into::into).collect(),
             edges: g.edges.into_iter().map(Into::into).collect(),
             stats: g.stats.into(),
+        }
+    }
+}
+
+/// A cycle in the dependency graph (circular import)
+#[napi(object)]
+pub struct DependencyCycle {
+    /// File paths in the cycle (e.g., ["a.ts", "b.ts", "c.ts"] means a->b->c->a)
+    pub files: Vec<String>,
+    /// Internal file IDs corresponding to the files
+    pub file_ids: Vec<u32>,
+    /// Number of files in the cycle
+    pub length: u32,
+}
+
+impl From<EngineDependencyCycle> for DependencyCycle {
+    fn from(c: EngineDependencyCycle) -> Self {
+        Self {
+            files: c.files,
+            file_ids: c.file_ids,
+            length: c.length as u32,
         }
     }
 }

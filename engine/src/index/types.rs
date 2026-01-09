@@ -426,6 +426,9 @@ impl SymbolIndex {
 }
 
 /// Dependency graph for impact analysis
+///
+/// Uses both edge lists (for serialization) and adjacency maps (for O(1) queries).
+/// The adjacency maps are rebuilt after deserialization via `rebuild_adjacency_maps()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DepGraph {
     // Forward edges: X depends on Y
@@ -451,6 +454,26 @@ pub struct DepGraph {
     pub file_pagerank: Vec<f32>,
     /// PageRank importance score per symbol
     pub symbol_pagerank: Vec<f32>,
+
+    // ===== Adjacency maps for O(1) lookups (not serialized, rebuilt on load) =====
+    /// file_id -> list of files it imports
+    #[serde(skip)]
+    pub imports_adj: HashMap<u32, Vec<u32>>,
+    /// file_id -> list of files that import it
+    #[serde(skip)]
+    pub imported_by_adj: HashMap<u32, Vec<u32>>,
+    /// symbol_id -> list of symbols it references
+    #[serde(skip)]
+    pub refs_adj: HashMap<u32, Vec<u32>>,
+    /// symbol_id -> list of symbols that reference it
+    #[serde(skip)]
+    pub ref_by_adj: HashMap<u32, Vec<u32>>,
+    /// caller_id -> list of callees
+    #[serde(skip)]
+    pub callees_adj: HashMap<u32, Vec<u32>>,
+    /// callee_id -> list of callers
+    #[serde(skip)]
+    pub callers_adj: HashMap<u32, Vec<u32>>,
 }
 
 impl DepGraph {
@@ -458,80 +481,113 @@ impl DepGraph {
         Self::default()
     }
 
+    /// Rebuild adjacency maps from edge lists.
+    /// Call this after deserializing a DepGraph.
+    pub fn rebuild_adjacency_maps(&mut self) {
+        self.imports_adj.clear();
+        self.imported_by_adj.clear();
+        self.refs_adj.clear();
+        self.ref_by_adj.clear();
+        self.callees_adj.clear();
+        self.callers_adj.clear();
+
+        // Rebuild file import adjacency
+        for &(from, to) in &self.file_imports {
+            self.imports_adj.entry(from).or_default().push(to);
+        }
+        for &(file, importer) in &self.file_imported_by {
+            self.imported_by_adj.entry(file).or_default().push(importer);
+        }
+
+        // Rebuild symbol reference adjacency
+        for &(from, to) in &self.symbol_refs {
+            self.refs_adj.entry(from).or_default().push(to);
+        }
+        for &(symbol, referencer) in &self.symbol_ref_by {
+            self.ref_by_adj.entry(symbol).or_default().push(referencer);
+        }
+
+        // Rebuild call graph adjacency
+        for &(caller, callee) in &self.calls {
+            self.callees_adj.entry(caller).or_default().push(callee);
+        }
+        for &(callee, caller) in &self.called_by {
+            self.callers_adj.entry(callee).or_default().push(caller);
+        }
+    }
+
     /// Add a file import edge
     pub fn add_file_import(&mut self, from_file: u32, to_file: u32) {
         self.file_imports.push((from_file, to_file));
         self.file_imported_by.push((to_file, from_file));
+        // Update adjacency maps
+        self.imports_adj.entry(from_file).or_default().push(to_file);
+        self.imported_by_adj.entry(to_file).or_default().push(from_file);
     }
 
     /// Add a symbol reference edge
     pub fn add_symbol_ref(&mut self, from_symbol: u32, to_symbol: u32) {
         self.symbol_refs.push((from_symbol, to_symbol));
         self.symbol_ref_by.push((to_symbol, from_symbol));
+        // Update adjacency maps
+        self.refs_adj.entry(from_symbol).or_default().push(to_symbol);
+        self.ref_by_adj.entry(to_symbol).or_default().push(from_symbol);
     }
 
     /// Add a function call edge
     pub fn add_call(&mut self, caller: u32, callee: u32) {
         self.calls.push((caller, callee));
         self.called_by.push((callee, caller));
+        // Update adjacency maps
+        self.callees_adj.entry(caller).or_default().push(callee);
+        self.callers_adj.entry(callee).or_default().push(caller);
     }
 
-    /// Get files that import a given file
+    /// Get files that import a given file (O(1) lookup)
     pub fn get_importers(&self, file_id: u32) -> Vec<u32> {
-        self.file_imported_by
-            .iter()
-            .filter_map(|&(f, importer)| if f == file_id { Some(importer) } else { None })
-            .collect()
+        self.imported_by_adj
+            .get(&file_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Get files that a given file imports
+    /// Get files that a given file imports (O(1) lookup)
     pub fn get_imports(&self, file_id: u32) -> Vec<u32> {
-        self.file_imports
-            .iter()
-            .filter_map(|&(f, imported)| if f == file_id { Some(imported) } else { None })
-            .collect()
+        self.imports_adj
+            .get(&file_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Get symbols that reference a given symbol
+    /// Get symbols that reference a given symbol (O(1) lookup)
     pub fn get_referencers(&self, symbol_id: u32) -> Vec<u32> {
-        self.symbol_ref_by
-            .iter()
-            .filter_map(|&(s, referencer)| {
-                if s == symbol_id {
-                    Some(referencer)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.ref_by_adj
+            .get(&symbol_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Get callers of a function
+    /// Get callers of a function (O(1) lookup)
     pub fn get_callers(&self, symbol_id: u32) -> Vec<u32> {
-        self.called_by
-            .iter()
-            .filter_map(|&(callee, caller)| {
-                if callee == symbol_id {
-                    Some(caller)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.callers_adj
+            .get(&symbol_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Get callees of a function
+    /// Get callees of a function (O(1) lookup)
     pub fn get_callees(&self, symbol_id: u32) -> Vec<u32> {
-        self.calls
-            .iter()
-            .filter_map(|&(caller, callee)| {
-                if caller == symbol_id {
-                    Some(callee)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.callees_adj
+            .get(&symbol_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Check if adjacency maps are populated (used to detect if rebuild is needed)
+    pub fn needs_rebuild(&self) -> bool {
+        // If we have edges but no adjacency data, rebuild is needed
+        (!self.file_imports.is_empty() && self.imports_adj.is_empty())
+            || (!self.calls.is_empty() && self.callees_adj.is_empty())
     }
 }
 

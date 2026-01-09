@@ -14,26 +14,59 @@ use tiktoken_rs::{cl100k_base, o200k_base, CoreBPE};
 static GPT4O_TOKENIZER: OnceLock<CoreBPE> = OnceLock::new();
 static GPT4_TOKENIZER: OnceLock<CoreBPE> = OnceLock::new();
 
+/// Cache entry with access timestamp for LRU-like eviction
+struct CacheEntry {
+    count: u32,
+    /// Timestamp of last access (seconds since epoch, truncated for space)
+    last_access: u32,
+}
+
 /// Global token count cache - keyed by (content_hash, model)
 /// This provides significant speedup when the same content is tokenized multiple times.
-static TOKEN_CACHE: OnceLock<DashMap<(u64, TokenModel), u32>> = OnceLock::new();
+static TOKEN_CACHE: OnceLock<DashMap<(u64, TokenModel), CacheEntry>> = OnceLock::new();
 
 /// Maximum number of entries in the token cache before eviction.
-/// 100K entries ≈ 2.4MB memory (24 bytes per entry: 8 + 8 + 4 + padding).
+/// 100K entries ≈ 3.2MB memory (32 bytes per entry with CacheEntry).
 /// This prevents unbounded memory growth in long-running processes.
 const MAX_CACHE_ENTRIES: usize = 100_000;
 
+/// Number of entries to evict when cache is full (50% = evict half)
+const EVICTION_FRACTION: usize = 2;
+
 /// Get or initialize the global token cache
-fn get_token_cache() -> &'static DashMap<(u64, TokenModel), u32> {
+fn get_token_cache() -> &'static DashMap<(u64, TokenModel), CacheEntry> {
     TOKEN_CACHE.get_or_init(DashMap::new)
 }
 
-/// Check if cache needs cleanup and clear if it exceeds the limit.
-/// Uses a simple strategy: when cache is full, clear it entirely.
-/// This is fast and avoids complex LRU tracking overhead.
-fn maybe_cleanup_cache(cache: &DashMap<(u64, TokenModel), u32>) {
-    if cache.len() >= MAX_CACHE_ENTRIES {
-        cache.clear();
+/// Get current timestamp (seconds since epoch, truncated to u32)
+fn current_timestamp() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0)
+}
+
+/// Check if cache needs cleanup and evict oldest entries if it exceeds the limit.
+/// Uses an LRU-like strategy: when cache is full, remove the oldest half of entries.
+/// This preserves recently accessed entries while still being fast.
+fn maybe_cleanup_cache(cache: &DashMap<(u64, TokenModel), CacheEntry>) {
+    if cache.len() < MAX_CACHE_ENTRIES {
+        return;
+    }
+
+    // Collect entries with their timestamps for sorting
+    let mut entries: Vec<((u64, TokenModel), u32)> = cache
+        .iter()
+        .map(|entry| (*entry.key(), entry.value().last_access))
+        .collect();
+
+    // Sort by last_access (oldest first)
+    entries.sort_by_key(|(_, ts)| *ts);
+
+    // Remove oldest half
+    let to_remove = entries.len() / EVICTION_FRACTION;
+    for (key, _) in entries.into_iter().take(to_remove) {
+        cache.remove(&key);
     }
 }
 
@@ -123,16 +156,18 @@ impl Tokenizer {
             let cache = get_token_cache();
             let content_hash = hash_content(text);
             let key = (content_hash, model);
+            let now = current_timestamp();
 
-            // Check cache first
-            if let Some(count) = cache.get(&key) {
-                return *count;
+            // Check cache first and update access time
+            if let Some(mut entry) = cache.get_mut(&key) {
+                entry.last_access = now;
+                return entry.count;
             }
 
             // Compute and cache (with size limit enforcement)
             let count = self.count_uncached(text, model);
             maybe_cleanup_cache(cache);
-            cache.insert(key, count);
+            cache.insert(key, CacheEntry { count, last_access: now });
             count
         } else {
             self.count_uncached(text, model)
@@ -223,15 +258,17 @@ impl Tokenizer {
         };
 
         // Helper to get cached or compute exact count
+        let now = current_timestamp();
         let get_exact = |model: TokenModel, tokenizer: &CoreBPE| -> u32 {
             if let Some(cache) = cache {
                 let key = (content_hash, model);
-                if let Some(count) = cache.get(&key) {
-                    return *count;
+                if let Some(mut entry) = cache.get_mut(&key) {
+                    entry.last_access = now;
+                    return entry.count;
                 }
                 let count = self.tokenize_with_panic_guard(tokenizer, text, model);
                 maybe_cleanup_cache(cache);
-                cache.insert(key, count);
+                cache.insert(key, CacheEntry { count, last_access: now });
                 count
             } else {
                 self.tokenize_with_panic_guard(tokenizer, text, model)
@@ -293,6 +330,9 @@ impl Tokenizer {
     }
 
     /// Truncate text to fit within a token budget
+    ///
+    /// # Safety
+    /// All string slicing uses `floor_char_boundary` to ensure valid UTF-8 boundaries.
     pub fn truncate_to_budget<'a>(&self, text: &'a str, model: TokenModel, budget: u32) -> &'a str {
         let current = self.count(text, model);
         if current <= budget {
@@ -324,20 +364,34 @@ impl Tokenizer {
             }
         }
 
-        // Try to truncate at word boundary
+        // Ensure low is at a valid char boundary before proceeding
+        let low = text.floor_char_boundary(low);
+
+        // Try to truncate at word boundary while staying within char boundaries
         let mut end = low;
         while end > 0 {
+            // First, ensure we're at a char boundary
+            let boundary = text.floor_char_boundary(end);
+            if boundary < end {
+                end = boundary;
+                continue;
+            }
+
             let c = text.as_bytes().get(end - 1).copied().unwrap_or(0);
+            // Only check ASCII whitespace (won't be in middle of multi-byte char)
             if c == b' ' || c == b'\n' {
                 break;
             }
             end -= 1;
         }
 
+        // Final safety check: ensure end is at a valid char boundary
+        let end = text.floor_char_boundary(end);
+
         if end > 0 {
             &text[..end]
         } else {
-            let low = text.floor_char_boundary(low);
+            // Fall back to the binary search result
             &text[..low]
         }
     }

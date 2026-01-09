@@ -451,6 +451,78 @@ for c in callers:
 
 ---
 
+### `find_circular_dependencies()`
+
+Detect circular import/dependency cycles in the codebase.
+
+```python
+def find_circular_dependencies(path: str) -> List[DependencyCycle]
+```
+
+**Returns:** List of `DependencyCycle` dictionaries:
+```python
+{
+    "files": List[str],      # File paths forming the cycle
+    "file_ids": List[int],   # Internal file IDs
+    "length": int,           # Number of files in the cycle
+}
+```
+
+**Example:**
+```python
+# Build index first
+infiniloom.build_index("/path/to/repo")
+
+# Find circular dependencies
+cycles = infiniloom.find_circular_dependencies("/path/to/repo")
+if cycles:
+    print(f"Found {len(cycles)} circular dependency cycles:")
+    for cycle in cycles:
+        print(f"  Cycle of {cycle['length']} files: {' -> '.join(cycle['files'])}")
+else:
+    print("No circular dependencies found")
+```
+
+---
+
+### `get_exported_symbols()`
+
+Get all public/exported symbols in the repository or a specific file.
+
+```python
+def get_exported_symbols(
+    path: str,
+    file_path: Optional[str] = None,
+) -> List[SymbolInfo]
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `str` | Path to repository |
+| `file_path` | `str` | Optional file path to filter symbols |
+
+**Returns:** List of `SymbolInfo` dictionaries for public/exported symbols only.
+
+**Example:**
+```python
+# Build index first
+infiniloom.build_index("/path/to/repo")
+
+# Get all exported symbols
+exports = infiniloom.get_exported_symbols("/path/to/repo")
+print(f"Found {len(exports)} exported symbols")
+
+for sym in exports:
+    print(f"  {sym['visibility']} {sym['kind']}: {sym['name']} at {sym['file']}:{sym['line']}")
+
+# Get exports from a specific file
+file_exports = infiniloom.get_exported_symbols("/path/to/repo", file_path="src/lib.rs")
+print(f"Exports from src/lib.rs: {', '.join(s['name'] for s in file_exports)}")
+```
+
+---
+
 ## Analysis API
 
 ### `extract_documentation()`

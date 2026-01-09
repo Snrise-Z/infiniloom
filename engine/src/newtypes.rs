@@ -457,10 +457,10 @@ impl PartialOrd for ImportanceScore {
 
 impl Ord for ImportanceScore {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Use f32's partial_cmp directly, treating NaN as equal (shouldn't happen with clamped values)
-        self.0
-            .partial_cmp(&other.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        // Use total_cmp for a consistent total ordering of f32 values.
+        // This handles NaN and -0.0 correctly, providing a stable sort.
+        // NaN values are ordered after all other values.
+        self.0.total_cmp(&other.0)
     }
 }
 

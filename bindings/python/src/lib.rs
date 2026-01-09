@@ -40,11 +40,14 @@ use infiniloom_engine::{
     // Index module
     index::{
         // Call graph query API
+        find_circular_dependencies as engine_find_circular_dependencies,
         find_symbol as engine_find_symbol,
         get_call_graph as engine_get_call_graph,
         get_call_graph_filtered,
         get_callees_by_name,
         get_callers_by_name,
+        get_exported_symbols as engine_get_exported_symbols,
+        get_exported_symbols_in_file,
         get_references_by_name,
         BuildOptions,
         CallGraph as EngineCallGraph,
@@ -52,6 +55,7 @@ use infiniloom_engine::{
         ChangeType,
         ContextDepth,
         ContextExpander,
+        DependencyCycle as EngineDependencyCycle,
         DiffChange,
         IndexBuilder,
         IndexStorage,
@@ -1698,6 +1702,107 @@ fn get_call_graph(
     };
 
     Ok(call_graph_to_py(py, &result).into())
+}
+
+/// Find circular dependencies in the codebase
+///
+/// Detects cycles in file import relationships (e.g., A imports B imports C imports A).
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///
+/// Returns:
+///     List of cycles, where each cycle is a dict with:
+///     - files: List of file paths in the cycle
+///     - file_ids: List of internal file IDs
+///     - length: Number of files in the cycle
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> cycles = infiniloom.find_circular_dependencies("/path/to/repo")
+///     >>> if cycles:
+///     ...     print(f"Found {len(cycles)} circular dependencies:")
+///     ...     for cycle in cycles:
+///     ...         print(f"  {' -> '.join(cycle['files'])} -> {cycle['files'][0]}")
+///     >>> else:
+///     ...     print("No circular dependencies found")
+#[pyfunction]
+fn find_circular_dependencies(py: Python, path: &str) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let cycles = engine_find_circular_dependencies(&index, &graph);
+
+    let list = PyList::new(
+        py,
+        cycles.iter().map(|cycle| {
+            let dict = PyDict::new(py);
+            dict.set_item("files", &cycle.files).unwrap();
+            dict.set_item("file_ids", &cycle.file_ids).unwrap();
+            dict.set_item("length", cycle.length).unwrap();
+            dict
+        }),
+    );
+
+    Ok(list.into())
+}
+
+/// Get all exported/public symbols in the codebase
+///
+/// Returns symbols that are either:
+/// - Explicitly exported (e.g., JavaScript/TypeScript exports)
+/// - Public functions, classes, structs, traits, enums, etc.
+///
+/// Requires an index to be built first (use build_index).
+///
+/// Args:
+///     path: Path to repository root
+///     file_path: Optional file path to filter results (relative to repo root)
+///
+/// Returns:
+///     List of symbols that are part of the public API
+///
+/// Example:
+///     >>> import infiniloom
+///     >>> infiniloom.build_index("/path/to/repo")
+///     >>> # Get all exports in the codebase
+///     >>> exports = infiniloom.get_exported_symbols("/path/to/repo")
+///     >>> print(f"Found {len(exports)} public API symbols")
+///     >>> # Get exports from a specific file
+///     >>> file_exports = infiniloom.get_exported_symbols("/path/to/repo", file_path="src/auth.rs")
+///     >>> for sym in file_exports:
+///     ...     print(f"  {sym['kind']} {sym['name']}")
+#[pyfunction]
+#[pyo3(signature = (path, file_path=None))]
+fn get_exported_symbols(
+    py: Python,
+    path: &str,
+    file_path: Option<&str>,
+) -> PyResult<PyObject> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+
+    let results = match file_path {
+        Some(fp) => get_exported_symbols_in_file(&index, fp),
+        None => engine_get_exported_symbols(&index),
+    };
+
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
+
+    Ok(list.into())
 }
 
 // ============================================================================
@@ -4023,6 +4128,8 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_callees, m)?)?;
     m.add_function(wrap_pyfunction!(get_references, m)?)?;
     m.add_function(wrap_pyfunction!(get_call_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(find_circular_dependencies, m)?)?;
+    m.add_function(wrap_pyfunction!(get_exported_symbols, m)?)?;
 
     // Filtered Query API (Feature #2)
     m.add_function(wrap_pyfunction!(find_symbol_filtered, m)?)?;
