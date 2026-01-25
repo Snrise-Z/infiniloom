@@ -53,7 +53,7 @@ jobs:
             ext: ''
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -128,7 +128,7 @@ jobs:
             target: aarch64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup QEMU (Linux aarch64)
         if: matrix.target == 'aarch64' && runner.os == 'Linux'
@@ -173,7 +173,7 @@ jobs:
     name: Python sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build sdist
         uses: PyO3/maturin-action@v1
@@ -213,7 +213,7 @@ jobs:
             node_arch: darwin-arm64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -262,7 +262,7 @@ jobs:
     needs: [build-binaries]
     if: ${{ !inputs.dry_run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -311,7 +311,7 @@ jobs:
       id-token: write  # Required for npm provenance
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -352,7 +352,7 @@ jobs:
       id-token: write  # Required for npm provenance
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -407,7 +407,7 @@ jobs:
           echo "arm=$ARM_SHA" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Topos-Labs/homebrew-infiniloom
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -491,7 +491,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
         uses: actions/download-artifact@v7
