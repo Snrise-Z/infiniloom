@@ -2,6 +2,10 @@
 Infiniloom Python Bindings
 ==========================
 
+.. note::
+    This module uses PEP 563 postponed evaluation of annotations.
+    All type hints are strings that are evaluated lazily.
+
 Infiniloom is a repository context engine for Large Language Models (LLMs).
 It analyzes codebases and generates optimized context for AI assistants.
 
@@ -185,6 +189,8 @@ Integration with LLM APIs:
     >>> print(response.content[0].text)
 """
 
+from __future__ import annotations
+
 from ._infiniloom import (
     # Core functions
     pack,
@@ -202,8 +208,6 @@ from ._infiniloom import (
     get_callees,
     get_references,
     get_call_graph,
-    find_circular_dependencies,
-    get_exported_symbols,
     # Chunk API
     chunk,
     # Impact & Diff Context API
@@ -236,6 +240,58 @@ from ._async import (
     get_call_graph_async,
 )
 
+# Pydantic models for type validation
+from .models import (
+    # Type aliases (Literal types)
+    OutputFormat,
+    TokenizerModel,
+    CompressionLevel,
+    SecuritySeverity,
+    SymbolKind,
+    Visibility,
+    ChunkStrategy,
+    ImpactLevel,
+    ChangeType,
+    Depth,
+    # Option models
+    PackOptions,
+    ScanOptions,
+    ChunkOptions,
+    IndexOptions,
+    DiffContextOptions,
+    ImpactOptions,
+    EmbedOptions,
+    QueryFilter,
+    SymbolFilter,
+    CallGraphOptions,
+    SemanticCompressOptions,
+    # Result models
+    ScanStats,
+    SecurityFinding,
+    IndexStatus,
+    SymbolInfo,
+    ReferenceInfo,
+    CallGraph,
+    CallGraphEdge,
+    CallGraphStats,
+    RepoChunk,
+    ImpactResult,
+    DiffContextResult,
+    EmbedResult,
+    EmbedChunk,
+    # Git models
+    GitFileStatus,
+    GitChangedFile,
+    GitCommit,
+    GitBlameLine,
+    GitDiffHunk,
+    # Validation helpers
+    validate_pack_options,
+    validate_scan_options,
+    validate_chunk_options,
+    validate_embed_options,
+)
+
 __all__ = [
     # Core functions
     "pack",
@@ -253,8 +309,6 @@ __all__ = [
     "get_callees",
     "get_references",
     "get_call_graph",
-    "find_circular_dependencies",
-    "get_exported_symbols",
     # Chunk API
     "chunk",
     # Impact & Diff Context API
@@ -283,4 +337,52 @@ __all__ = [
     "InfiniloomError",
     # Version
     "__version__",
+    # Type aliases (Literal types)
+    "OutputFormat",
+    "TokenizerModel",
+    "CompressionLevel",
+    "SecuritySeverity",
+    "SymbolKind",
+    "Visibility",
+    "ChunkStrategy",
+    "ImpactLevel",
+    "ChangeType",
+    "Depth",
+    # Option models
+    "PackOptions",
+    "ScanOptions",
+    "ChunkOptions",
+    "IndexOptions",
+    "DiffContextOptions",
+    "ImpactOptions",
+    "EmbedOptions",
+    "QueryFilter",
+    "SymbolFilter",
+    "CallGraphOptions",
+    "SemanticCompressOptions",
+    # Result models
+    "ScanStats",
+    "SecurityFinding",
+    "IndexStatus",
+    "SymbolInfo",
+    "ReferenceInfo",
+    "CallGraph",
+    "CallGraphEdge",
+    "CallGraphStats",
+    "RepoChunk",
+    "ImpactResult",
+    "DiffContextResult",
+    "EmbedResult",
+    "EmbedChunk",
+    # Git models
+    "GitFileStatus",
+    "GitChangedFile",
+    "GitCommit",
+    "GitBlameLine",
+    "GitDiffHunk",
+    # Validation helpers
+    "validate_pack_options",
+    "validate_scan_options",
+    "validate_chunk_options",
+    "validate_embed_options",
 ]

@@ -169,6 +169,33 @@ pub mod license;
 // Code analysis module for advanced features
 pub mod analysis;
 
+/// Prelude module for convenient imports
+///
+/// Import all commonly used types with a single `use` statement:
+///
+/// ```rust
+/// use infiniloom_engine::prelude::*;
+/// ```
+///
+/// This imports the most frequently needed types for working with the library:
+/// - Repository and file types (`Repository`, `RepoFile`, `Symbol`)
+/// - Output formatting (`OutputFormat`, `OutputFormatter`)
+/// - Security scanning (`SecurityScanner`)
+/// - Tokenization (`Tokenizer`)
+/// - Repository map generation (`RepoMapGenerator`, `RepoMap`)
+/// - Configuration (`Config`)
+pub mod prelude {
+    pub use crate::config::Config;
+    pub use crate::output::{OutputFormat, OutputFormatter};
+    pub use crate::parser::{detect_file_language, Language, Parser};
+    pub use crate::repomap::{RepoMap, RepoMapGenerator};
+    pub use crate::security::SecurityScanner;
+    pub use crate::tokenizer::Tokenizer;
+    pub use crate::types::{
+        CompressionLevel, RepoFile, Repository, Symbol, SymbolKind, Visibility,
+    };
+}
+
 // Re-exports from core modules
 pub use chunking::{Chunk, ChunkStrategy, Chunker};
 pub use constants::{
@@ -191,7 +218,7 @@ pub use parser::{
 };
 pub use ranking::{count_symbol_references, rank_files, sort_files_by_importance, SymbolRanker};
 pub use repomap::{RepoMap, RepoMapGenerator};
-pub use security::SecurityScanner;
+pub use security::{SecurityError, SecurityScanner};
 pub use types::*;
 
 // Re-exports from new modules

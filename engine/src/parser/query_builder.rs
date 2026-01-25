@@ -89,6 +89,20 @@ pub fn javascript_super_query() -> Result<Query, ParserError> {
         (function_declaration
           name: (identifier) @name) @function
 
+        ; Async functions
+        (function_declaration
+          "async"
+          name: (identifier) @name) @function
+
+        ; Generator functions
+        (generator_function_declaration
+          name: (identifier) @name) @function
+
+        ; Async generator functions
+        (generator_function_declaration
+          "async"
+          name: (identifier) @name) @function
+
         ; Classes
         (class_declaration
           name: (identifier) @name) @class
@@ -97,14 +111,34 @@ pub fn javascript_super_query() -> Result<Query, ParserError> {
         (method_definition
           name: (property_identifier) @name) @method
 
+        ; Async methods
+        (method_definition
+          "async"
+          name: (property_identifier) @name) @method
+
+        ; Generator methods
+        (method_definition
+          "*"
+          name: (property_identifier) @name) @method
+
         ; Arrow functions (named via variable)
         (lexical_declaration
           (variable_declarator
             name: (identifier) @name
             value: (arrow_function))) @function
 
+        ; Async arrow functions (named via variable)
+        (lexical_declaration
+          (variable_declarator
+            name: (identifier) @name
+            value: (arrow_function
+              "async"))) @function
+
         ; Imports
         (import_statement) @import
+
+        ; Exports
+        (export_statement) @export
     "#;
 
     Query::new(&tree_sitter_javascript::LANGUAGE.into(), query_string)
@@ -149,9 +183,26 @@ pub fn typescript_super_query() -> Result<Query, ParserError> {
         (function_declaration
           name: (identifier) @name) @function
 
+        ; Async functions
+        (function_declaration
+          "async"
+          name: (identifier) @name) @function
+
+        ; Generator functions
+        (generator_function_declaration
+          name: (identifier) @name) @function
+
         ; Classes
         (class_declaration
           name: (type_identifier) @name) @class
+
+        ; Decorated classes (NestJS, Angular, etc.)
+        (export_statement
+          (decorator
+            (call_expression
+              function: (identifier)))
+          declaration: (class_declaration
+            name: (type_identifier) @name)) @class
 
         ; Interfaces
         (interface_declaration
@@ -159,6 +210,11 @@ pub fn typescript_super_query() -> Result<Query, ParserError> {
 
         ; Methods
         (method_definition
+          name: (property_identifier) @name) @method
+
+        ; Decorated methods
+        (method_definition
+          (decorator)
           name: (property_identifier) @name) @method
 
         ; Enums
@@ -187,6 +243,9 @@ pub fn typescript_super_query() -> Result<Query, ParserError> {
 
         ; Exports (re-exports)
         (export_statement) @export
+
+        ; Decorators (standalone capture for analysis)
+        (decorator) @decorator
     "#;
 
     Query::new(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), query_string)

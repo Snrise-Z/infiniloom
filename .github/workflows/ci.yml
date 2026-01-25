@@ -87,17 +87,37 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('bindings/python/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Create virtualenv and install tools
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install maturin pytest pytest-cov
+          pip install maturin pytest pytest-cov "pydantic[mypy]>=2.0.0" "pyrefly>=0.18.0" mypy
 
       - name: Build and Install Bindings
         run: |
           source .venv/bin/activate
           cd bindings/python
           maturin develop --release
+
+      - name: Type Check with Pyrefly
+        run: |
+          source .venv/bin/activate
+          cd bindings/python
+          pyrefly check python/infiniloom
+
+      - name: Type Check with MyPy
+        run: |
+          source .venv/bin/activate
+          cd bindings/python
+          mypy python/infiniloom --ignore-missing-imports
 
       - name: Run Python Tests with Coverage
         run: |
@@ -127,6 +147,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: bindings/node/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -134,12 +156,17 @@ jobs:
       - name: Install dependencies
         run: |
           cd bindings/node
-          npm install
+          npm ci
 
       - name: Build
         run: |
           cd bindings/node
           npm run build
+
+      - name: TypeScript Type Check
+        run: |
+          cd bindings/node
+          npm run typecheck
 
       - name: Test with Coverage
         run: |

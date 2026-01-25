@@ -12,6 +12,9 @@ authors = [
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"
+dependencies = [
+    "pydantic>=2.0.0",
+]
 keywords = ["llm", "rag", "retrieval-augmented-generation", "vector-database", "pinecone", "weaviate", "qdrant", "chromadb", "embeddings", "code-context", "code-analysis", "ast", "tree-sitter", "pagerank", "content-addressable", "blake3", "claude", "gpt4o", "gpt5", "gemini", "llama", "tiktoken", "code-chunking", "semantic-chunking"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -32,7 +35,51 @@ Homepage = "https://toposlabs.ai/infiniloom/"
 Repository = "https://github.com/Topos-Labs/infiniloom"
 Documentation = "https://toposlabs.ai/infiniloom/"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pyrefly>=0.18.0",
+    "mypy>=1.0.0",
+]
+
 [tool.maturin]
 python-source = "python"
 module-name = "infiniloom._infiniloom"
 features = ["pyo3/extension-module"]
+
+[tool.pyrefly]
+python_version = "3.10"
+strict = true
+# Error severity configuration (pyrefly >= 0.19)
+[tool.pyrefly.errors]
+invalid-annotation = "error"
+not-iterable = "error"
+bad-argument-type = "error"
+bad-return = "error"
+unbound-name = "error"
+bad-assignment = "error"
+bad-override = "error"
+not-callable = "error"
+missing-argument = "error"
+
+[tool.pyrefly.ignore]
+modules = [
+    "infiniloom._infiniloom",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "infiniloom._infiniloom"
+ignore_missing_imports = true

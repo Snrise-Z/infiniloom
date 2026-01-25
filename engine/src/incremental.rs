@@ -462,14 +462,18 @@ pub mod watcher {
     }
 }
 
-/// Compute a simple hash for change detection
+/// Compute a cryptographic hash for change detection
+///
+/// Uses BLAKE3 for collision resistance (truncated to 64 bits for API compatibility).
+/// This is significantly more collision-resistant than DefaultHasher (SipHash-1-3)
+/// which has known collision attacks.
 pub fn hash_content(content: &[u8]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
+    let hash = blake3::hash(content);
+    let bytes = hash.as_bytes();
+    // Take first 8 bytes as u64 (little-endian)
+    u64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
 }
 
 /// Get file modification time as Unix timestamp

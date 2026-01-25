@@ -320,12 +320,39 @@ static RE_STRIPE: Lazy<Regex> = Lazy::new(|| {
         .expect("RE_STRIPE: invalid regex pattern")
 });
 // OpenAI API keys (sk-... followed by alphanumeric characters)
+// Note: Anthropic keys (sk-ant-...) are detected first in pattern order,
+// so this pattern won't match them due to the scan loop's first-match behavior.
+// Pattern allows letters, numbers, underscores, and hyphens after 'sk-'
 static RE_OPENAI: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9]{32,}").expect("RE_OPENAI: invalid regex pattern"));
+    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9_-]{32,}").expect("RE_OPENAI: invalid regex pattern"));
 // Anthropic API keys (sk-ant-...)
 static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").expect("RE_ANTHROPIC: invalid regex pattern")
 });
+
+/// Error type for security scanning operations
+#[derive(Debug, Clone)]
+pub enum SecurityError {
+    /// Invalid regex pattern for custom secret detection
+    InvalidPattern {
+        /// The invalid pattern
+        pattern: String,
+        /// The error message from regex compilation
+        message: String,
+    },
+}
+
+impl std::fmt::Display for SecurityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPattern { pattern, message } => {
+                write!(f, "Invalid regex pattern '{}': {}", pattern, message)
+            },
+        }
+    }
+}
+
+impl std::error::Error for SecurityError {}
 
 /// A detected secret or sensitive data
 #[derive(Debug, Clone)]
@@ -527,26 +554,57 @@ impl SecurityScanner {
     /// Add a custom regex pattern for secret detection
     ///
     /// Custom patterns are matched as generic secrets with High severity.
-    /// Invalid regex patterns are silently ignored.
+    /// Returns an error if the regex pattern is invalid.
     ///
     /// # Example
     /// ```
     /// use infiniloom_engine::security::SecurityScanner;
     ///
     /// let mut scanner = SecurityScanner::new();
-    /// scanner.add_custom_pattern(r"MY_SECRET_[A-Z0-9]{32}");
+    /// scanner.add_custom_pattern(r"MY_SECRET_[A-Z0-9]{32}").unwrap();
     /// ```
-    pub fn add_custom_pattern(&mut self, pattern: &str) {
-        if let Ok(regex) = Regex::new(pattern) {
-            self.custom_patterns
-                .push(CustomSecretPattern { regex, severity: Severity::High });
-        }
+    ///
+    /// # Errors
+    /// Returns `SecurityError::InvalidPattern` if the regex pattern is invalid.
+    pub fn add_custom_pattern(&mut self, pattern: &str) -> Result<(), SecurityError> {
+        let regex = Regex::new(pattern).map_err(|e| SecurityError::InvalidPattern {
+            pattern: pattern.to_owned(),
+            message: e.to_string(),
+        })?;
+        self.custom_patterns
+            .push(CustomSecretPattern { regex, severity: Severity::High });
+        Ok(())
+    }
+
+    /// Add a custom regex pattern, ignoring invalid patterns
+    ///
+    /// This is a convenience method that silently ignores invalid patterns.
+    /// Use [`add_custom_pattern`] if you need to handle errors.
+    pub fn add_custom_pattern_unchecked(&mut self, pattern: &str) {
+        let _ = self.add_custom_pattern(pattern);
     }
 
     /// Add multiple custom patterns at once
-    pub fn add_custom_patterns(&mut self, patterns: &[String]) {
+    ///
+    /// Returns the first error encountered, if any. Patterns before the error
+    /// will have been added successfully.
+    ///
+    /// # Errors
+    /// Returns `SecurityError::InvalidPattern` if any regex pattern is invalid.
+    pub fn add_custom_patterns(&mut self, patterns: &[String]) -> Result<(), SecurityError> {
         for pattern in patterns {
-            self.add_custom_pattern(pattern);
+            self.add_custom_pattern(pattern)?;
+        }
+        Ok(())
+    }
+
+    /// Add multiple custom patterns, ignoring invalid patterns
+    ///
+    /// This is a convenience method that silently ignores invalid patterns.
+    /// Use [`add_custom_patterns`] if you need to handle errors.
+    pub fn add_custom_patterns_unchecked(&mut self, patterns: &[String]) {
+        for pattern in patterns {
+            self.add_custom_pattern_unchecked(pattern);
         }
     }
 
@@ -921,7 +979,9 @@ mod tests {
     #[test]
     fn test_custom_pattern() {
         let mut scanner = SecurityScanner::new();
-        scanner.add_custom_pattern(r"CUSTOM_SECRET_[A-Z0-9]{16}");
+        scanner
+            .add_custom_pattern(r"CUSTOM_SECRET_[A-Z0-9]{16}")
+            .unwrap();
 
         let content = "my_secret = CUSTOM_SECRET_ABCD1234EFGH5678";
         let findings = scanner.scan(content, "test.py");
@@ -933,10 +993,12 @@ mod tests {
     #[test]
     fn test_custom_patterns_multiple() {
         let mut scanner = SecurityScanner::new();
-        scanner.add_custom_patterns(&[
-            r"MYAPP_KEY_[a-f0-9]{32}".to_owned(),
-            r"MYAPP_TOKEN_[A-Z]{20}".to_owned(),
-        ]);
+        scanner
+            .add_custom_patterns(&[
+                r"MYAPP_KEY_[a-f0-9]{32}".to_owned(),
+                r"MYAPP_TOKEN_[A-Z]{20}".to_owned(),
+            ])
+            .unwrap();
 
         let content = "key = MYAPP_KEY_0123456789abcdef0123456789abcdef";
         let findings = scanner.scan(content, "test.py");
@@ -945,10 +1007,27 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_custom_pattern_ignored() {
+    fn test_invalid_custom_pattern_returns_error() {
         let mut scanner = SecurityScanner::new();
         // Invalid regex - unclosed bracket
-        scanner.add_custom_pattern(r"INVALID_[PATTERN");
+        let result = scanner.add_custom_pattern(r"INVALID_[PATTERN");
+
+        // Should return an error with details
+        assert!(result.is_err(), "Invalid regex should return error");
+        let err = result.unwrap_err();
+        match err {
+            SecurityError::InvalidPattern { pattern, message } => {
+                assert_eq!(pattern, r"INVALID_[PATTERN");
+                assert!(!message.is_empty(), "Error message should not be empty");
+            },
+        }
+    }
+
+    #[test]
+    fn test_invalid_custom_pattern_unchecked() {
+        let mut scanner = SecurityScanner::new();
+        // Invalid regex - unclosed bracket (silently ignored with _unchecked)
+        scanner.add_custom_pattern_unchecked(r"INVALID_[PATTERN");
 
         // Should not panic, invalid patterns are ignored
         let content = "INVALID_[PATTERN here";

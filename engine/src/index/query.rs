@@ -662,7 +662,12 @@ pub fn find_circular_dependencies(index: &SymbolIndex, graph: &DepGraph) -> Vec<
     cycles.retain(|cycle| {
         // Normalize cycle by rotating to start with smallest ID
         let mut normalized = cycle.file_ids.clone();
-        if let Some(min_pos) = normalized.iter().enumerate().min_by_key(|(_, &id)| id).map(|(i, _)| i) {
+        if let Some(min_pos) = normalized
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, &id)| id)
+            .map(|(i, _)| i)
+        {
             normalized.rotate_left(min_pos);
         }
         seen_cycles.insert(normalized)

@@ -64,18 +64,53 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
+    "build:types": "tsc -p tsconfig.json --declaration --emitDeclarationOnly --outDir .",
+    "prepublishOnly": "napi prepublish -t npm && npm run build:types",
     "test": "node --test",
+    "typecheck": "tsc --noEmit",
     "version": "napi version"
   },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0"
+    "@napi-rs/cli": "^2.18.0",
+    "typescript": "^5.3.0"
   },
   "files": [
     "index.js",
     "index.d.ts",
+    "types.ts",
+    "types.d.ts",
+    "schemas.ts",
+    "schemas.d.ts",
+    "schemas.js",
+    "tsconfig.json",
     "*.node"
   ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "import": "./index.js"
+    },
+    "./types": {
+      "types": "./types.d.ts",
+      "require": "./types.js",
+      "import": "./types.js"
+    },
+    "./schemas": {
+      "types": "./schemas.d.ts",
+      "require": "./schemas.js",
+      "import": "./schemas.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "types": ["./types.d.ts"],
+      "schemas": ["./schemas.d.ts"]
+    }
+  },
   "bugs": {
     "url": "https://github.com/Topos-Labs/infiniloom/issues"
   },

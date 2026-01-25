@@ -29,6 +29,7 @@ pub fn collect_file_infos(base_path: &Path, config: &ScannerConfig) -> Result<Ve
 
     let walker = WalkBuilder::new(base_path)
         .hidden(!config.include_hidden)
+        .follow_links(false) // SECURITY: Prevent symlink DoS from circular symlinks
         .git_ignore(config.respect_gitignore)
         .git_global(config.respect_gitignore)
         .git_exclude(config.respect_gitignore)
@@ -92,6 +93,7 @@ pub fn collect_file_paths(base_path: &Path, config: &ScannerConfig) -> Result<Ve
 
     let walker = WalkBuilder::new(&base_path)
         .hidden(!config.include_hidden)
+        .follow_links(false) // SECURITY: Prevent symlink DoS from circular symlinks
         .git_ignore(config.respect_gitignore)
         .git_global(config.respect_gitignore)
         .git_exclude(config.respect_gitignore)

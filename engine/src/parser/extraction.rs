@@ -38,7 +38,15 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
                         break;
                     }
                 }
-                return Some(source_code[start..end].trim().to_owned().replace('\n', " "));
+                // SAFETY: Ensure we slice at valid UTF-8 char boundaries
+                let safe_start = safe_char_boundary(source_code, start);
+                let safe_end = safe_char_boundary(source_code, end);
+                return Some(
+                    source_code[safe_start..safe_end]
+                        .trim()
+                        .to_owned()
+                        .replace('\n', " "),
+                );
             }
             None
         },
@@ -56,7 +64,15 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
                     }
                     end += 1;
                 }
-                return Some(source_code[start..end].trim().to_owned().replace('\n', " "));
+                // SAFETY: Ensure we slice at valid UTF-8 char boundaries
+                let safe_start = safe_char_boundary(source_code, start);
+                let safe_end = safe_char_boundary(source_code, end);
+                return Some(
+                    source_code[safe_start..safe_end]
+                        .trim()
+                        .to_owned()
+                        .replace('\n', " "),
+                );
             }
             None
         },
@@ -688,13 +704,35 @@ pub fn find_body_node(node: Node<'_>, language: Language) -> Option<Node<'_>> {
     None
 }
 
+/// Maximum recursion depth for AST traversal to prevent stack overflow
+/// on deeply nested or malformed code (e.g., 75K+ nodes).
+const MAX_RECURSION_DEPTH: usize = 1000;
+
 /// Recursively collect function calls from a node
+///
+/// Uses a depth limit to prevent stack overflow on deeply nested code.
 pub fn collect_calls_recursive(
     node: Node<'_>,
     source_code: &str,
     language: Language,
     calls: &mut HashSet<String>,
 ) {
+    collect_calls_recursive_with_depth(node, source_code, language, calls, 0);
+}
+
+/// Internal recursive function with depth tracking
+fn collect_calls_recursive_with_depth(
+    node: Node<'_>,
+    source_code: &str,
+    language: Language,
+    calls: &mut HashSet<String>,
+    depth: usize,
+) {
+    // Prevent stack overflow on deeply nested code
+    if depth >= MAX_RECURSION_DEPTH {
+        return;
+    }
+
     let kind = node.kind();
 
     let call_name = match language {
@@ -851,7 +889,7 @@ pub fn collect_calls_recursive(
     }
 
     for child in node.children(&mut node.walk()) {
-        collect_calls_recursive(child, source_code, language, calls);
+        collect_calls_recursive_with_depth(child, source_code, language, calls, depth + 1);
     }
 }
 

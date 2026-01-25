@@ -522,7 +522,10 @@ impl DepGraph {
         self.file_imported_by.push((to_file, from_file));
         // Update adjacency maps
         self.imports_adj.entry(from_file).or_default().push(to_file);
-        self.imported_by_adj.entry(to_file).or_default().push(from_file);
+        self.imported_by_adj
+            .entry(to_file)
+            .or_default()
+            .push(from_file);
     }
 
     /// Add a symbol reference edge
@@ -530,8 +533,14 @@ impl DepGraph {
         self.symbol_refs.push((from_symbol, to_symbol));
         self.symbol_ref_by.push((to_symbol, from_symbol));
         // Update adjacency maps
-        self.refs_adj.entry(from_symbol).or_default().push(to_symbol);
-        self.ref_by_adj.entry(to_symbol).or_default().push(from_symbol);
+        self.refs_adj
+            .entry(from_symbol)
+            .or_default()
+            .push(to_symbol);
+        self.ref_by_adj
+            .entry(to_symbol)
+            .or_default()
+            .push(from_symbol);
     }
 
     /// Add a function call edge
@@ -553,18 +562,12 @@ impl DepGraph {
 
     /// Get files that a given file imports (O(1) lookup)
     pub fn get_imports(&self, file_id: u32) -> Vec<u32> {
-        self.imports_adj
-            .get(&file_id)
-            .cloned()
-            .unwrap_or_default()
+        self.imports_adj.get(&file_id).cloned().unwrap_or_default()
     }
 
     /// Get symbols that reference a given symbol (O(1) lookup)
     pub fn get_referencers(&self, symbol_id: u32) -> Vec<u32> {
-        self.ref_by_adj
-            .get(&symbol_id)
-            .cloned()
-            .unwrap_or_default()
+        self.ref_by_adj.get(&symbol_id).cloned().unwrap_or_default()
     }
 
     /// Get callers of a function (O(1) lookup)

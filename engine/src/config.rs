@@ -279,6 +279,11 @@ pub struct PerformanceConfig {
 
     /// Skip symbol extraction for faster scanning
     pub skip_symbols: bool,
+
+    /// Maximum files to process in a single parallel batch
+    /// Prevents stack overflow on very large repos (75K+ files)
+    /// Default: 5000
+    pub batch_size: usize,
 }
 
 impl Default for PerformanceConfig {
@@ -289,6 +294,7 @@ impl Default for PerformanceConfig {
             cache_dir: ".infiniloom/cache".to_owned(),
             memory_mapped: true,
             skip_symbols: false,
+            batch_size: 5000, // Default from scanner::DEFAULT_BATCH_SIZE
         }
     }
 }

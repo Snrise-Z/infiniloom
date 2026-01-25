@@ -645,7 +645,9 @@ pub(crate) fn cmd_pack(config: PackConfig) -> Result<()> {
         for pattern in &security_allowlist {
             scanner.allowlist(pattern);
         }
-        scanner.add_custom_patterns(&security_custom_patterns);
+        if let Err(e) = scanner.add_custom_patterns(&security_custom_patterns) {
+            eprintln!("⚠ Warning: Invalid custom security pattern: {}", e);
+        }
 
         let all_issues: Vec<_> = repo
             .files

@@ -31,10 +31,28 @@ All async functions use a thread pool executor to run the synchronous
 Rust bindings without blocking the event loop.
 """
 
+from __future__ import annotations
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import Optional, Dict, Any, List
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import (
+        CallGraph,
+        ChunkStrategy,
+        CompressionLevel,
+        DiffContextResult,
+        ImpactResult,
+        IndexStatus,
+        OutputFormat,
+        RepoChunk,
+        ScanStats,
+        SecurityFinding,
+        SymbolInfo,
+        TokenizerModel,
+    )
 
 from ._infiniloom import (
     pack,
@@ -60,9 +78,9 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 async def pack_async(
     path: str,
-    format: str = "xml",
-    model: str = "claude",
-    compression: str = "balanced",
+    format: OutputFormat = "xml",
+    model: TokenizerModel = "claude",
+    compression: CompressionLevel = "balanced",
     map_budget: int = 2000,
     max_symbols: int = 50,
     redact_secrets: bool = True,
@@ -101,7 +119,7 @@ async def pack_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -122,7 +140,7 @@ async def scan_async(
     path: str,
     include_hidden: bool = False,
     respect_gitignore: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, object]:
     """
     Scan a repository and return statistics (async version).
 
@@ -153,7 +171,7 @@ async def scan_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(scan, path, include_hidden=include_hidden, respect_gitignore=respect_gitignore),
@@ -162,7 +180,7 @@ async def scan_async(
 
 async def count_tokens_async(
     text: str,
-    model: str = "claude",
+    model: TokenizerModel = "claude",
 ) -> int:
     """
     Count tokens in text for a specific model (async version).
@@ -187,14 +205,14 @@ async def count_tokens_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(count_tokens, text, model=model),
     )
 
 
-async def scan_security_async(path: str) -> List[Dict[str, Any]]:
+async def scan_security_async(path: str) -> list[dict[str, object]]:
     """
     Scan a repository for security issues (async version).
 
@@ -223,7 +241,7 @@ async def scan_security_async(path: str) -> List[Dict[str, Any]]:
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, partial(scan_security, path))
 
 
@@ -261,7 +279,7 @@ async def semantic_compress_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -277,8 +295,8 @@ async def build_index_async(
     path: str,
     force: bool = False,
     include_tests: bool = False,
-    max_file_size: Optional[int] = None,
-) -> Dict[str, Any]:
+    max_file_size: int | None = None,
+) -> dict[str, object]:
     """
     Build or update the symbol index for a repository (async version).
 
@@ -304,7 +322,7 @@ async def build_index_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -319,12 +337,12 @@ async def build_index_async(
 
 async def chunk_async(
     path: str,
-    strategy: str = "module",
+    strategy: ChunkStrategy = "module",
     max_tokens: int = 8000,
     overlap: int = 0,
-    model: str = "claude",
+    model: TokenizerModel = "claude",
     priority_first: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, object]]:
     """
     Split a repository into chunks for incremental processing (async version).
 
@@ -353,7 +371,7 @@ async def chunk_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -370,10 +388,10 @@ async def chunk_async(
 
 async def analyze_impact_async(
     path: str,
-    files: List[str],
+    files: list[str],
     depth: int = 2,
     include_tests: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, object]:
     """
     Analyze the impact of changes to files or symbols (async version).
 
@@ -402,7 +420,7 @@ async def analyze_impact_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -422,7 +440,7 @@ async def get_diff_context_async(
     depth: int = 2,
     budget: int = 50000,
     include_diff: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, object]:
     """
     Get context-aware diff with surrounding symbols and dependencies (async version).
 
@@ -453,7 +471,7 @@ async def get_diff_context_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(
@@ -471,7 +489,7 @@ async def get_diff_context_async(
 async def find_symbol_async(
     path: str,
     name: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, object]]:
     """
     Find a symbol by name (async version).
 
@@ -496,7 +514,7 @@ async def find_symbol_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(find_symbol, path, name),
@@ -506,7 +524,7 @@ async def find_symbol_async(
 async def get_callers_async(
     path: str,
     symbol_name: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, object]]:
     """
     Get all callers of a symbol (async version).
 
@@ -533,7 +551,7 @@ async def get_callers_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(get_callers, path, symbol_name),
@@ -543,7 +561,7 @@ async def get_callers_async(
 async def get_callees_async(
     path: str,
     symbol_name: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, object]]:
     """
     Get all callees of a symbol (async version).
 
@@ -570,7 +588,7 @@ async def get_callees_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(get_callees, path, symbol_name),
@@ -580,7 +598,7 @@ async def get_callees_async(
 async def get_references_async(
     path: str,
     symbol_name: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, object]]:
     """
     Get all references to a symbol (async version).
 
@@ -607,7 +625,7 @@ async def get_references_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(get_references, path, symbol_name),
@@ -616,9 +634,9 @@ async def get_references_async(
 
 async def get_call_graph_async(
     path: str,
-    max_nodes: Optional[int] = None,
-    max_edges: Optional[int] = None,
-) -> Dict[str, Any]:
+    max_nodes: int | None = None,
+    max_edges: int | None = None,
+) -> dict[str, object]:
     """
     Get the complete call graph (async version).
 
@@ -646,7 +664,7 @@ async def get_call_graph_async(
         >>>
         >>> asyncio.run(main())
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         partial(get_call_graph, path, max_nodes=max_nodes, max_edges=max_edges),

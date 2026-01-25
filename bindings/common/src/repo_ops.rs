@@ -560,8 +560,9 @@ mod tests {
         let mut repo = create_test_repo();
         repo.files[0].content = None;
         let result = apply_token_budget(&mut repo, 1000, TokenModel::Claude);
-        // Should handle None content gracefully
-        assert!(result >= 0);
+        // Should handle None content gracefully - result is tokens used
+        // Just verify the function returns successfully with valid output
+        assert!(result <= 1000, "Should not exceed budget");
     }
 
     #[test]
