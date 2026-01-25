@@ -51,6 +51,8 @@ features = ["pyo3/extension-module"]
 [tool.pyrefly]
 python_version = "3.10"
 strict = true
+# Source files are in python/ not src/ (maturin layout)
+project_includes = ["python"]
 # Error severity configuration (pyrefly >= 0.19)
 [tool.pyrefly.errors]
 invalid-annotation = "error"
