@@ -202,6 +202,8 @@ from ._infiniloom import (
     # Index API
     build_index,
     index_status,
+    find_circular_dependencies,
+    get_exported_symbols,
     # Call Graph API
     find_symbol,
     get_callers,
@@ -303,6 +305,8 @@ __all__ = [
     # Index API
     "build_index",
     "index_status",
+    "find_circular_dependencies",
+    "get_exported_symbols",
     # Call Graph API
     "find_symbol",
     "get_callers",
