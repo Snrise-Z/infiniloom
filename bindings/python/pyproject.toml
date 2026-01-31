@@ -49,26 +49,13 @@ module-name = "infiniloom._infiniloom"
 features = ["pyo3/extension-module"]
 
 [tool.pyrefly]
-python_version = "3.10"
-strict = true
+python-version = "3.10"
 # Source files are in python/ not src/ (maturin layout)
-project_includes = ["python"]
-# Error severity configuration (pyrefly >= 0.19)
-[tool.pyrefly.errors]
-invalid-annotation = "error"
-not-iterable = "error"
-bad-argument-type = "error"
-bad-return = "error"
-unbound-name = "error"
-bad-assignment = "error"
-bad-override = "error"
-not-callable = "error"
-missing-argument = "error"
-
-[tool.pyrefly.ignore]
-modules = [
-    "infiniloom._infiniloom",
-]
+search-path = ["python"]
+# Only check the main package, not examples
+project-includes = ["python/infiniloom/**/*.py"]
+# Errors configuration
+errors = { missing-import = "ignore" }
 
 [tool.mypy]
 python_version = "3.10"
