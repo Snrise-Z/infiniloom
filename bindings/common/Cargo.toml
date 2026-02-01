@@ -1,6 +1,6 @@
 [package]
 name = "infiniloom-bindings-common"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 authors = ["Topos Labs"]
 description = "Shared utilities for Infiniloom language bindings"
