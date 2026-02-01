@@ -154,7 +154,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd bindings/node
-          npm ci
+          npm install
 
       - name: Build
         run: |
