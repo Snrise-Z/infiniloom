@@ -29,7 +29,6 @@
     "isolatedModules": true
   },
   "include": [
-    "index.d.ts",
     "types.ts",
     "schemas.ts"
   ],
