@@ -1,6 +1,6 @@
 {
   "name": "infiniloom",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "AST-aware code context engine for RAG, vector databases, and AI assistants. Tree-sitter parsing, PageRank ranking, BLAKE3 content-addressable chunks. Integrates with Pinecone, Weaviate, Qdrant. Supports Claude, GPT-5, GPT-4o, Gemini, Llama (27+ tokenizers).",
   "bin": {
     "infiniloom": "bin/infiniloom"
