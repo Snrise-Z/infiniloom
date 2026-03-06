@@ -20,6 +20,20 @@ pub use types::*;
 use std::path::Path;
 
 use crate::error::InfiniloomError;
+use crate::tokenizer::{TokenCounts, Tokenizer};
+
+/// Count tokens for a document's full text content across all model families.
+pub fn count_document_tokens(doc: &mut Document) {
+    let tokenizer = Tokenizer::new();
+    let full_text = doc.full_text();
+    doc.token_count = tokenizer.count_all(&full_text);
+}
+
+/// Count tokens for formatted output text across all model families.
+pub fn count_output_tokens(output_text: &str) -> TokenCounts {
+    let tokenizer = Tokenizer::new();
+    tokenizer.count_all(output_text)
+}
 
 /// Parse a document from a file path, auto-detecting the format.
 pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, InfiniloomError> {
@@ -51,6 +65,9 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
     if doc.title.is_none() {
         doc.title = doc.sections.first().and_then(|s| s.title.clone());
     }
+
+    // Populate token counts for the parsed document
+    count_document_tokens(&mut doc);
 
     Ok(doc)
 }
@@ -114,5 +131,32 @@ mod tests {
     fn test_unsupported_format() {
         let result = parse_content("test", DocumentFormat::Xlsx, &ParseOptions::default());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_count_document_tokens_populates_nonzero() {
+        let content = "# Introduction\n\nThis is a document with enough text to generate tokens.\n\n## Details\n\nMore detailed content goes here with several words.";
+        let mut doc =
+            parse_content(content, DocumentFormat::Markdown, &ParseOptions::default()).unwrap();
+        // Token counts start at zero from parse_content (only parse_document calls counting)
+        assert_eq!(doc.token_count.claude, 0);
+
+        count_document_tokens(&mut doc);
+
+        assert!(doc.token_count.claude > 0, "Claude tokens should be non-zero");
+        assert!(doc.token_count.o200k > 0, "o200k tokens should be non-zero");
+        assert!(doc.token_count.gemini > 0, "Gemini tokens should be non-zero");
+    }
+
+    #[test]
+    fn test_count_output_tokens_returns_reasonable_counts() {
+        let text = "This is a sample formatted output with several words and sentences for token counting.";
+        let counts = count_output_tokens(text);
+
+        assert!(counts.claude > 0, "Claude tokens should be non-zero");
+        assert!(counts.o200k > 0, "o200k tokens should be non-zero");
+        assert!(counts.gemini > 0, "Gemini tokens should be non-zero");
+        // Sanity check: a ~90 character string should not produce thousands of tokens
+        assert!(counts.claude < 100, "Token count should be reasonable");
     }
 }
