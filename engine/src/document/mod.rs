@@ -7,6 +7,9 @@
 //! - **Distillation**: Content compression pipeline that removes filler and optimizes for LLM attention
 //! - **Output**: Document-specific formatters for Claude (XML), GPT (Markdown), agents (JSON)
 
+// InfiniloomError is the project-wide error type; its size is not our concern here.
+#![allow(clippy::result_large_err)]
+
 pub mod distillation;
 pub mod output;
 pub mod parsers;

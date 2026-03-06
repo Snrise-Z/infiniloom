@@ -254,14 +254,14 @@ fn write_block_md(out: &mut String, block: &ContentBlock) {
     match block {
         ContentBlock::Paragraph(text) => {
             out.push_str(text);
-            out.push_str("\n");
+            out.push('\n');
         },
         ContentBlock::Table(table) => {
             if !table.headers.is_empty() {
                 out.push_str("| ");
                 out.push_str(&table.headers.join(" | "));
                 out.push_str(" |\n");
-                out.push_str("|");
+                out.push('|');
                 for _ in &table.headers {
                     out.push_str("---|");
                 }

@@ -361,7 +361,7 @@ pub enum DistillationLevel {
 }
 
 impl DistillationLevel {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "none" => Some(Self::None),
             "minimal" => Some(Self::Minimal),
@@ -420,9 +420,9 @@ mod tests {
 
     #[test]
     fn test_distillation_level() {
-        assert_eq!(DistillationLevel::from_str("balanced"), Some(DistillationLevel::Balanced));
-        assert_eq!(DistillationLevel::from_str("FULL"), Some(DistillationLevel::Full));
-        assert_eq!(DistillationLevel::from_str("unknown"), None);
+        assert_eq!(DistillationLevel::parse_name("balanced"), Some(DistillationLevel::Balanced));
+        assert_eq!(DistillationLevel::parse_name("FULL"), Some(DistillationLevel::Full));
+        assert_eq!(DistillationLevel::parse_name("unknown"), None);
         assert_eq!(DistillationLevel::default(), DistillationLevel::Balanced);
     }
 

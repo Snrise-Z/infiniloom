@@ -34,8 +34,8 @@ pub fn arrange_document(doc: &mut Document) {
 
     // Partition into three groups
     let total = scored.len();
-    let top_count = (total + 2) / 3; // ceiling(n/3)
-    let bottom_count = (total + 2) / 3;
+    let top_count = total.div_ceil(3);
+    let bottom_count = total.div_ceil(3);
     let top_indices: Vec<usize> = scored[..top_count].iter().map(|(i, _)| *i).collect();
     let end_indices: Vec<usize> = scored[top_count..top_count + bottom_count]
         .iter()

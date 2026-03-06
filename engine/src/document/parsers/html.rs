@@ -328,8 +328,7 @@ fn extract_list_items(html: &str) -> Vec<ListItem> {
             // Find closing </li> or next <li
             let end = lower[content_start..]
                 .find("</li>")
-                .map(|e| content_start + e)
-                .unwrap_or(html.len());
+                .map_or(html.len(), |e| content_start + e);
             let text = strip_tags(&html[content_start..end]);
             let decoded = decode_entities(&text);
             if !decoded.trim().is_empty() {
@@ -356,8 +355,7 @@ fn extract_table(html: &str) -> Option<Table> {
             let content_start = start + content_start + 1;
             let end = lower[content_start..]
                 .find("</th>")
-                .map(|e| content_start + e)
-                .unwrap_or(html.len());
+                .map_or(html.len(), |e| content_start + e);
             let text = strip_tags(&html[content_start..end]);
             headers.push(decode_entities(&text).trim().to_owned());
             pos = end + 5;
@@ -372,8 +370,7 @@ fn extract_table(html: &str) -> Option<Table> {
         let tr_start = pos + tr_start;
         let tr_end = lower[tr_start..]
             .find("</tr>")
-            .map(|e| tr_start + e)
-            .unwrap_or(html.len());
+            .map_or(html.len(), |e| tr_start + e);
         let tr_html = &html[tr_start..tr_end];
         let tr_lower = tr_html.to_lowercase();
 
@@ -387,8 +384,7 @@ fn extract_table(html: &str) -> Option<Table> {
                     let content_start = td_start + content_start + 1;
                     let td_end = tr_lower[content_start..]
                         .find("</td>")
-                        .map(|e| content_start + e)
-                        .unwrap_or(tr_html.len());
+                        .map_or(tr_html.len(), |e| content_start + e);
                     let text = strip_tags(&tr_html[content_start..td_end]);
                     cells.push(decode_entities(&text).trim().to_owned());
                     td_pos = td_end + 5;
