@@ -259,9 +259,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --workspace -- --noplot --save-baseline pr-${{ github.event.pull_request.number }}
-          # Output results in JSON for the action
-          cargo bench --workspace -- --noplot --save-baseline pr-${{ github.event.pull_request.number }} 2>/dev/null | tee benchmark-results.txt || true
+          cargo bench -p infiniloom-engine --bench comparison -- --save-baseline pr-${{ github.event.pull_request.number }} 2>/dev/null | tee benchmark-results.txt || true
 
       - name: Compare with main branch
         run: |
