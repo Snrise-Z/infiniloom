@@ -109,6 +109,9 @@
 //! | [`embedding`] | Deterministic code chunks for vector databases |
 //! | [`error`] | Unified error types |
 
+// Document ingestion module
+pub mod document;
+
 // Core modules
 pub mod chunking;
 pub mod constants;
