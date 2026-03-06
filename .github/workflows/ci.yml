@@ -235,6 +235,8 @@ jobs:
   benchmarks:
     name: Benchmark Regression
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     # Only run benchmarks on PRs to avoid polluting history
     if: github.event_name == 'pull_request'
 
@@ -281,6 +283,7 @@ jobs:
       - name: Comment on PR with results
         uses: actions/github-script@v8
         if: always()
+        continue-on-error: true
         with:
           script: |
             const fs = require('fs');
