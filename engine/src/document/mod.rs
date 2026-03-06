@@ -29,11 +29,19 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
         InfiniloomError::not_supported(format!("Unsupported document format: .{ext}"))
     })?;
 
-    let content = std::fs::read_to_string(path).map_err(|e| {
-        InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
-    })?;
+    // DOCX is a binary (ZIP) format — read as bytes, not as a UTF-8 string.
+    let mut doc = if format == DocumentFormat::Docx {
+        let bytes = std::fs::read(path).map_err(|e| {
+            InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
+        })?;
+        parsers::docx::parse(&bytes, options)?
+    } else {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
+        })?;
+        parse_content(&content, format, options)?
+    };
 
-    let mut doc = parse_content(&content, format, options)?;
     doc.source = path.to_path_buf();
 
     // Extract title from metadata or first heading
@@ -104,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_format() {
-        let result = parse_content("test", DocumentFormat::Docx, &ParseOptions::default());
+        let result = parse_content("test", DocumentFormat::Xlsx, &ParseOptions::default());
         assert!(result.is_err());
     }
 }

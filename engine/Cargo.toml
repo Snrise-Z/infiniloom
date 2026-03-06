@@ -112,6 +112,10 @@ dashmap = "6.1"
 # Temp directory with RAII cleanup
 tempfile = "3.10"
 
+# DOCX parsing (ZIP archive + XML)
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
+
 # Optional: Local embeddings
 # Note: candle 0.9+ is required for compatibility with rand 0.9
 [dependencies.candle-core]
