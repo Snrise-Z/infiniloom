@@ -109,7 +109,8 @@
 //! | [`embedding`] | Deterministic code chunks for vector databases |
 //! | [`error`] | Unified error types |
 
-// Document ingestion module
+// Document ingestion module (gated behind "document" feature)
+#[cfg(feature = "document")]
 pub mod document;
 
 // Core modules

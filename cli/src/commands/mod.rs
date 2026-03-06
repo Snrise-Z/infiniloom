@@ -8,6 +8,7 @@ pub(crate) mod embed;
 pub(crate) mod impact;
 pub(crate) mod index;
 pub(crate) mod info;
+#[cfg(feature = "document")]
 pub(crate) mod ingest;
 pub(crate) mod init;
 pub(crate) mod map;
@@ -21,6 +22,7 @@ pub(crate) use embed::{cmd_embed, EmbedConfig, EmbedOutputFormat};
 pub(crate) use impact::cmd_impact;
 pub(crate) use index::cmd_index;
 pub(crate) use info::cmd_info;
+#[cfg(feature = "document")]
 pub(crate) use ingest::{cmd_ingest, IngestConfig, IngestOutputFormat};
 pub(crate) use init::{cmd_init, ConfigFormat, ConfigTemplate};
 pub(crate) use map::cmd_map;

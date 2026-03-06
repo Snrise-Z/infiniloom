@@ -618,6 +618,7 @@ enum Commands {
     },
 
     /// Ingest a document and convert to LLM-optimized format
+    #[cfg(feature = "document")]
     Ingest {
         /// Path to document file
         path: PathBuf,
@@ -824,6 +825,7 @@ enum Shell {
     Elvish,
 }
 
+#[cfg(feature = "document")]
 #[derive(ValueEnum, Clone, Copy, Default)]
 enum IngestFormat {
     /// Claude-optimized XML (default)
@@ -835,6 +837,7 @@ enum IngestFormat {
     Json,
 }
 
+#[cfg(feature = "document")]
 impl From<IngestFormat> for commands::IngestOutputFormat {
     fn from(f: IngestFormat) -> Self {
         match f {
@@ -845,6 +848,7 @@ impl From<IngestFormat> for commands::IngestOutputFormat {
     }
 }
 
+#[cfg(feature = "document")]
 #[derive(ValueEnum, Clone, Copy, Default)]
 enum Distillation {
     /// No distillation - preserve original content
@@ -860,6 +864,7 @@ enum Distillation {
     Full,
 }
 
+#[cfg(feature = "document")]
 impl From<Distillation> for infiniloom_engine::document::types::DistillationLevel {
     fn from(d: Distillation) -> Self {
         match d {
@@ -1242,6 +1247,7 @@ fn run_command(cli: Cli) -> Result<()> {
                 }
             })
         },
+        #[cfg(feature = "document")]
         Commands::Ingest { path, format, distillation, output, verbose } => {
             let config = commands::IngestConfig {
                 path,
