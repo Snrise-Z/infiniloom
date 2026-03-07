@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 use infiniloom_engine::document::{
-    self, distillation, output as doc_output, pii,
+    self,
+    chunking::{self, ChunkConfig},
+    distillation, output as doc_output, pii,
     types::{DistillationLevel, DocumentFormat},
     ParseOptions,
 };
@@ -22,6 +24,9 @@ pub(crate) struct IngestConfig {
     pub max_tokens: Option<usize>,
     pub pii_scan: bool,
     pub redact_pii: bool,
+    pub chunk: bool,
+    pub max_chunk_tokens: usize,
+    pub overlap_tokens: usize,
     pub verbose: bool,
 }
 
@@ -110,6 +115,42 @@ pub(crate) fn cmd_ingest(config: IngestConfig) -> Result<()> {
                 eprintln!("PII redaction applied.");
             }
         }
+    }
+
+    // Chunking path: split document into chunks for multi-turn conversations
+    if config.chunk {
+        let chunk_config = ChunkConfig {
+            max_tokens: config.max_chunk_tokens,
+            overlap_tokens: config.overlap_tokens,
+        };
+        let chunks = chunking::chunk_document(&doc, &chunk_config);
+
+        if config.verbose {
+            let avg_tokens = if chunks.is_empty() {
+                0
+            } else {
+                chunks.iter().map(|c| c.token_count).sum::<usize>() / chunks.len()
+            };
+            eprintln!("Split into {} chunks (avg ~{} tokens each)", chunks.len(), avg_tokens);
+        }
+
+        if let Some(out_path) = &config.output_file {
+            let json = chunking::format_chunks_json(&chunks);
+            std::fs::write(out_path, &json)
+                .with_context(|| format!("Failed to write: {}", out_path.display()))?;
+            if config.verbose {
+                eprintln!("Written to: {}", out_path.display());
+            }
+        } else {
+            for chunk in &chunks {
+                let text = chunking::format_chunk_text(chunk);
+                std::io::stdout()
+                    .write_all(text.as_bytes())
+                    .context("Failed to write to stdout")?;
+            }
+        }
+
+        return Ok(());
     }
 
     // Format output

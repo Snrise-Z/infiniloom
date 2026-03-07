@@ -651,6 +651,18 @@ enum Commands {
         #[arg(long)]
         redact_pii: bool,
 
+        /// Split document into chunks for multi-turn conversations
+        #[arg(long)]
+        chunk: bool,
+
+        /// Maximum tokens per chunk (default: 4000)
+        #[arg(long, default_value = "4000")]
+        max_chunk_tokens: usize,
+
+        /// Overlap tokens between chunks (default: 200)
+        #[arg(long, default_value = "200")]
+        overlap_tokens: usize,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -1273,6 +1285,9 @@ fn run_command(cli: Cli) -> Result<()> {
             max_tokens,
             pii_scan,
             redact_pii,
+            chunk,
+            max_chunk_tokens,
+            overlap_tokens,
             verbose,
         } => {
             let config = commands::IngestConfig {
@@ -1284,6 +1299,9 @@ fn run_command(cli: Cli) -> Result<()> {
                 max_tokens,
                 pii_scan,
                 redact_pii,
+                chunk,
+                max_chunk_tokens,
+                overlap_tokens,
                 verbose,
             };
             commands::cmd_ingest(config)
