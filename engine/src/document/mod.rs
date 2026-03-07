@@ -10,6 +10,7 @@
 // InfiniloomError is the project-wide error type; its size is not our concern here.
 #![allow(clippy::result_large_err)]
 
+pub mod chunking;
 pub mod distillation;
 pub mod output;
 pub mod parsers;
