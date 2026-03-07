@@ -635,6 +635,14 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
+        /// Target model for token counting display
+        #[arg(short, long, value_enum)]
+        model: Option<Model>,
+
+        /// Token budget warning threshold
+        #[arg(long)]
+        max_tokens: Option<usize>,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -1248,12 +1256,14 @@ fn run_command(cli: Cli) -> Result<()> {
             })
         },
         #[cfg(feature = "document")]
-        Commands::Ingest { path, format, distillation, output, verbose } => {
+        Commands::Ingest { path, format, distillation, output, model, max_tokens, verbose } => {
             let config = commands::IngestConfig {
                 path,
                 format: format.into(),
                 distillation: distillation.into(),
                 output_file: output,
+                model: model.map(|m| m.into()),
+                max_tokens,
                 verbose,
             };
             commands::cmd_ingest(config)
