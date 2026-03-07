@@ -1,0 +1,131 @@
+//! Filler phrase patterns and boilerplate detection rules.
+
+/// Filler phrases to remove or replace (case-insensitive matching).
+/// Format: (pattern, replacement). Empty replacement = delete.
+pub const FILLER_PATTERNS: &[(&str, &str)] = &[
+    // === Complete removal (zero information) ===
+    ("it is important to note that ", ""),
+    ("it should be noted that ", ""),
+    ("it is worth mentioning that ", ""),
+    ("as previously mentioned, ", ""),
+    ("as a matter of fact, ", ""),
+    ("for the avoidance of doubt, ", ""),
+    ("for the purposes of this document, ", ""),
+    ("it could be argued that ", ""),
+    ("it is generally believed that ", ""),
+    ("it seems that ", ""),
+    ("it appears that ", ""),
+    ("in this section, we will discuss ", ""),
+    ("in this section we discuss ", ""),
+    ("this section describes ", ""),
+    ("this section provides ", ""),
+    ("the purpose of this section is to ", ""),
+    ("as noted above, ", ""),
+    ("as described below, ", ""),
+    ("as mentioned earlier, ", ""),
+    ("it goes without saying that ", ""),
+    ("needless to say, ", ""),
+    // === Verbose → Concise ===
+    ("in order to ", "to "),
+    ("for the purpose of ", "to "),
+    ("due to the fact that ", "because "),
+    ("regardless of the fact that ", "although "),
+    ("in the event that ", "if "),
+    ("at this point in time ", "now "),
+    ("at the present time ", "now "),
+    ("in the near future ", "soon "),
+    ("prior to ", "before "),
+    ("subsequent to ", "after "),
+    ("during the course of ", "during "),
+    ("with respect to ", "regarding "),
+    ("with regard to ", "regarding "),
+    ("concerning the matter of ", "about "),
+    ("in accordance with ", "per "),
+    ("in the process of ", ""),
+    ("notwithstanding the foregoing, ", "however, "),
+    ("has the ability to ", "can "),
+    ("is able to ", "can "),
+    ("on the basis of ", "based on "),
+    ("in the majority of cases ", "usually "),
+    ("a large number of ", "many "),
+    ("a small number of ", "few "),
+    ("in light of the fact that ", "because "),
+    ("despite the fact that ", "although "),
+    ("on a daily basis ", "daily "),
+    ("on a regular basis ", "regularly "),
+    ("at the end of the day ", "ultimately "),
+    ("until such time as ", "until "),
+    ("in close proximity to ", "near "),
+    ("in the amount of ", "for "),
+    ("in connection with ", "about "),
+    ("for the duration of ", "during "),
+    ("with the exception of ", "except "),
+    // === Hedging reduction ===
+    ("it may be possible that ", "possibly, "),
+    ("it is generally the case that ", "generally, "),
+    ("it is widely recognized that ", ""),
+    ("there is a possibility that ", "possibly, "),
+    ("to some extent, ", ""),
+];
+
+/// Boilerplate patterns to detect and remove (regex-like, but simple string matching).
+pub const BOILERPLATE_PATTERNS: &[&str] = &[
+    "all rights reserved",
+    "copyright (",
+    "copyright ©",
+    "this document is confidential",
+    "this document is proprietary",
+    "do not distribute",
+    "for internal use only",
+    "unauthorized copying",
+    "unauthorized reproduction",
+    "page %d of %d",
+    "confidential and proprietary",
+    "approved by:",
+    "revision history",
+    "document revision",
+    "document control",
+    "table of revisions",
+    "change log",
+    "version history",
+    "prepared by:",
+    "reviewed by:",
+    "signature:",
+    "date of approval:",
+];
+
+/// Standard contract boilerplate section titles (can be summarized).
+pub const CONTRACT_BOILERPLATE_SECTIONS: &[&str] = &[
+    "entire agreement",
+    "severability",
+    "governing law",
+    "choice of law",
+    "venue",
+    "jurisdiction",
+    "waiver",
+    "notices",
+    "assignment",
+    "counterparts",
+    "amendment",
+    "modification",
+    "third-party beneficiaries",
+    "force majeure",
+    "survival",
+];
+
+/// Requirement keywords that indicate high-signal normative content.
+pub const REQUIREMENT_KEYWORDS: &[&str] =
+    &["shall", "must", "required", "mandatory", "prohibited", "shall not", "must not"];
+
+/// Words indicating informational/low-priority content.
+pub const INFORMATIVE_KEYWORDS: &[&str] = &[
+    "note:",
+    "example:",
+    "for example",
+    "e.g.",
+    "i.e.",
+    "informative",
+    "advisory",
+    "guidance",
+    "recommendation",
+];

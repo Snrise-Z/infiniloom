@@ -617,6 +617,28 @@ enum Commands {
         json_stats: bool,
     },
 
+    /// Ingest a document and convert to LLM-optimized format
+    Ingest {
+        /// Path to document file
+        path: PathBuf,
+
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "xml")]
+        format: IngestFormat,
+
+        /// Distillation level (content compression)
+        #[arg(short, long, value_enum, default_value = "balanced")]
+        distillation: Distillation,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
     /// Generate shell completions for infiniloom
     #[command(hide = true)]
     Completions {
@@ -800,6 +822,54 @@ enum Shell {
     PowerShell,
     /// Elvish shell
     Elvish,
+}
+
+#[derive(ValueEnum, Clone, Copy, Default)]
+enum IngestFormat {
+    /// Claude-optimized XML (default)
+    #[default]
+    Xml,
+    /// GPT-optimized Markdown
+    Markdown,
+    /// Agent-friendly JSON
+    Json,
+}
+
+impl From<IngestFormat> for commands::IngestOutputFormat {
+    fn from(f: IngestFormat) -> Self {
+        match f {
+            IngestFormat::Xml => commands::IngestOutputFormat::Xml,
+            IngestFormat::Markdown => commands::IngestOutputFormat::Markdown,
+            IngestFormat::Json => commands::IngestOutputFormat::Json,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy, Default)]
+enum Distillation {
+    /// No distillation - preserve original content
+    None,
+    /// Minimal - strip page numbers and boilerplate
+    Minimal,
+    /// Balanced - strip + deduplicate (default)
+    #[default]
+    Balanced,
+    /// Aggressive - strip + dedup + compress filler language
+    Aggressive,
+    /// Full - all stages including scoring and attention-optimized arrangement
+    Full,
+}
+
+impl From<Distillation> for infiniloom_engine::document::types::DistillationLevel {
+    fn from(d: Distillation) -> Self {
+        match d {
+            Distillation::None => Self::None,
+            Distillation::Minimal => Self::Minimal,
+            Distillation::Balanced => Self::Balanced,
+            Distillation::Aggressive => Self::Aggressive,
+            Distillation::Full => Self::Full,
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Copy, Default)]
@@ -1171,6 +1241,16 @@ fn run_command(cli: Cli) -> Result<()> {
                     e
                 }
             })
+        },
+        Commands::Ingest { path, format, distillation, output, verbose } => {
+            let config = commands::IngestConfig {
+                path,
+                format: format.into(),
+                distillation: distillation.into(),
+                output_file: output,
+                verbose,
+            };
+            commands::cmd_ingest(config)
         },
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
