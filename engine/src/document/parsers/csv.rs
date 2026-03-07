@@ -1,6 +1,8 @@
 //! CSV document parser.
 //!
 //! Converts CSV content into a Document with a single table section.
+//! Supports auto-detection of delimiters (comma, tab, pipe, semicolon),
+//! comment lines starting with `#`, and ragged rows (padded with empty strings).
 
 use crate::document::types::*;
 use crate::document::ParseOptions;
@@ -11,24 +13,28 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
     let mut doc = Document::new("", DocumentFormat::Csv);
     let mut lines = content.lines();
 
-    // First non-empty line is headers
+    // First non-empty, non-comment line is headers
     let header_line = loop {
         match lines.next() {
-            Some(line) if !line.trim().is_empty() => break line,
-            Some(_) => continue,
+            Some(line) if is_skippable(line) => continue,
+            Some(line) => break line,
             None => return Ok(doc),
         }
     };
 
     let delimiter = detect_delimiter(header_line);
     let headers: Vec<String> = split_csv_line(header_line, delimiter);
+    let header_len = headers.len();
     let mut rows: Vec<Vec<String>> = Vec::new();
 
     for line in lines {
-        if line.trim().is_empty() {
+        if is_skippable(line) {
             continue;
         }
-        rows.push(split_csv_line(line, delimiter));
+        let mut row = split_csv_line(line, delimiter);
+        // Pad ragged rows to match header width
+        row.resize(header_len, String::new());
+        rows.push(row);
     }
 
     let mut section = Section::root();
@@ -41,6 +47,12 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
     doc.sections.push(section);
 
     Ok(doc)
+}
+
+/// Returns true for lines that should be skipped: empty or comment lines.
+fn is_skippable(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || trimmed.starts_with('#')
 }
 
 fn detect_delimiter(line: &str) -> char {
@@ -102,19 +114,26 @@ mod tests {
     use super::*;
     use crate::document::ParseOptions;
 
+    /// Helper to extract the first table from a parsed document.
+    fn first_table(doc: &Document) -> &Table {
+        doc.sections
+            .iter()
+            .flat_map(|s| &s.content)
+            .find_map(|b| {
+                if let ContentBlock::Table(t) = b {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("expected at least one table")
+    }
+
     #[test]
     fn test_basic_csv() {
         let csv = "Name,Age,City\nAlice,30,NYC\nBob,25,LA\n";
         let doc = parse(csv, &ParseOptions::default()).unwrap();
-        let table = doc.sections.iter().flat_map(|s| &s.content).find_map(|b| {
-            if let ContentBlock::Table(t) = b {
-                Some(t)
-            } else {
-                None
-            }
-        });
-        assert!(table.is_some());
-        let t = table.unwrap();
+        let t = first_table(&doc);
         assert_eq!(t.headers, vec!["Name", "Age", "City"]);
         assert_eq!(t.rows.len(), 2);
     }
@@ -123,38 +142,70 @@ mod tests {
     fn test_quoted_csv() {
         let csv = "Name,Description\n\"Smith, John\",\"He said \"\"hello\"\"\"\n";
         let doc = parse(csv, &ParseOptions::default()).unwrap();
-        let table = doc
-            .sections
-            .iter()
-            .flat_map(|s| &s.content)
-            .find_map(|b| {
-                if let ContentBlock::Table(t) = b {
-                    Some(t)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-        assert_eq!(table.rows[0][0], "Smith, John");
-        assert_eq!(table.rows[0][1], "He said \"hello\"");
+        let t = first_table(&doc);
+        assert_eq!(t.rows[0][0], "Smith, John");
+        assert_eq!(t.rows[0][1], "He said \"hello\"");
     }
 
     #[test]
     fn test_tab_delimited() {
         let tsv = "A\tB\tC\n1\t2\t3\n";
         let doc = parse(tsv, &ParseOptions::default()).unwrap();
-        let table = doc
-            .sections
-            .iter()
-            .flat_map(|s| &s.content)
-            .find_map(|b| {
-                if let ContentBlock::Table(t) = b {
-                    Some(t)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-        assert_eq!(table.headers.len(), 3);
+        let t = first_table(&doc);
+        assert_eq!(t.headers, vec!["A", "B", "C"]);
+        assert_eq!(t.rows[0], vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn test_pipe_delimited() {
+        let data = "Name|Score|Grade\nAlice|95|A\nBob|82|B\n";
+        let doc = parse(data, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert_eq!(t.headers, vec!["Name", "Score", "Grade"]);
+        assert_eq!(t.rows.len(), 2);
+        assert_eq!(t.rows[0][0], "Alice");
+    }
+
+    #[test]
+    fn test_semicolon_delimited() {
+        let data = "Name;Age;City\nAlice;30;NYC\n";
+        let doc = parse(data, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert_eq!(t.headers, vec!["Name", "Age", "City"]);
+        assert_eq!(t.rows[0], vec!["Alice", "30", "NYC"]);
+    }
+
+    #[test]
+    fn test_comment_lines_skipped() {
+        let csv = "# This is a comment\nName,Age\n# Another comment\nAlice,30\nBob,25\n";
+        let doc = parse(csv, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert_eq!(t.headers, vec!["Name", "Age"]);
+        assert_eq!(t.rows.len(), 2);
+        assert_eq!(t.rows[0], vec!["Alice", "30"]);
+    }
+
+    #[test]
+    fn test_ragged_rows_padded() {
+        let csv = "A,B,C\n1,2\n4,5,6\n";
+        let doc = parse(csv, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert_eq!(t.headers, vec!["A", "B", "C"]);
+        // Short row should be padded to 3 columns
+        assert_eq!(t.rows[0], vec!["1", "2", ""]);
+        assert_eq!(t.rows[1], vec!["4", "5", "6"]);
+    }
+
+    #[test]
+    fn test_empty_content() {
+        let doc = parse("", &ParseOptions::default()).unwrap();
+        assert!(doc.sections.is_empty());
+    }
+
+    #[test]
+    fn test_only_comments() {
+        let csv = "# comment 1\n# comment 2\n";
+        let doc = parse(csv, &ParseOptions::default()).unwrap();
+        assert!(doc.sections.is_empty());
     }
 }

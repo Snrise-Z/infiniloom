@@ -43,12 +43,28 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
         InfiniloomError::not_supported(format!("Unsupported document format: .{ext}"))
     })?;
 
-    // DOCX is a binary (ZIP) format — read as bytes, not as a UTF-8 string.
+    // DOCX and XLSX are binary formats — read as bytes, not as a UTF-8 string.
     let mut doc = if format == DocumentFormat::Docx {
         let bytes = std::fs::read(path).map_err(|e| {
             InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
         })?;
         parsers::docx::parse(&bytes, options)?
+    } else if format == DocumentFormat::Xlsx {
+        #[cfg(feature = "document-xlsx")]
+        {
+            let bytes = std::fs::read(path).map_err(|e| {
+                InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
+            })?;
+            parsers::xlsx::parse(&bytes, options)?
+        }
+        #[cfg(not(feature = "document-xlsx"))]
+        {
+            return Err(InfiniloomError::not_supported(
+                "XLSX parsing requires the 'document-xlsx' feature. \
+                 Rebuild with: cargo build --features document-xlsx"
+                    .to_string(),
+            ));
+        }
     } else {
         let content = std::fs::read_to_string(path).map_err(|e| {
             InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))

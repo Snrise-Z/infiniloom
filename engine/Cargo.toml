@@ -116,6 +116,9 @@ tempfile = "3.10"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 quick-xml = "0.37"
 
+# XLSX/XLS spreadsheet parsing
+calamine = { version = "0.26", optional = true }
+
 # Optional: Local embeddings
 # Note: candle 0.9+ is required for compatibility with rand 0.9
 [dependencies.candle-core]
@@ -134,6 +137,9 @@ default = ["document"]
 # Future phases (DOCX, XLSX) will add optional deps behind sub-features.
 document = []
 
+# XLSX/XLS spreadsheet parsing via calamine (requires document feature)
+document-xlsx = ["calamine"]
+
 # Async runtime support (placeholder - not yet implemented)
 # When implemented, will enable async file scanning and parallel processing
 async = ["tokio", "async-trait"]
@@ -151,7 +157,7 @@ watch = ["notify"]
 # Note: "git" feature removed - git operations use CLI via std::process::Command
 
 # Enable all optional features
-full = ["async", "embeddings", "watch", "document"]
+full = ["async", "embeddings", "watch", "document", "document-xlsx"]
 
 [dev-dependencies]
 criterion = "0.5"
