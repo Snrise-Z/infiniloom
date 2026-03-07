@@ -123,7 +123,12 @@ version = "0.9"
 optional = true
 
 [features]
-default = []
+default = ["document"]
+
+# Document ingestion module (Markdown, HTML, CSV, plain-text parsers)
+# Phase 1 parsers are all hand-written with zero external dependencies.
+# Future phases (DOCX, XLSX) will add optional deps behind sub-features.
+document = []
 
 # Async runtime support (placeholder - not yet implemented)
 # When implemented, will enable async file scanning and parallel processing
@@ -142,7 +147,7 @@ watch = ["notify"]
 # Note: "git" feature removed - git operations use CLI via std::process::Command
 
 # Enable all optional features
-full = ["async", "embeddings", "watch"]
+full = ["async", "embeddings", "watch", "document"]
 
 [dev-dependencies]
 criterion = "0.5"

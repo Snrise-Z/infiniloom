@@ -84,7 +84,9 @@ toml = "0.8"
 filetime = "0.2"
 
 [features]
-default = []
+default = ["document"]
+# Document ingestion support (forwards to engine)
+document = ["infiniloom-engine/document"]
 # Enable clipboard support
 clipboard = ["dep:arboard"]
 
