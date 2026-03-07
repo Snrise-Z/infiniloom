@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 use infiniloom_engine::document::{
-    self, distillation, output as doc_output,
+    self, distillation, output as doc_output, pii,
     types::{DistillationLevel, DocumentFormat},
     ParseOptions,
 };
@@ -20,6 +20,8 @@ pub(crate) struct IngestConfig {
     pub output_file: Option<PathBuf>,
     pub model: Option<TokenizerModel>,
     pub max_tokens: Option<usize>,
+    pub pii_scan: bool,
+    pub redact_pii: bool,
     pub verbose: bool,
 }
 
@@ -84,6 +86,29 @@ pub(crate) fn cmd_ingest(config: IngestConfig) -> Result<()> {
 
         if let Some(model) = config.model {
             eprintln!("  {:?} = {}", model, tc.get(model));
+        }
+    }
+
+    // PII scanning and redaction
+    if config.pii_scan || config.redact_pii {
+        let findings = pii::scan_document(&doc);
+
+        if config.verbose {
+            for f in &findings {
+                eprintln!(
+                    "  PII: {:?} at [{}] line ~{}: {}",
+                    f.kind, f.location, f.line_approx, f.text
+                );
+            }
+        }
+
+        eprintln!("{}", pii::summarize(&findings));
+
+        if config.redact_pii {
+            pii::redact_document(&mut doc);
+            if config.verbose {
+                eprintln!("PII redaction applied.");
+            }
         }
     }
 
