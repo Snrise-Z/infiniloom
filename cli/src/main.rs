@@ -643,6 +643,14 @@ enum Commands {
         #[arg(long)]
         max_tokens: Option<usize>,
 
+        /// Scan for PII (personally identifiable information)
+        #[arg(long)]
+        pii_scan: bool,
+
+        /// Redact detected PII before output
+        #[arg(long)]
+        redact_pii: bool,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -1256,7 +1264,17 @@ fn run_command(cli: Cli) -> Result<()> {
             })
         },
         #[cfg(feature = "document")]
-        Commands::Ingest { path, format, distillation, output, model, max_tokens, verbose } => {
+        Commands::Ingest {
+            path,
+            format,
+            distillation,
+            output,
+            model,
+            max_tokens,
+            pii_scan,
+            redact_pii,
+            verbose,
+        } => {
             let config = commands::IngestConfig {
                 path,
                 format: format.into(),
@@ -1264,6 +1282,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 output_file: output,
                 model: model.map(|m| m.into()),
                 max_tokens,
+                pii_scan,
+                redact_pii,
                 verbose,
             };
             commands::cmd_ingest(config)

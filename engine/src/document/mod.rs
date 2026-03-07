@@ -13,6 +13,7 @@
 pub mod distillation;
 pub mod output;
 pub mod parsers;
+pub mod pii;
 pub mod types;
 
 pub use types::*;
