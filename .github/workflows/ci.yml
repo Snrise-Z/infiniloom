@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -126,7 +126,7 @@ jobs:
           pytest -v --cov=infiniloom --cov-report=xml:coverage.xml
 
       - name: Upload Python Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: bindings/python/coverage.xml
@@ -175,7 +175,7 @@ jobs:
           npx c8 --reporter=lcov npm test
 
       - name: Upload Node.js Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: bindings/node/coverage/lcov.info
@@ -221,7 +221,7 @@ jobs:
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       - name: Upload Rust Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
@@ -272,7 +272,7 @@ jobs:
           fi
 
       - name: Store benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-results
           path: |
