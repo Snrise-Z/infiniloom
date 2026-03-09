@@ -30,13 +30,13 @@
 //! - Scala
 //! - Haskell
 //! - Elixir
-//! - Clojure
 //! - OCaml
 //! - Lua
 //! - R
+//! - HCL/Terraform
 //!
-//! Note: F# is recognized by file extension but tree-sitter parser support
-//! is not yet implemented.
+//! Note: F# and Clojure are recognized by file extension but tree-sitter parser
+//! support is not yet implemented (incompatible with tree-sitter 0.26).
 //!
 //! # Example
 //!

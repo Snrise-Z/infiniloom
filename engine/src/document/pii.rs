@@ -312,20 +312,20 @@ fn redact_block(block: &mut ContentBlock) {
         ContentBlock::Blockquote(text) => *text = redact_text(text),
         ContentBlock::Raw(text) => *text = redact_text(text),
         ContentBlock::Table(table) => {
+            if let Some(caption) = &mut table.caption {
+                *caption = redact_text(caption);
+            }
             for row in &mut table.rows {
                 for cell in row.iter_mut() {
                     *cell = redact_text(cell);
                 }
             }
-            // Also redact headers
             for header in &mut table.headers {
                 *header = redact_text(header);
             }
         },
         ContentBlock::List(list) => {
-            for item in &mut list.items {
-                item.text = redact_text(&item.text);
-            }
+            redact_list(list);
         },
         ContentBlock::Definition(def) => {
             def.definition = redact_text(&def.definition);
@@ -333,6 +333,15 @@ fn redact_block(block: &mut ContentBlock) {
         ContentBlock::CodeBlock(_)
         | ContentBlock::CrossReference(_)
         | ContentBlock::ThematicBreak => {},
+    }
+}
+
+fn redact_list(list: &mut super::types::List) {
+    for item in &mut list.items {
+        item.text = redact_text(&item.text);
+        if let Some(ref mut children) = item.children {
+            redact_list(children);
+        }
     }
 }
 

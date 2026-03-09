@@ -64,12 +64,12 @@ fn write_toc_xml(out: &mut String, sections: &[Section], depth: usize) {
             let id_attr = section
                 .id
                 .as_ref()
-                .map(|id| format!(" id=\"{}\"", id))
+                .map(|id| format!(" id=\"{}\"", escaping::escape_xml_attribute(id)))
                 .unwrap_or_default();
             let num_attr = section
                 .number
                 .as_ref()
-                .map(|n| format!(" number=\"{}\"", n))
+                .map(|n| format!(" number=\"{}\"", escaping::escape_xml_attribute(n)))
                 .unwrap_or_default();
             out.push_str(&format!(
                 "{indent}<entry level=\"{}\"{id_attr}{num_attr}>{}</entry>\n",
@@ -86,13 +86,13 @@ fn write_section_xml(out: &mut String, section: &Section, depth: usize) {
 
     let mut attrs = format!("level=\"{}\"", section.level);
     if let Some(id) = &section.id {
-        attrs.push_str(&format!(" id=\"{id}\""));
+        attrs.push_str(&format!(" id=\"{}\"", escaping::escape_xml_attribute(id)));
     }
     if let Some(num) = &section.number {
-        attrs.push_str(&format!(" number=\"{num}\""));
+        attrs.push_str(&format!(" number=\"{}\"", escaping::escape_xml_attribute(num)));
     }
     if let Some(title) = &section.title {
-        attrs.push_str(&format!(" title=\"{}\"", escaping::escape_xml_text(title)));
+        attrs.push_str(&format!(" title=\"{}\"", escaping::escape_xml_attribute(title)));
     }
 
     out.push_str(&format!("{indent}<section {attrs}>\n"));
@@ -157,11 +157,12 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
             let lang_attr = code
                 .language
                 .as_ref()
-                .map(|l| format!(" language=\"{l}\""))
+                .map(|l| format!(" language=\"{}\"", escaping::escape_xml_attribute(l)))
                 .unwrap_or_default();
+            // Escape ]]> sequences in CDATA to prevent injection
+            let safe_content = code.content.replace("]]>", "]]]]><![CDATA[>");
             out.push_str(&format!(
-                "{indent}<code_block{lang_attr}><![CDATA[{}]]></code_block>\n",
-                code.content
+                "{indent}<code_block{lang_attr}><![CDATA[{safe_content}]]></code_block>\n",
             ));
         },
         ContentBlock::Definition(def) => {

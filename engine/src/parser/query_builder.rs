@@ -1131,9 +1131,16 @@ pub fn r_super_query() -> Result<Query, ParserError> {
 pub fn hcl_query() -> Result<Query, ParserError> {
     let query_string = r#"
         (block
-          (identifier) @type
+          (identifier) @_type
           (string_lit
-            (template_literal) @name)) @block
+            (template_literal) @name)) @function
+
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @_subtype)
+          (string_lit
+            (template_literal) @name)) @function
     "#;
 
     Query::new(&tree_sitter_hcl::LANGUAGE.into(), query_string)
@@ -1142,11 +1149,19 @@ pub fn hcl_query() -> Result<Query, ParserError> {
 
 pub fn hcl_super_query() -> Result<Query, ParserError> {
     let query_string = r#"
-        ; Blocks with labels (resource, data, module, variable, output, etc.)
+        ; Single-label blocks (variable, output, module, etc.)
         (block
-          (identifier) @type
+          (identifier) @_type
           (string_lit
-            (template_literal) @name)) @block
+            (template_literal) @name)) @function
+
+        ; Double-label blocks (resource, data, etc.)
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @_subtype)
+          (string_lit
+            (template_literal) @name)) @function
     "#;
 
     Query::new(&tree_sitter_hcl::LANGUAGE.into(), query_string)

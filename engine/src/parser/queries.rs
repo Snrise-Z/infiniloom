@@ -383,9 +383,16 @@ pub const R: &str = r#"
 /// HCL/Terraform symbol extraction query
 pub const HCL: &str = r#"
     (block
-      (identifier) @type
+      (identifier) @_type
       (string_lit
-        (template_literal) @name)) @block
+        (template_literal) @name)) @function
+
+    (block
+      (identifier) @_type
+      (string_lit
+        (template_literal) @_subtype)
+      (string_lit
+        (template_literal) @name)) @function
 "#;
 
 #[cfg(test)]

@@ -47,6 +47,7 @@ fn test_tree_sitter_abi_compatibility() {
     assert_abi_compatible("ocaml", tree_sitter_ocaml::LANGUAGE_OCAML.into());
     assert_abi_compatible("lua", tree_sitter_lua::LANGUAGE.into());
     assert_abi_compatible("r", tree_sitter_r::LANGUAGE.into());
+    assert_abi_compatible("hcl", tree_sitter_hcl::LANGUAGE.into());
 }
 
 #[test]

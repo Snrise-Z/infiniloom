@@ -185,7 +185,7 @@ impl Language {
             Self::Scala => queries::SCALA,
             Self::Haskell => queries::HASKELL,
             Self::Elixir => queries::ELIXIR,
-            Self::Clojure => queries::CLOJURE,
+            Self::Clojure => return None, // tree-sitter-clojure incompatible with tree-sitter 0.26
             Self::OCaml => queries::OCAML,
             Self::Lua => queries::LUA,
             Self::R => queries::R,
@@ -418,8 +418,8 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
         "svelte" => "svelte",
         // Docker
         "dockerfile" => "dockerfile",
-        // Terraform
-        "tf" | "tfvars" => "terraform",
+        // Terraform/HCL
+        "tf" | "tfvars" | "hcl" => "terraform",
         // Makefile-like
         "makefile" | "mk" => "make",
         "cmake" => "cmake",
