@@ -88,7 +88,7 @@ tiktoken-rs = "0.5"
 memmap2 = "0.9"
 
 # File watching for incremental mode
-notify = { version = "6.1", optional = true }
+notify = { version = "8.2", optional = true }
 
 # Git operations - Note: actual implementation uses git CLI via std::process::Command
 # gix and git2 crates are not used; keeping this comment for documentation
