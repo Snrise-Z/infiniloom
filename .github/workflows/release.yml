@@ -100,7 +100,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -163,7 +163,7 @@ jobs:
           working-directory: bindings/python
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: python-wheels-${{ matrix.os }}-${{ matrix.target }}
           path: bindings/python/dist/*.whl
@@ -183,7 +183,7 @@ jobs:
           working-directory: bindings/python
 
       - name: Upload sdist
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: python-sdist
           path: bindings/python/dist/*.tar.gz
@@ -248,7 +248,7 @@ jobs:
         run: npm run build -- --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node-${{ matrix.node_arch }}
           path: bindings/node/*.node
