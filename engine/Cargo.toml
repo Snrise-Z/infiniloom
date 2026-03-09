@@ -161,7 +161,7 @@ watch = ["notify"]
 full = ["async", "embeddings", "watch", "document", "document-xlsx"]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 tempfile = "3.10"
 proptest = "1.4"
 walkdir = "2.4"
