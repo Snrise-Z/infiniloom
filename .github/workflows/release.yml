@@ -251,7 +251,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: node-${{ matrix.node_arch }}
-          path: bindings/node/*.node
+          path: |
+            bindings/node/*.node
+            bindings/node/index.d.ts
+            bindings/node/index.js
 
   # ============================================================================
   # Publish to crates.io
