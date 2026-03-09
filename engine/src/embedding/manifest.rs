@@ -15,13 +15,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 use super::error::EmbedError;
 use super::hasher::IncrementalHasher;
 use super::types::{ChunkKind, EmbedChunk, EmbedSettings};
-use crate::bincode_safe::deserialize_with_limit;
+use crate::bincode_safe::{deserialize_with_limit, serialize};
 
 /// Current manifest format version
 pub const MANIFEST_VERSION: u32 = 2;
@@ -187,9 +186,7 @@ impl EmbedManifest {
         self.checksum = Some(self.compute_checksum());
 
         // Use bincode for faster I/O (5-10x faster than JSON for large manifests)
-        // Note: Must use bincode::options() to match deserialize_with_limit() in load()
-        let bytes = bincode::options()
-            .serialize(self)
+        let bytes = serialize(self)
             .map_err(|e| EmbedError::SerializationError { reason: e.to_string() })?;
 
         std::fs::write(path, bytes)

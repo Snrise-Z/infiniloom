@@ -36,13 +36,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bincode::Options;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 
 use super::error::EmbedError;
 use super::types::{EmbedChunk, EmbedSettings, RepoIdentifier};
-use crate::bincode_safe::deserialize_with_limit;
+use crate::bincode_safe::{deserialize_with_limit, serialize};
 
 /// Current checkpoint format version
 pub const CHECKPOINT_VERSION: u32 = 1;
@@ -477,10 +476,8 @@ impl CheckpointManager {
         // Compute integrity hash before saving
         checkpoint.compute_integrity();
 
-        let bytes = bincode::options().serialize(checkpoint).map_err(|e| {
-            EmbedError::SerializationError {
-                reason: format!("Failed to serialize checkpoint: {}", e),
-            }
+        let bytes = serialize(checkpoint).map_err(|e| EmbedError::SerializationError {
+            reason: format!("Failed to serialize checkpoint: {}", e),
         })?;
 
         // Write atomically via temp file

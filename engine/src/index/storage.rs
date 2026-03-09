@@ -4,8 +4,7 @@
 //! using bincode for fast binary serialization.
 
 use super::types::{DepGraph, SymbolIndex};
-use crate::bincode_safe::deserialize_from_with_limit;
-use bincode::Options;
+use crate::bincode_safe::{deserialize_from_with_limit, serialize_into};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -27,7 +26,10 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
 
     #[error("Serialization error: {0}")]
-    Serialize(#[from] bincode::Error),
+    Encode(#[from] bincode::error::EncodeError),
+
+    #[error("Deserialization error: {0}")]
+    Decode(#[from] bincode::error::DecodeError),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
@@ -105,10 +107,9 @@ impl IndexStorage {
         let tmp_path = self.index_dir.join(format!("{}.tmp", INDEX_FILE));
 
         // Write to temp file first for atomicity
-        // Note: Must use bincode::options() to match deserialize_from_with_limit() in load()
         let file = File::create(&tmp_path)?;
         let mut writer = BufWriter::new(file);
-        bincode::options().serialize_into(&mut writer, index)?;
+        serialize_into(&mut writer, index)?;
         writer.flush()?;
 
         // Atomic rename
@@ -151,10 +152,9 @@ impl IndexStorage {
         let path = self.index_dir.join(GRAPH_FILE);
         let tmp_path = self.index_dir.join(format!("{}.tmp", GRAPH_FILE));
 
-        // Note: Must use bincode::options() to match deserialize_from_with_limit() in load()
         let file = File::create(&tmp_path)?;
         let mut writer = BufWriter::new(file);
-        bincode::options().serialize_into(&mut writer, graph)?;
+        serialize_into(&mut writer, graph)?;
         writer.flush()?;
 
         fs::rename(&tmp_path, &path)?;

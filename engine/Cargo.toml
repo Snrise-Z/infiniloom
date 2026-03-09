@@ -104,7 +104,7 @@ figment = { version = "0.10", features = ["yaml", "toml", "json", "env"] }
 url = "2.5"
 
 # Binary serialization for cache
-bincode = "1.3"
+bincode = { version = "2.0", features = ["serde"] }
 once_cell = "1.21.3"
 
 # Thread-safe concurrent hashmap for caching

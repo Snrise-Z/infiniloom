@@ -1,50 +1,78 @@
 //! Safe bincode deserialization with size limits
 //!
-//! This module provides wrapper functions for bincode deserialization
-//! that enforce size limits to prevent memory exhaustion attacks.
+//! This module provides wrapper functions for bincode serialization and
+//! deserialization using bincode 2.0's serde compatibility layer.
 //!
-//! Without size limits, a maliciously crafted bincode file could declare
-//! a huge array size, causing bincode to attempt to allocate terabytes
-//! of memory before reading the actual data.
+//! A compile-time size limit is enforced to prevent memory exhaustion attacks
+//! from maliciously crafted bincode files.
 //!
 //! # Security
 //!
-//! All deserialization functions in this module enforce a size limit
-//! based on the actual input data size plus a reasonable multiplier.
+//! All deserialization functions in this module enforce a 1GB size limit.
 //! This prevents attackers from causing DoS via memory exhaustion.
 
-use bincode::Options;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::io::Read;
 
-/// Maximum expansion factor for deserialized data
+/// Maximum absolute size limit (1GB) as a hard cap.
 ///
-/// Bincode is a compact format, so deserialized data is typically
-/// larger than the serialized form. A 4x multiplier is generous
-/// and handles edge cases like highly compressible data.
-const MAX_EXPANSION_FACTOR: u64 = 4;
+/// In bincode 2.0, limits are const generics set at compile time.
+/// We use a generous 1GB limit that handles all realistic use cases
+/// while still preventing memory exhaustion from malicious input.
+const MAX_SIZE_LIMIT: usize = 1024 * 1024 * 1024;
 
-/// Minimum size limit (1MB) to handle small files
-const MIN_SIZE_LIMIT: u64 = 1024 * 1024;
+/// Bincode configuration: standard encoding with a 1GB size limit.
+fn limited_config() -> bincode::config::Configuration<
+    bincode::config::LittleEndian,
+    bincode::config::Varint,
+    bincode::config::Limit<MAX_SIZE_LIMIT>,
+> {
+    bincode::config::standard().with_limit::<MAX_SIZE_LIMIT>()
+}
 
-/// Maximum absolute size limit (1GB) as a hard cap
-const MAX_SIZE_LIMIT: u64 = 1024 * 1024 * 1024;
-
-/// Deserialize from bytes with size limit
+/// Serialize a value using bincode 2.0 serde compat layer
 ///
-/// The size limit is calculated as:
-/// `min(MAX_SIZE_LIMIT, max(MIN_SIZE_LIMIT, input_len * MAX_EXPANSION_FACTOR))`
+/// Uses `bincode::config::standard()` for consistent serialization.
 ///
 /// # Errors
 ///
-/// Returns `bincode::Error` if:
+/// Returns `bincode::error::EncodeError` if serialization fails.
+#[inline]
+pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, bincode::error::EncodeError> {
+    bincode::serde::encode_to_vec(value, bincode::config::standard())
+}
+
+/// Serialize a value into a writer using bincode 2.0 serde compat layer
+///
+/// # Errors
+///
+/// Returns `bincode::error::EncodeError` if serialization fails.
+#[inline]
+pub fn serialize_into<T: Serialize, W: std::io::Write>(
+    mut writer: W,
+    value: &T,
+) -> Result<(), bincode::error::EncodeError> {
+    bincode::serde::encode_into_std_write(value, &mut writer, bincode::config::standard())?;
+    Ok(())
+}
+
+/// Deserialize from bytes with size limit
+///
+/// Enforces a 1GB size limit to prevent memory exhaustion.
+///
+/// # Errors
+///
+/// Returns `bincode::error::DecodeError` if:
 /// - The data is invalid bincode
 /// - Deserialization would exceed the size limit
 /// - The type doesn't match the data
 #[inline]
-pub fn deserialize_with_limit<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, bincode::Error> {
-    let limit = calculate_limit(bytes.len() as u64);
-    bincode::options().with_limit(limit).deserialize(bytes)
+pub fn deserialize_with_limit<T: DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<T, bincode::error::DecodeError> {
+    let (value, _bytes_read) = bincode::serde::decode_from_slice(bytes, limited_config())?;
+    Ok(value)
 }
 
 /// Deserialize from a reader with size limit
@@ -52,27 +80,17 @@ pub fn deserialize_with_limit<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, bi
 /// # Arguments
 ///
 /// * `reader` - The reader to deserialize from
-/// * `expected_size` - Expected size of the serialized data (e.g., from file metadata)
+/// * `_expected_size` - Expected size (retained for API compatibility; limit is compile-time)
 ///
 /// # Errors
 ///
-/// Returns `bincode::Error` if deserialization fails or exceeds the limit.
+/// Returns `bincode::error::DecodeError` if deserialization fails or exceeds the limit.
 #[inline]
 pub fn deserialize_from_with_limit<T: DeserializeOwned, R: Read>(
-    reader: R,
-    expected_size: u64,
-) -> Result<T, bincode::Error> {
-    let limit = calculate_limit(expected_size);
-    bincode::options()
-        .with_limit(limit)
-        .deserialize_from(reader)
-}
-
-/// Calculate the size limit for a given input size
-#[inline]
-fn calculate_limit(input_size: u64) -> u64 {
-    let expanded = input_size.saturating_mul(MAX_EXPANSION_FACTOR);
-    expanded.clamp(MIN_SIZE_LIMIT, MAX_SIZE_LIMIT)
+    mut reader: R,
+    _expected_size: u64,
+) -> Result<T, bincode::error::DecodeError> {
+    bincode::serde::decode_from_std_read(&mut reader, limited_config())
 }
 
 #[cfg(test)]
@@ -86,17 +104,11 @@ mod tests {
         values: Vec<u32>,
     }
 
-    /// Serialize using the same options as deserialize for consistent roundtrip
-    fn serialize_with_options<T: Serialize>(value: &T) -> Result<Vec<u8>, bincode::Error> {
-        bincode::options().serialize(value)
-    }
-
     #[test]
     fn test_deserialize_valid() {
         let original = TestStruct { name: "test".to_owned(), values: vec![1, 2, 3, 4, 5] };
 
-        // Use options() for serialization to match deserialization config
-        let bytes = serialize_with_options(&original).unwrap();
+        let bytes = serialize(&original).unwrap();
         let restored: TestStruct = deserialize_with_limit(&bytes).unwrap();
 
         assert_eq!(original, restored);
@@ -105,31 +117,17 @@ mod tests {
     #[test]
     fn test_deserialize_empty() {
         let original: Vec<u8> = Vec::new();
-        let bytes = serialize_with_options(&original).unwrap();
+        let bytes = serialize(&original).unwrap();
         let restored: Vec<u8> = deserialize_with_limit(&bytes).unwrap();
 
         assert_eq!(original, restored);
     }
 
     #[test]
-    fn test_calculate_limit() {
-        // Small input gets MIN_SIZE_LIMIT
-        assert_eq!(calculate_limit(100), MIN_SIZE_LIMIT);
-
-        // Medium input gets expanded
-        let medium = 10 * 1024 * 1024; // 10MB
-        assert_eq!(calculate_limit(medium), medium * MAX_EXPANSION_FACTOR);
-
-        // Large input gets MAX_SIZE_LIMIT
-        let huge = 10 * 1024 * 1024 * 1024; // 10GB
-        assert_eq!(calculate_limit(huge), MAX_SIZE_LIMIT);
-    }
-
-    #[test]
     fn test_deserialize_from_reader() {
         let original = TestStruct { name: "reader_test".to_owned(), values: vec![10, 20, 30] };
 
-        let bytes = serialize_with_options(&original).unwrap();
+        let bytes = serialize(&original).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let restored: TestStruct = deserialize_from_with_limit(cursor, bytes.len() as u64).unwrap();
 
