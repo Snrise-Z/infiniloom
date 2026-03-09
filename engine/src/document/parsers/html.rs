@@ -272,10 +272,20 @@ fn extract_meta_tags(html: &str, metadata: &mut DocumentMetadata) {
 }
 
 fn extract_attr(tag: &str, attr: &str) -> Option<String> {
-    let pattern = format!("{}=\"", attr);
-    let start = tag.find(&pattern)? + pattern.len();
-    let end = tag[start..].find('"')? + start;
-    Some(tag[start..end].to_owned())
+    // Try double-quoted first, then single-quoted
+    let dq_pattern = format!("{}=\"", attr);
+    if let Some(dq_start) = tag.find(&dq_pattern) {
+        let start = dq_start + dq_pattern.len();
+        let end = tag[start..].find('"')? + start;
+        return Some(tag[start..end].to_owned());
+    }
+    let sq_pattern = format!("{}='", attr);
+    if let Some(sq_start) = tag.find(&sq_pattern) {
+        let start = sq_start + sq_pattern.len();
+        let end = tag[start..].find('\'')? + start;
+        return Some(tag[start..end].to_owned());
+    }
+    None
 }
 
 fn strip_tags(html: &str) -> String {
@@ -334,7 +344,7 @@ fn extract_list_items(html: &str) -> Vec<ListItem> {
             if !decoded.trim().is_empty() {
                 items.push(ListItem { text: decoded.trim().to_owned(), children: None });
             }
-            pos = end + 5;
+            pos = (end + 5).min(html.len());
         } else {
             break;
         }
@@ -358,7 +368,7 @@ fn extract_table(html: &str) -> Option<Table> {
                 .map_or(html.len(), |e| content_start + e);
             let text = strip_tags(&html[content_start..end]);
             headers.push(decode_entities(&text).trim().to_owned());
-            pos = end + 5;
+            pos = (end + 5).min(html.len());
         } else {
             break;
         }
@@ -387,7 +397,7 @@ fn extract_table(html: &str) -> Option<Table> {
                         .map_or(tr_html.len(), |e| content_start + e);
                     let text = strip_tags(&tr_html[content_start..td_end]);
                     cells.push(decode_entities(&text).trim().to_owned());
-                    td_pos = td_end + 5;
+                    td_pos = (td_end + 5).min(tr_html.len());
                 } else {
                     break;
                 }
@@ -396,7 +406,7 @@ fn extract_table(html: &str) -> Option<Table> {
                 rows.push(cells);
             }
         }
-        pos = tr_end + 5;
+        pos = (tr_end + 5).min(html.len());
     }
 
     if headers.is_empty() && rows.is_empty() {

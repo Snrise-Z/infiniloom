@@ -1229,3 +1229,36 @@ def second(): # Line 6
         assert!(s.start_line > f.start_line, "second() should be after first()");
     }
 }
+
+// ============================================================================
+// HCL/Terraform Tests
+// ============================================================================
+
+#[test]
+fn test_hcl_single_label_block() {
+    let code = r#"
+variable "instance_type" {
+  default = "t2.micro"
+}
+
+output "public_ip" {
+  value = aws_instance.web.public_ip
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+    assert!(!symbols.is_empty(), "HCL parser should extract symbols from single-label blocks");
+}
+
+#[test]
+fn test_hcl_double_label_block() {
+    let code = r#"
+resource "aws_instance" "web" {
+  ami           = "ami-12345"
+  instance_type = "t2.micro"
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+    assert!(!symbols.is_empty(), "HCL parser should extract symbols from double-label blocks");
+}

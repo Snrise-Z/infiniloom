@@ -44,35 +44,39 @@ pub fn compress_text(text: &str) -> String {
     let mut result = text.to_owned();
 
     for &(pattern, replacement) in FILLER_PATTERNS {
-        // Case-insensitive replacement
-        let lower = result.to_lowercase();
-        let pat_lower = pattern;
-        if let Some(pos) = lower.find(pat_lower) {
-            let end_pos = pos + pattern.len();
+        // Case-insensitive replacement of ALL occurrences
+        loop {
+            let lower = result.to_lowercase();
+            let pat_lower = pattern;
+            if let Some(pos) = lower.find(pat_lower) {
+                let end_pos = pos + pattern.len();
 
-            // If replacement is empty and pattern was at sentence start,
-            // capitalize the next word
-            let new_result = if replacement.is_empty() {
-                let before = &result[..pos];
-                let after = &result[end_pos..];
-                let after = capitalize_first_alpha(after);
-                format!("{before}{after}")
-            } else {
-                let before = &result[..pos];
-                let after = &result[end_pos..];
-                // Preserve original casing for the first character if at sentence start
-                let rep = if pos == 0
-                    || result[..pos].ends_with(". ")
-                    || result[..pos].ends_with(".\n")
-                {
-                    capitalize_first(replacement)
+                // If replacement is empty and pattern was at sentence start,
+                // capitalize the next word
+                let new_result = if replacement.is_empty() {
+                    let before = &result[..pos];
+                    let after = &result[end_pos..];
+                    let after = capitalize_first_alpha(after);
+                    format!("{before}{after}")
                 } else {
-                    replacement.to_owned()
+                    let before = &result[..pos];
+                    let after = &result[end_pos..];
+                    // Preserve original casing for the first character if at sentence start
+                    let rep = if pos == 0
+                        || result[..pos].ends_with(". ")
+                        || result[..pos].ends_with(".\n")
+                    {
+                        capitalize_first(replacement)
+                    } else {
+                        replacement.to_owned()
+                    };
+                    format!("{before}{rep}{after}")
                 };
-                format!("{before}{rep}{after}")
-            };
 
-            result = new_result;
+                result = new_result;
+            } else {
+                break;
+            }
         }
     }
 
