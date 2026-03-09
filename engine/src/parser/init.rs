@@ -160,12 +160,14 @@ pub fn elixir() -> Result<TSParser, ParserError> {
 }
 
 /// Initialize Clojure parser
+///
+/// NOTE: Clojure support is unavailable because tree-sitter-clojure 0.1.0
+/// depends on tree-sitter ^0.25 (normal dep), which conflicts with tree-sitter 0.26.
+/// No compatible version exists on crates.io as of 2026-03-08.
 pub fn clojure() -> Result<TSParser, ParserError> {
-    let mut parser = TSParser::new();
-    parser
-        .set_language(&tree_sitter_clojure::LANGUAGE.into())
-        .map_err(|e| ParserError::ParseError(e.to_string()))?;
-    Ok(parser)
+    Err(ParserError::UnsupportedLanguage(
+        "Clojure (tree-sitter-clojure incompatible with tree-sitter 0.26)".to_owned(),
+    ))
 }
 
 /// Initialize OCaml parser
@@ -295,7 +297,9 @@ mod tests {
 
     #[test]
     fn test_clojure_init() {
-        assert!(clojure().is_ok());
+        // Clojure is expected to return an error since tree-sitter-clojure
+        // is incompatible with tree-sitter 0.26
+        assert!(clojure().is_err());
     }
 
     #[test]

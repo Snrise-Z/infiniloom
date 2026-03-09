@@ -966,45 +966,20 @@ pub fn elixir_super_query() -> Result<Query, ParserError> {
 // Clojure
 // ==========================================================================
 
+/// NOTE: Clojure queries are unavailable because tree-sitter-clojure 0.1.0
+/// depends on tree-sitter ^0.25 (normal dep), which conflicts with tree-sitter 0.26.
 pub fn clojure_query() -> Result<Query, ParserError> {
-    let query_string = r#"
-        (list_lit
-          (sym_lit) @_type
-          (#match? @_type "^(defn|defn-|defmacro)$")
-          (sym_lit) @name) @function
-
-        (list_lit
-          (sym_lit) @_type
-          (#match? @_type "^(defrecord|deftype|defprotocol)$")
-          (sym_lit) @name) @class
-    "#;
-
-    Query::new(&tree_sitter_clojure::LANGUAGE.into(), query_string)
-        .map_err(|e| ParserError::QueryError(e.to_string()))
+    Err(ParserError::QueryError(
+        "Clojure queries unavailable: tree-sitter-clojure incompatible with tree-sitter 0.26"
+            .to_owned(),
+    ))
 }
 
 pub fn clojure_super_query() -> Result<Query, ParserError> {
-    let query_string = r#"
-        ; Functions
-        (list_lit
-          (sym_lit) @_type
-          (#match? @_type "^(defn|defn-|defmacro)$")
-          (sym_lit) @name) @function
-
-        ; Records/Types/Protocols
-        (list_lit
-          (sym_lit) @_type
-          (#match? @_type "^(defrecord|deftype|defprotocol)$")
-          (sym_lit) @name) @class
-
-        ; Namespace (imports)
-        (list_lit
-          (sym_lit) @_type
-          (#match? @_type "^(ns|require|use|import)$")) @import
-    "#;
-
-    Query::new(&tree_sitter_clojure::LANGUAGE.into(), query_string)
-        .map_err(|e| ParserError::QueryError(e.to_string()))
+    Err(ParserError::QueryError(
+        "Clojure queries unavailable: tree-sitter-clojure incompatible with tree-sitter 0.26"
+            .to_owned(),
+    ))
 }
 
 // ==========================================================================
@@ -1286,8 +1261,10 @@ mod tests {
 
     #[test]
     fn test_clojure_queries() {
-        assert!(clojure_query().is_ok());
-        assert!(clojure_super_query().is_ok());
+        // Clojure queries are expected to return errors since tree-sitter-clojure
+        // is incompatible with tree-sitter 0.26
+        assert!(clojure_query().is_err());
+        assert!(clojure_super_query().is_err());
     }
 
     #[test]

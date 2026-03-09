@@ -42,7 +42,8 @@ fn test_tree_sitter_abi_compatibility() {
     assert_abi_compatible("scala", tree_sitter_scala::LANGUAGE.into());
     assert_abi_compatible("haskell", tree_sitter_haskell::LANGUAGE.into());
     assert_abi_compatible("elixir", tree_sitter_elixir::LANGUAGE.into());
-    assert_abi_compatible("clojure", tree_sitter_clojure::LANGUAGE.into());
+    // tree-sitter-clojure removed: incompatible with tree-sitter 0.26
+    // assert_abi_compatible("clojure", tree_sitter_clojure::LANGUAGE.into());
     assert_abi_compatible("ocaml", tree_sitter_ocaml::LANGUAGE_OCAML.into());
     assert_abi_compatible("lua", tree_sitter_lua::LANGUAGE.into());
     assert_abi_compatible("r", tree_sitter_r::LANGUAGE.into());
