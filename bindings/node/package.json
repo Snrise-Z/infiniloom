@@ -71,10 +71,10 @@
     "version": "napi version"
   },
   "dependencies": {
-    "zod": "^3.23.0"
+    "zod": "^4.3.0"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0",
+    "@napi-rs/cli": "^3.5.0",
     "typescript": "^5.3.0"
   },
   "files": [

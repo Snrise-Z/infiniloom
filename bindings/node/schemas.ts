@@ -463,7 +463,7 @@ export function validatePackOptions(input: unknown): PackOptions {
 /**
  * Safely validate pack options, returns result object
  */
-export function safeValidatePackOptions(input: unknown): z.SafeParseReturnType<unknown, PackOptions> {
+export function safeValidatePackOptions(input: unknown): z.ZodSafeParseResult<PackOptions> {
   return PackOptionsSchema.safeParse(input);
 }
 
@@ -478,7 +478,7 @@ export function validateScanOptions(input: unknown): ScanOptions {
 /**
  * Safely validate scan options
  */
-export function safeValidateScanOptions(input: unknown): z.SafeParseReturnType<unknown, ScanOptions> {
+export function safeValidateScanOptions(input: unknown): z.ZodSafeParseResult<ScanOptions> {
   return ScanOptionsSchema.safeParse(input);
 }
 
@@ -493,7 +493,7 @@ export function validateChunkOptions(input: unknown): ChunkOptions {
 /**
  * Safely validate chunk options
  */
-export function safeValidateChunkOptions(input: unknown): z.SafeParseReturnType<unknown, ChunkOptions> {
+export function safeValidateChunkOptions(input: unknown): z.ZodSafeParseResult<ChunkOptions> {
   return ChunkOptionsSchema.safeParse(input);
 }
 
@@ -508,7 +508,7 @@ export function validateEmbedOptions(input: unknown): EmbedOptions {
 /**
  * Safely validate embed options
  */
-export function safeValidateEmbedOptions(input: unknown): z.SafeParseReturnType<unknown, EmbedOptions> {
+export function safeValidateEmbedOptions(input: unknown): z.ZodSafeParseResult<EmbedOptions> {
   return EmbedOptionsSchema.safeParse(input);
 }
 
@@ -523,7 +523,7 @@ export function validateIndexOptions(input: unknown): IndexOptions {
 /**
  * Safely validate index options
  */
-export function safeValidateIndexOptions(input: unknown): z.SafeParseReturnType<unknown, IndexOptions> {
+export function safeValidateIndexOptions(input: unknown): z.ZodSafeParseResult<IndexOptions> {
   return IndexOptionsSchema.safeParse(input);
 }
 
@@ -538,7 +538,7 @@ export function validateDiffContextOptions(input: unknown): DiffContextOptions {
 /**
  * Safely validate diff context options
  */
-export function safeValidateDiffContextOptions(input: unknown): z.SafeParseReturnType<unknown, DiffContextOptions> {
+export function safeValidateDiffContextOptions(input: unknown): z.ZodSafeParseResult<DiffContextOptions> {
   return DiffContextOptionsSchema.safeParse(input);
 }
 
@@ -553,7 +553,7 @@ export function validateImpactOptions(input: unknown): ImpactOptions {
 /**
  * Safely validate impact options
  */
-export function safeValidateImpactOptions(input: unknown): z.SafeParseReturnType<unknown, ImpactOptions> {
+export function safeValidateImpactOptions(input: unknown): z.ZodSafeParseResult<ImpactOptions> {
   return ImpactOptionsSchema.safeParse(input);
 }
 
