@@ -17,7 +17,7 @@ infiniloom-engine = { path = "../../engine" }
 infiniloom-bindings-common = { path = "../common" }
 
 # PyO3 for Python bindings
-pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py38"] }
 
 # Error handling
 anyhow = "1.0"

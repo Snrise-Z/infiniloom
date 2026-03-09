@@ -6,7 +6,7 @@
 
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyList, PyModule};
 use std::path::PathBuf;
 
 // Import from infiniloom-bindings-common
@@ -15,24 +15,29 @@ use infiniloom_bindings_common::{
     apply_compression,
     apply_default_ignores,
     file_priority_score,
+    // Diff utilities
+    find_call_site_in_body as common_find_call_site_in_body,
     format_file_status,
+    // Time utilities
+    format_timestamp,
+    get_line_context as common_get_line_context,
     parse_compression,
     parse_format,
     parse_model,
     prepare_repository,
+    reconstruct_diff_from_hunks as common_reconstruct_diff_from_hunks,
     // Scanner from common crate
     scan_repository,
     ScanConfig,
-    // Time utilities
-    format_timestamp,
-    // Diff utilities
-    find_call_site_in_body as common_find_call_site_in_body,
-    get_line_context as common_get_line_context,
-    reconstruct_diff_from_hunks as common_reconstruct_diff_from_hunks,
 };
 
 // Import from infiniloom-engine
 use infiniloom_engine::{
+    // Embedding module
+    embedding::{
+        EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings, QuietProgress,
+        ResourceLimits, MANIFEST_VERSION,
+    },
     git::{
         ChangedFile, DiffHunk as EngineGitDiffHunk, FileStatus as EngineFileStatus,
         GitRepo as EngineGitRepo,
@@ -61,11 +66,6 @@ use infiniloom_engine::{
         IndexStorage,
         ReferenceInfo as EngineReferenceInfo,
         SymbolInfo as EngineSymbolInfo,
-    },
-    // Embedding module
-    embedding::{
-        EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings,
-        QuietProgress, ResourceLimits, MANIFEST_VERSION,
     },
     tokenizer::TokenModel,
     ChunkStrategy,
@@ -356,7 +356,7 @@ fn scan(
     include_hidden: bool,
     respect_gitignore: bool,
     exclude: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
 
     // Check if path exists
@@ -385,9 +385,7 @@ fn scan(
                 !patterns.iter().any(|pattern| {
                     f.relative_path.contains(pattern)
                         || f.relative_path.starts_with(pattern)
-                        || f.relative_path
-                            .split('/')
-                            .any(|part| part == pattern)
+                        || f.relative_path.split('/').any(|part| part == pattern)
                 })
             });
             repo.metadata.total_files = repo.files.len() as u32;
@@ -432,7 +430,7 @@ fn scan(
             lang_dict.set_item("percentage", lang.percentage).unwrap();
             lang_dict
         }),
-    );
+    )?;
     dict.set_item("languages", languages)?;
 
     // Optional metadata
@@ -486,7 +484,7 @@ fn count_tokens(text: &str, model: &str) -> PyResult<u32> {
 ///     >>> for finding in findings:
 ///     ...     print(finding["severity"], finding["message"])
 #[pyfunction]
-fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
+fn scan_security(py: Python, path: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
 
     // STEP 1: Fast scan without reading content (for filtering)
@@ -495,7 +493,7 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
         respect_gitignore: true,
         read_contents: false, // Don't read content yet - filter first!
         max_file_size: 10 * 1024 * 1024, // 10MB for security scan
-        skip_symbols: true,              // Fast mode for security scan
+        skip_symbols: true,   // Fast mode for security scan
     };
 
     let mut repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
@@ -531,7 +529,7 @@ fn scan_security(py: Python, path: &str) -> PyResult<PyObject> {
             dict.set_item("pattern", &finding.pattern).unwrap();
             dict
         }),
-    );
+    )?;
 
     Ok(results.into())
 }
@@ -618,7 +616,7 @@ impl Infiniloom {
     }
 
     /// Get repository statistics
-    fn stats(&mut self, py: Python) -> PyResult<PyObject> {
+    fn stats(&mut self, py: Python) -> PyResult<Py<PyAny>> {
         if self.repo.is_none() {
             self.load(false, true)?;
         }
@@ -698,7 +696,7 @@ impl Infiniloom {
 
     /// Get the repository map
     #[pyo3(signature = (map_budget=2000, max_symbols=50))]
-    fn map(&mut self, py: Python, map_budget: u32, max_symbols: usize) -> PyResult<PyObject> {
+    fn map(&mut self, py: Python, map_budget: u32, max_symbols: usize) -> PyResult<Py<PyAny>> {
         if self.repo.is_none() {
             self.load(false, true)?;
         }
@@ -737,14 +735,14 @@ impl Infiniloom {
                 }
                 sym_dict
             }),
-        );
+        )?;
         dict.set_item("key_symbols", symbols)?;
 
         Ok(dict.into())
     }
 
     /// Scan for security issues
-    fn scan_security(&mut self, py: Python) -> PyResult<PyObject> {
+    fn scan_security(&mut self, py: Python) -> PyResult<Py<PyAny>> {
         if self.repo.is_none() {
             self.load(false, true)?;
         }
@@ -773,13 +771,13 @@ impl Infiniloom {
                 dict.set_item("pattern", &finding.pattern).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(results.into())
     }
 
     /// Get list of files in the repository
-    fn files(&mut self, py: Python) -> PyResult<PyObject> {
+    fn files(&mut self, py: Python) -> PyResult<Py<PyAny>> {
         if self.repo.is_none() {
             self.load(false, true)?;
         }
@@ -799,7 +797,7 @@ impl Infiniloom {
                 dict.set_item("importance", file.importance).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(files.into())
     }
@@ -889,7 +887,7 @@ impl GitRepo {
     /// Returns:
     ///     List of dicts with keys: path, old_path (for renames), status
     ///     Status is one of: "Added", "Modified", "Deleted", "Renamed", "Copied", "Unknown"
-    fn status(&self, py: Python) -> PyResult<PyObject> {
+    fn status(&self, py: Python) -> PyResult<Py<PyAny>> {
         let files = self.inner.status().map_err(to_py_err)?;
 
         let result = PyList::new(
@@ -904,7 +902,7 @@ impl GitRepo {
                     .unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(result.into())
     }
@@ -918,7 +916,7 @@ impl GitRepo {
     /// Returns:
     ///     List of dicts with: path, old_path, status, additions, deletions
     #[pyo3(signature = (from_ref, to_ref))]
-    fn diff_files(&self, py: Python, from_ref: &str, to_ref: &str) -> PyResult<PyObject> {
+    fn diff_files(&self, py: Python, from_ref: &str, to_ref: &str) -> PyResult<Py<PyAny>> {
         let files = self.inner.diff_files(from_ref, to_ref).map_err(to_py_err)?;
 
         let result = PyList::new(
@@ -935,7 +933,7 @@ impl GitRepo {
                 dict.set_item("deletions", f.deletions).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(result.into())
     }
@@ -948,7 +946,7 @@ impl GitRepo {
     /// Returns:
     ///     List of dicts with: hash, short_hash, author, email, date, message
     #[pyo3(signature = (count=10))]
-    fn log(&self, py: Python, count: usize) -> PyResult<PyObject> {
+    fn log(&self, py: Python, count: usize) -> PyResult<Py<PyAny>> {
         let commits = self.inner.log(count).map_err(to_py_err)?;
 
         let result = PyList::new(
@@ -963,7 +961,7 @@ impl GitRepo {
                 dict.set_item("message", &c.message).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(result.into())
     }
@@ -977,7 +975,7 @@ impl GitRepo {
     /// Returns:
     ///     List of commits that modified the file
     #[pyo3(signature = (path, count=10))]
-    fn file_log(&self, py: Python, path: &str, count: usize) -> PyResult<PyObject> {
+    fn file_log(&self, py: Python, path: &str, count: usize) -> PyResult<Py<PyAny>> {
         let commits = self.inner.file_log(path, count).map_err(to_py_err)?;
 
         let result = PyList::new(
@@ -992,7 +990,7 @@ impl GitRepo {
                 dict.set_item("message", &c.message).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(result.into())
     }
@@ -1004,7 +1002,7 @@ impl GitRepo {
     ///
     /// Returns:
     ///     List of dicts with: commit, author, date, line_number
-    fn blame(&self, py: Python, path: &str) -> PyResult<PyObject> {
+    fn blame(&self, py: Python, path: &str) -> PyResult<Py<PyAny>> {
         let lines = self.inner.blame(path).map_err(to_py_err)?;
 
         let result = PyList::new(
@@ -1017,7 +1015,7 @@ impl GitRepo {
                 dict.set_item("line_number", l.line_number).unwrap();
                 dict
             }),
-        );
+        )?;
 
         Ok(result.into())
     }
@@ -1087,7 +1085,7 @@ impl GitRepo {
     ///
     /// Returns:
     ///     Dict with commit information
-    fn last_modified_commit(&self, py: Python, path: &str) -> PyResult<PyObject> {
+    fn last_modified_commit(&self, py: Python, path: &str) -> PyResult<Py<PyAny>> {
         let commit = self.inner.last_modified_commit(path).map_err(to_py_err)?;
 
         let dict = PyDict::new(py);
@@ -1166,13 +1164,13 @@ impl GitRepo {
         from_ref: &str,
         to_ref: &str,
         path: Option<&str>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let hunks = self
             .inner
             .diff_hunks(from_ref, to_ref, path)
             .map_err(to_py_err)?;
 
-        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)))?;
 
         Ok(result.into())
     }
@@ -1190,10 +1188,10 @@ impl GitRepo {
     ///     >>> hunks = repo.uncommitted_hunks("src/index.py")
     ///     >>> print(f"{len(hunks)} hunks with uncommitted changes")
     #[pyo3(signature = (path=None))]
-    fn uncommitted_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
+    fn uncommitted_hunks(&self, py: Python, path: Option<&str>) -> PyResult<Py<PyAny>> {
         let hunks = self.inner.uncommitted_hunks(path).map_err(to_py_err)?;
 
-        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)))?;
 
         Ok(result.into())
     }
@@ -1211,10 +1209,10 @@ impl GitRepo {
     ///     >>> hunks = repo.staged_hunks("src/index.py")
     ///     >>> print(f"{len(hunks)} hunks staged for commit")
     #[pyo3(signature = (path=None))]
-    fn staged_hunks(&self, py: Python, path: Option<&str>) -> PyResult<PyObject> {
+    fn staged_hunks(&self, py: Python, path: Option<&str>) -> PyResult<Py<PyAny>> {
         let hunks = self.inner.staged_hunks(path).map_err(to_py_err)?;
 
-        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)));
+        let result = PyList::new(py, hunks.iter().map(|h| convert_hunk_to_py(py, h)))?;
 
         Ok(result.into())
     }
@@ -1225,7 +1223,7 @@ impl GitRepo {
 }
 
 /// Convert an engine DiffHunk to a Python dict
-fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py pyo3::types::PyDict {
+fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> Bound<'py, PyDict> {
     let dict = PyDict::new(py);
     dict.set_item("old_start", hunk.old_start).unwrap();
     dict.set_item("old_count", hunk.old_count).unwrap();
@@ -1249,7 +1247,8 @@ fn convert_hunk_to_py<'py>(py: Python<'py>, hunk: &EngineGitDiffHunk) -> &'py py
             line_dict.set_item("content", &l.content).unwrap();
             line_dict
         }),
-    );
+    )
+    .unwrap();
     dict.set_item("lines", lines).unwrap();
 
     dict
@@ -1291,7 +1290,7 @@ fn build_index(
     max_file_size: Option<u64>,
     exclude: Option<Vec<String>>,
     incremental: bool,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1344,13 +1343,16 @@ fn build_index(
     // Feature #4: Incremental updates
     let (index, graph, files_updated) = if incremental && !force {
         // Load existing index if available
-        if let (Ok(existing_index), Ok(existing_graph)) = (storage.load_index(), storage.load_graph()) {
+        if let (Ok(existing_index), Ok(existing_graph)) =
+            (storage.load_index(), storage.load_graph())
+        {
             // Build with incremental support
             let builder = IndexBuilder::new(&path_buf).with_options(build_opts);
             let (new_index, new_graph) = builder.build().map_err(to_py_err)?;
 
             // Count files that changed (simplified - compare file counts)
-            let updated = (new_index.files.len() as i64 - existing_index.files.len() as i64).unsigned_abs() as u32;
+            let updated = (new_index.files.len() as i64 - existing_index.files.len() as i64)
+                .unsigned_abs() as u32;
 
             (new_index, new_graph, Some(updated))
         } else {
@@ -1401,7 +1403,7 @@ fn build_index(
 ///     >>> if status["exists"]:
 ///     ...     print(f"Index has {status['symbol_count']} symbols")
 #[pyfunction]
-fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
+fn index_status(py: Python, path: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1432,7 +1434,7 @@ fn index_status(py: Python, path: &str) -> PyResult<PyObject> {
 // ============================================================================
 
 /// Convert an engine SymbolInfo to a Python dict
-fn symbol_info_to_py<'py>(py: Python<'py>, s: &EngineSymbolInfo) -> &'py pyo3::types::PyDict {
+fn symbol_info_to_py<'py>(py: Python<'py>, s: &EngineSymbolInfo) -> Bound<'py, PyDict> {
     let dict = PyDict::new(py);
     dict.set_item("id", s.id).unwrap();
     dict.set_item("name", &s.name).unwrap();
@@ -1448,7 +1450,7 @@ fn symbol_info_to_py<'py>(py: Python<'py>, s: &EngineSymbolInfo) -> &'py pyo3::t
 }
 
 /// Convert an engine ReferenceInfo to a Python dict
-fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> &'py pyo3::types::PyDict {
+fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> Bound<'py, PyDict> {
     let dict = PyDict::new(py);
     dict.set_item("symbol", symbol_info_to_py(py, &r.symbol))
         .unwrap();
@@ -1457,11 +1459,11 @@ fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> &'py p
 }
 
 /// Convert an engine CallGraph to a Python dict
-fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::types::PyDict {
+fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> Bound<'py, PyDict> {
     let dict = PyDict::new(py);
 
     // Convert nodes
-    let nodes = PyList::new(py, g.nodes.iter().map(|n| symbol_info_to_py(py, n)));
+    let nodes = PyList::new(py, g.nodes.iter().map(|n| symbol_info_to_py(py, n))).unwrap();
     dict.set_item("nodes", nodes).unwrap();
 
     // Convert edges
@@ -1477,7 +1479,8 @@ fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::typ
             edge_dict.set_item("line", e.line).unwrap();
             edge_dict
         }),
-    );
+    )
+    .unwrap();
     dict.set_item("edges", edges).unwrap();
 
     // Convert stats
@@ -1511,7 +1514,7 @@ fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> &'py pyo3::typ
 ///     >>> symbols = infiniloom.find_symbol("/path/to/repo", "process_request")
 ///     >>> print(f"Found {len(symbols)} symbols named process_request")
 #[pyfunction]
-fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<PyObject> {
+fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1521,7 +1524,7 @@ fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<PyObject> {
 
     let results = engine_find_symbol(&index, name);
 
-    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)))?;
 
     Ok(list.into())
 }
@@ -1546,7 +1549,7 @@ fn find_symbol(py: Python, path: &str, name: &str) -> PyResult<PyObject> {
 ///     >>> for c in callers:
 ///     ...     print(f"  {c['name']} at {c['file']}:{c['line']}")
 #[pyfunction]
-fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1559,7 +1562,7 @@ fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
 
     let results = get_callers_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)))?;
 
     Ok(list.into())
 }
@@ -1584,7 +1587,7 @@ fn get_callers(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
 ///     >>> for c in callees:
 ///     ...     print(f"  {c['name']} at {c['file']}:{c['line']}")
 #[pyfunction]
-fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1597,7 +1600,7 @@ fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
 
     let results = get_callees_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)))?;
 
     Ok(list.into())
 }
@@ -1622,7 +1625,7 @@ fn get_callees(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> 
 ///     >>> for r in refs:
 ///     ...     print(f"  {r['kind']}: {r['symbol']['name']} at {r['symbol']['file']}:{r['symbol']['line']}")
 #[pyfunction]
-fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1635,7 +1638,7 @@ fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObjec
 
     let results = get_references_by_name(&index, &graph, symbol_name);
 
-    let list = PyList::new(py, results.iter().map(|r| reference_info_to_py(py, r)));
+    let list = PyList::new(py, results.iter().map(|r| reference_info_to_py(py, r)))?;
 
     Ok(list.into())
 }
@@ -1669,7 +1672,7 @@ fn get_call_graph(
     path: &str,
     max_nodes: Option<usize>,
     max_edges: Option<usize>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Bug fix: max_nodes=0 or max_edges=0 should return empty graph
     if max_nodes == Some(0) || max_edges == Some(0) {
         let empty_result = EngineCallGraph {
@@ -1729,7 +1732,7 @@ fn get_call_graph(
 ///     >>> else:
 ///     ...     print("No circular dependencies found")
 #[pyfunction]
-fn find_circular_dependencies(py: Python, path: &str) -> PyResult<PyObject> {
+fn find_circular_dependencies(py: Python, path: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1751,7 +1754,7 @@ fn find_circular_dependencies(py: Python, path: &str) -> PyResult<PyObject> {
             dict.set_item("length", cycle.length).unwrap();
             dict
         }),
-    );
+    )?;
 
     Ok(list.into())
 }
@@ -1783,11 +1786,7 @@ fn find_circular_dependencies(py: Python, path: &str) -> PyResult<PyObject> {
 ///     ...     print(f"  {sym['kind']} {sym['name']}")
 #[pyfunction]
 #[pyo3(signature = (path, file_path=None))]
-fn get_exported_symbols(
-    py: Python,
-    path: &str,
-    file_path: Option<&str>,
-) -> PyResult<PyObject> {
+fn get_exported_symbols(py: Python, path: &str, file_path: Option<&str>) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1800,7 +1799,7 @@ fn get_exported_symbols(
         None => engine_get_exported_symbols(&index),
     };
 
-    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)));
+    let list = PyList::new(py, results.iter().map(|s| symbol_info_to_py(py, s)))?;
 
     Ok(list.into())
 }
@@ -1810,7 +1809,11 @@ fn get_exported_symbols(
 // ============================================================================
 
 /// Helper function to check if a symbol matches the filter
-fn matches_filter(kind: &str, kinds: &Option<Vec<String>>, exclude_kinds: &Option<Vec<String>>) -> bool {
+fn matches_filter(
+    kind: &str,
+    kinds: &Option<Vec<String>>,
+    exclude_kinds: &Option<Vec<String>>,
+) -> bool {
     let kind_lower = kind.to_lowercase();
 
     // Check if symbol kind is in the allowed list
@@ -1860,7 +1863,7 @@ fn find_symbol_filtered(
     name: &str,
     kinds: Option<Vec<String>>,
     exclude_kinds: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1874,7 +1877,7 @@ fn find_symbol_filtered(
         .map(|s| symbol_info_to_py(py, &s))
         .collect();
 
-    Ok(PyList::new(py, results).into())
+    Ok(PyList::new(py, results)?.into())
 }
 
 /// Get all callers of a symbol with filtering
@@ -1903,7 +1906,7 @@ fn get_callers_filtered(
     symbol_name: &str,
     kinds: Option<Vec<String>>,
     exclude_kinds: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1920,7 +1923,7 @@ fn get_callers_filtered(
         .map(|s| symbol_info_to_py(py, &s))
         .collect();
 
-    Ok(PyList::new(py, results).into())
+    Ok(PyList::new(py, results)?.into())
 }
 
 /// Get all callees of a symbol with filtering
@@ -1949,7 +1952,7 @@ fn get_callees_filtered(
     symbol_name: &str,
     kinds: Option<Vec<String>>,
     exclude_kinds: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -1966,7 +1969,7 @@ fn get_callees_filtered(
         .map(|s| symbol_info_to_py(py, &s))
         .collect();
 
-    Ok(PyList::new(py, results).into())
+    Ok(PyList::new(py, results)?.into())
 }
 
 /// Get all references to a symbol with filtering
@@ -1995,7 +1998,7 @@ fn get_references_filtered(
     symbol_name: &str,
     kinds: Option<Vec<String>>,
     exclude_kinds: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
 
@@ -2012,7 +2015,7 @@ fn get_references_filtered(
         .map(|r| reference_info_to_py(py, &r))
         .collect();
 
-    Ok(PyList::new(py, results).into())
+    Ok(PyList::new(py, results)?.into())
 }
 
 // ============================================================================
@@ -2050,7 +2053,7 @@ fn chunk(
     model: &str,
     priority_first: bool,
     exclude: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Bug fix: Validate max_tokens - values below minimum are rejected
     // max_tokens=0 is ambiguous (could mean "no limit" or "return nothing")
     // max_tokens < 100 is impractical for any meaningful chunking
@@ -2061,7 +2064,8 @@ fn chunk(
     }
     if max_tokens < 100 {
         return Err(PyValueError::new_err(format!(
-            "max_tokens {} is too small. Minimum is 100 tokens for meaningful chunks.", max_tokens
+            "max_tokens {} is too small. Minimum is 100 tokens for meaningful chunks.",
+            max_tokens
         )));
     }
 
@@ -2106,9 +2110,7 @@ fn chunk(
                 !patterns.iter().any(|pattern| {
                     f.relative_path.contains(pattern)
                         || f.relative_path.starts_with(pattern)
-                        || f.relative_path
-                            .split('/')
-                            .any(|part| part == pattern)
+                        || f.relative_path.split('/').any(|part| part == pattern)
                 })
             });
             repo.metadata.total_files = repo.files.len() as u32;
@@ -2177,7 +2179,7 @@ fn chunk(
             dict.set_item("content", content).unwrap();
             dict
         }),
-    );
+    )?;
 
     Ok(results.into())
 }
@@ -2218,7 +2220,7 @@ fn analyze_impact(
     model: Option<&str>,
     exclude: Option<Vec<String>>,
     include: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Reserved for future use
     let _ = include_tests;
     let _ = model;
@@ -2322,7 +2324,7 @@ fn analyze_impact(
                 .unwrap();
             sym_dict
         }),
-    );
+    )?;
     dict.set_item("affected_symbols", symbols_list)?;
     dict.set_item("impact_level", impact_level)?;
     dict.set_item("summary", summary)?;
@@ -2372,7 +2374,7 @@ fn get_diff_context(
     model: Option<&str>,
     exclude: Option<Vec<String>>,
     include: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Reserved for future use
     let _ = model;
     let _ = exclude;
@@ -2412,7 +2414,11 @@ fn get_diff_context(
 
     // OPTIMIZATION: Get all hunks in one git call instead of per-file
     // This dramatically improves performance for diffs with many files
-    let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+    let from = if from_ref.is_empty() {
+        "HEAD"
+    } else {
+        from_ref
+    };
     let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
 
     let all_hunks: Vec<EngineGitDiffHunk> = if from_ref.is_empty() && to_ref.is_empty() {
@@ -2477,7 +2483,7 @@ fn get_diff_context(
     }
 
     // Try to expand context if index exists
-    let mut context_symbols: Vec<PyObject> = Vec::new();
+    let mut context_symbols: Vec<Py<PyAny>> = Vec::new();
     let mut related_tests: Vec<String> = Vec::new();
 
     // Bug fix: Same fixes as Node bindings for context expansion
@@ -2506,7 +2512,8 @@ fn get_diff_context(
                             if symbols.is_empty() {
                                 line_ranges = vec![(1, file_entry.lines.max(1))];
                             } else {
-                                line_ranges = symbols.iter()
+                                line_ranges = symbols
+                                    .iter()
                                     .map(|s| (s.span.start_line, s.span.end_line))
                                     .collect();
                             }
@@ -2547,7 +2554,7 @@ fn get_diff_context(
             if let Some(ref sig) = s.signature {
                 sym_dict.set_item("signature", sig)?;
             }
-            context_symbols.push(sym_dict.into());
+            context_symbols.push(sym_dict.unbind().into_any());
         }
 
         related_tests = context
@@ -2680,14 +2687,18 @@ fn get_changed_symbols_filtered(
     to_ref: &str,
     kinds: Option<Vec<String>>,
     exclude_kinds: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
 
     let git_repo = EngineGitRepo::open(&path_buf).map_err(to_py_err)?;
     let storage = IndexStorage::new(&path_buf);
     let index = storage.load_index().map_err(to_py_err)?;
 
-    let from = if from_ref.is_empty() { "HEAD" } else { from_ref };
+    let from = if from_ref.is_empty() {
+        "HEAD"
+    } else {
+        from_ref
+    };
     let to = if to_ref.is_empty() { "HEAD" } else { to_ref };
 
     let changed_files = git_repo.diff_files(from, to).map_err(to_py_err)?;
@@ -2703,12 +2714,12 @@ fn get_changed_symbols_filtered(
         hunks_by_file.entry(&hunk.file).or_default().push(hunk);
     }
 
-    let kinds_set: Option<std::collections::HashSet<String>> = kinds
-        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
-    let exclude_set: Option<std::collections::HashSet<String>> = exclude_kinds
-        .map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+    let kinds_set: Option<std::collections::HashSet<String>> =
+        kinds.map(|v| v.iter().map(|s| s.to_lowercase()).collect());
+    let exclude_set: Option<std::collections::HashSet<String>> =
+        exclude_kinds.map(|v| v.iter().map(|s| s.to_lowercase()).collect());
 
-    let mut result: Vec<PyObject> = Vec::new();
+    let mut result: Vec<Py<PyAny>> = Vec::new();
     let mut seen_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
     for file in changed_files {
@@ -2757,7 +2768,7 @@ fn get_changed_symbols_filtered(
                     }
                     dict.set_item("visibility", format!("{:?}", sym.visibility).to_lowercase())?;
                     dict.set_item("change_type", file_change_type)?;
-                    result.push(dict.into());
+                    result.push(dict.unbind().into_any());
                 }
             }
             continue;
@@ -2800,13 +2811,13 @@ fn get_changed_symbols_filtered(
                     }
                     dict.set_item("visibility", format!("{:?}", sym.visibility).to_lowercase())?;
                     dict.set_item("change_type", "modified")?;
-                    result.push(dict.into());
+                    result.push(dict.unbind().into_any());
                 }
             }
         }
     }
 
-    Ok(PyList::new(py, result).into())
+    Ok(PyList::new(py, result)?.into())
 }
 
 /// Get all functions that eventually call a symbol (Feature #8)
@@ -2835,7 +2846,7 @@ fn get_transitive_callers(
     symbol_name: &str,
     max_depth: u32,
     max_results: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Bug fix: max_depth=0 should return empty results (no traversal)
     if max_depth == 0 {
         return Ok(PyList::empty(py).into());
@@ -2846,12 +2857,12 @@ fn get_transitive_callers(
     let index = storage.load_index().map_err(to_py_err)?;
     let graph = storage.load_graph().map_err(to_py_err)?;
 
-    let mut result: Vec<PyObject> = Vec::new();
+    let mut result: Vec<Py<PyAny>> = Vec::new();
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
     let target_symbols: Vec<_> = index.find_symbols(symbol_name);
     if target_symbols.is_empty() {
-        return Ok(PyList::new(py, result).into());
+        return Ok(PyList::new(py, result)?.into());
     }
 
     // BFS
@@ -2886,7 +2897,7 @@ fn get_transitive_callers(
                     dict.set_item("line", caller.span.start_line)?;
                     dict.set_item("depth", current_depth + 1)?;
                     dict.set_item("call_path", new_path.clone())?;
-                    result.push(dict.into());
+                    result.push(dict.unbind().into_any());
 
                     if current_depth + 1 < max_depth {
                         queue.push_back((caller_id, current_depth + 1, new_path));
@@ -2896,7 +2907,7 @@ fn get_transitive_callers(
         }
     }
 
-    Ok(PyList::new(py, result).into())
+    Ok(PyList::new(py, result)?.into())
 }
 
 /// Get call sites with surrounding code context (Feature #9)
@@ -2926,13 +2937,13 @@ fn get_call_sites_with_context(
     symbol_name: &str,
     lines_before: usize,
     lines_after: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
     let storage = IndexStorage::new(&path_buf);
     let index = storage.load_index().map_err(to_py_err)?;
     let graph = storage.load_graph().map_err(to_py_err)?;
 
-    let mut result: Vec<PyObject> = Vec::new();
+    let mut result: Vec<Py<PyAny>> = Vec::new();
     let mut seen_sites: std::collections::HashSet<(String, u32, u32, u32)> =
         std::collections::HashSet::new();
     let mut file_cache: std::collections::HashMap<String, Vec<String>> =
@@ -2992,12 +3003,12 @@ fn get_call_sites_with_context(
                 if let Some(end) = context_end {
                     dict.set_item("context_end_line", end)?;
                 }
-                result.push(dict.into());
+                result.push(dict.unbind().into_any());
             }
         }
     }
 
-    Ok(PyList::new(py, result).into())
+    Ok(PyList::new(py, result)?.into())
 }
 
 // ============================================================================
@@ -3005,7 +3016,7 @@ fn get_call_sites_with_context(
 // ============================================================================
 
 /// Convert an EmbedChunk to a Python dict
-fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::types::PyDict {
+fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyDict> {
     let dict = PyDict::new(py);
     dict.set_item("id", &chunk.id).unwrap();
     dict.set_item("full_hash", &chunk.full_hash).unwrap();
@@ -3016,7 +3027,9 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::typ
     // Source metadata
     let source = PyDict::new(py);
     source.set_item("file", &chunk.source.file).unwrap();
-    source.set_item("lines", (chunk.source.lines.0, chunk.source.lines.1)).unwrap();
+    source
+        .set_item("lines", (chunk.source.lines.0, chunk.source.lines.1))
+        .unwrap();
     source.set_item("symbol", &chunk.source.symbol).unwrap();
     if let Some(ref fqn) = chunk.source.fqn {
         source.set_item("fqn", fqn).unwrap();
@@ -3025,7 +3038,9 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::typ
     if let Some(ref parent) = chunk.source.parent {
         source.set_item("parent", parent).unwrap();
     }
-    source.set_item("visibility", chunk.source.visibility.name()).unwrap();
+    source
+        .set_item("visibility", chunk.source.visibility.name())
+        .unwrap();
     source.set_item("is_test", chunk.source.is_test).unwrap();
     dict.set_item("source", source).unwrap();
 
@@ -3035,22 +3050,32 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::typ
         context.set_item("docstring", docstring).unwrap();
     }
     if !chunk.context.comments.is_empty() {
-        context.set_item("comments", chunk.context.comments.clone()).unwrap();
+        context
+            .set_item("comments", chunk.context.comments.clone())
+            .unwrap();
     }
     if let Some(ref signature) = chunk.context.signature {
         context.set_item("signature", signature).unwrap();
     }
     if !chunk.context.calls.is_empty() {
-        context.set_item("calls", chunk.context.calls.clone()).unwrap();
+        context
+            .set_item("calls", chunk.context.calls.clone())
+            .unwrap();
     }
     if !chunk.context.called_by.is_empty() {
-        context.set_item("called_by", chunk.context.called_by.clone()).unwrap();
+        context
+            .set_item("called_by", chunk.context.called_by.clone())
+            .unwrap();
     }
     if !chunk.context.imports.is_empty() {
-        context.set_item("imports", chunk.context.imports.clone()).unwrap();
+        context
+            .set_item("imports", chunk.context.imports.clone())
+            .unwrap();
     }
     if !chunk.context.tags.is_empty() {
-        context.set_item("tags", chunk.context.tags.clone()).unwrap();
+        context
+            .set_item("tags", chunk.context.tags.clone())
+            .unwrap();
     }
     dict.set_item("context", context).unwrap();
 
@@ -3060,7 +3085,9 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> &'py pyo3::typ
         part_dict.set_item("part", part.part).unwrap();
         part_dict.set_item("of", part.of).unwrap();
         part_dict.set_item("parent_id", &part.parent_id).unwrap();
-        part_dict.set_item("parent_signature", &part.parent_signature).unwrap();
+        part_dict
+            .set_item("parent_signature", &part.parent_signature)
+            .unwrap();
         dict.set_item("part", part_dict).unwrap();
     }
 
@@ -3126,7 +3153,7 @@ fn embed(
     exclude_patterns: Option<Vec<String>>,
     manifest_path: Option<&str>,
     diff_only: bool,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
 
     // Validate path
@@ -3167,8 +3194,7 @@ fn embed(
         .map(PathBuf::from)
         .unwrap_or_else(|| path_buf.join(".infiniloom-embed.bin"));
 
-    let existing_manifest = EmbedManifest::load_if_exists(&manifest_path_buf)
-        .map_err(to_py_err)?;
+    let existing_manifest = EmbedManifest::load_if_exists(&manifest_path_buf).map_err(to_py_err)?;
 
     let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
 
@@ -3191,18 +3217,24 @@ fn embed(
     if diff_only {
         if let Some(ref d) = diff {
             // Return only changed chunks
-            let added = PyList::new(py, d.added.iter().map(|c| embed_chunk_to_py(py, c)));
-            let modified = PyList::new(py, d.modified.iter().map(|m| {
-                let chunk_dict = embed_chunk_to_py(py, &m.chunk);
-                chunk_dict.set_item("old_id", &m.old_id).unwrap();
-                chunk_dict
-            }));
-            let removed = PyList::new(py, d.removed.iter().map(|r| {
-                let rem_dict = PyDict::new(py);
-                rem_dict.set_item("id", &r.id).unwrap();
-                rem_dict.set_item("location_key", &r.location_key).unwrap();
-                rem_dict
-            }));
+            let added = PyList::new(py, d.added.iter().map(|c| embed_chunk_to_py(py, c)))?;
+            let modified = PyList::new(
+                py,
+                d.modified.iter().map(|m| {
+                    let chunk_dict = embed_chunk_to_py(py, &m.chunk);
+                    chunk_dict.set_item("old_id", &m.old_id).unwrap();
+                    chunk_dict
+                }),
+            )?;
+            let removed = PyList::new(
+                py,
+                d.removed.iter().map(|r| {
+                    let rem_dict = PyDict::new(py);
+                    rem_dict.set_item("id", &r.id).unwrap();
+                    rem_dict.set_item("location_key", &r.location_key).unwrap();
+                    rem_dict
+                }),
+            )?;
 
             let diff_dict = PyDict::new(py);
             diff_dict.set_item("added", added)?;
@@ -3213,11 +3245,11 @@ fn embed(
             dict.set_item("chunks", PyList::empty(py))?;
         } else {
             // No existing manifest, return all chunks
-            let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)));
+            let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)))?;
             dict.set_item("chunks", chunks_list)?;
         }
     } else {
-        let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)));
+        let chunks_list = PyList::new(py, chunks.iter().map(|c| embed_chunk_to_py(py, c)))?;
         dict.set_item("chunks", chunks_list)?;
     }
 
@@ -3236,12 +3268,8 @@ fn embed(
     dict.set_item("summary", summary)?;
 
     // Update and save manifest
-    let mut manifest = existing_manifest.unwrap_or_else(|| {
-        EmbedManifest::new(
-            path_buf.to_string_lossy().to_string(),
-            settings,
-        )
-    });
+    let mut manifest = existing_manifest
+        .unwrap_or_else(|| EmbedManifest::new(path_buf.to_string_lossy().to_string(), settings));
     manifest.update(&chunks).map_err(to_py_err)?;
     manifest.save(&manifest_path_buf).map_err(to_py_err)?;
 
@@ -3264,7 +3292,7 @@ fn embed(
 ///     >>> if manifest:
 ///     ...     print(f"Chunks: {manifest['chunk_count']}")
 #[pyfunction]
-fn load_embed_manifest(py: Python, path: &str) -> PyResult<PyObject> {
+fn load_embed_manifest(py: Python, path: &str) -> PyResult<Py<PyAny>> {
     let path_buf = PathBuf::from(path);
 
     match EmbedManifest::load_if_exists(&path_buf) {
@@ -3291,7 +3319,7 @@ fn load_embed_manifest(py: Python, path: &str) -> PyResult<PyObject> {
             dict.set_item("settings", settings)?;
 
             Ok(dict.into())
-        }
+        },
         Ok(None) => Ok(py.None()),
         Err(e) => Err(to_py_err(e)),
     }
@@ -3314,9 +3342,8 @@ fn load_embed_manifest(py: Python, path: &str) -> PyResult<PyObject> {
 fn delete_embed_manifest(path: &str) -> PyResult<bool> {
     let path_buf = PathBuf::from(path);
     if path_buf.exists() {
-        std::fs::remove_file(&path_buf).map_err(|e| {
-            InfiniloomError::new_err(format!("Failed to delete manifest: {}", e))
-        })?;
+        std::fs::remove_file(&path_buf)
+            .map_err(|e| InfiniloomError::new_err(format!("Failed to delete manifest: {}", e)))?;
         Ok(true)
     } else {
         Ok(false)
@@ -3392,7 +3419,7 @@ fn parse_analysis_language(lang: &str) -> PyResult<infiniloom_engine::parser::La
 ///     >>> print(doc["params"])
 #[pyfunction]
 #[pyo3(signature = (raw_doc, language="javascript"))]
-fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<PyObject> {
+fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::DocumentationExtractor;
 
     let lang = parse_analysis_language(language)?;
@@ -3409,21 +3436,24 @@ fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<
     }
 
     // Parameters
-    let params = PyList::new(py, doc.params.iter().map(|p| {
-        let param_dict = PyDict::new(py);
-        param_dict.set_item("name", &p.name).unwrap();
-        if let Some(ref type_info) = p.type_info {
-            param_dict.set_item("type_info", type_info).unwrap();
-        }
-        if let Some(ref desc) = p.description {
-            param_dict.set_item("description", desc).unwrap();
-        }
-        param_dict.set_item("is_optional", p.is_optional).unwrap();
-        if let Some(ref default) = p.default_value {
-            param_dict.set_item("default_value", default).unwrap();
-        }
-        param_dict
-    }));
+    let params = PyList::new(
+        py,
+        doc.params.iter().map(|p| {
+            let param_dict = PyDict::new(py);
+            param_dict.set_item("name", &p.name).unwrap();
+            if let Some(ref type_info) = p.type_info {
+                param_dict.set_item("type_info", type_info).unwrap();
+            }
+            if let Some(ref desc) = p.description {
+                param_dict.set_item("description", desc).unwrap();
+            }
+            param_dict.set_item("is_optional", p.is_optional).unwrap();
+            if let Some(ref default) = p.default_value {
+                param_dict.set_item("default_value", default).unwrap();
+            }
+            param_dict
+        }),
+    )?;
     dict.set_item("params", params)?;
 
     // Returns
@@ -3439,31 +3469,39 @@ fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<
     }
 
     // Throws
-    let throws = PyList::new(py, doc.throws.iter().map(|t| {
-        let throw_dict = PyDict::new(py);
-        throw_dict.set_item("exception_type", &t.exception_type).unwrap();
-        if let Some(ref desc) = t.description {
-            throw_dict.set_item("description", desc).unwrap();
-        }
-        throw_dict
-    }));
+    let throws = PyList::new(
+        py,
+        doc.throws.iter().map(|t| {
+            let throw_dict = PyDict::new(py);
+            throw_dict
+                .set_item("exception_type", &t.exception_type)
+                .unwrap();
+            if let Some(ref desc) = t.description {
+                throw_dict.set_item("description", desc).unwrap();
+            }
+            throw_dict
+        }),
+    )?;
     dict.set_item("throws", throws)?;
 
     // Examples
-    let examples = PyList::new(py, doc.examples.iter().map(|e| {
-        let ex_dict = PyDict::new(py);
-        if let Some(ref title) = e.title {
-            ex_dict.set_item("title", title).unwrap();
-        }
-        ex_dict.set_item("code", &e.code).unwrap();
-        if let Some(ref lang) = e.language {
-            ex_dict.set_item("language", lang).unwrap();
-        }
-        if let Some(ref output) = e.expected_output {
-            ex_dict.set_item("expected_output", output).unwrap();
-        }
-        ex_dict
-    }));
+    let examples = PyList::new(
+        py,
+        doc.examples.iter().map(|e| {
+            let ex_dict = PyDict::new(py);
+            if let Some(ref title) = e.title {
+                ex_dict.set_item("title", title).unwrap();
+            }
+            ex_dict.set_item("code", &e.code).unwrap();
+            if let Some(ref lang) = e.language {
+                ex_dict.set_item("language", lang).unwrap();
+            }
+            if let Some(ref output) = e.expected_output {
+                ex_dict.set_item("expected_output", output).unwrap();
+            }
+            ex_dict
+        }),
+    )?;
     dict.set_item("examples", examples)?;
 
     // Tags
@@ -3508,23 +3546,21 @@ fn extract_documentation(py: Python, raw_doc: &str, language: &str) -> PyResult<
 ///     >>> print(f"Found {len(dead_code['unused_exports'])} unused exports")
 #[pyfunction]
 #[pyo3(signature = (path, languages=None))]
-fn detect_dead_code(py: Python, path: &str, languages: Option<Vec<String>>) -> PyResult<PyObject> {
+fn detect_dead_code(py: Python, path: &str, languages: Option<Vec<String>>) -> PyResult<Py<PyAny>> {
     let _ = languages; // Reserved for future filtering
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     let mut detector = infiniloom_engine::analysis::DeadCodeDetector::new();
 
     for file in &repo.files {
-        let lang = file.language.as_ref()
+        let lang = file
+            .language
+            .as_ref()
             .and_then(|l| parse_analysis_language(l).ok())
             .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
         detector.add_file(&file.relative_path, &file.symbols, lang);
@@ -3534,63 +3570,78 @@ fn detect_dead_code(py: Python, path: &str, languages: Option<Vec<String>>) -> P
     let dict = PyDict::new(py);
 
     // Unused exports
-    let unused_exports = PyList::new(py, result.unused_exports.iter().map(|e| {
-        let ex_dict = PyDict::new(py);
-        ex_dict.set_item("name", &e.name).unwrap();
-        ex_dict.set_item("kind", &e.kind).unwrap();
-        ex_dict.set_item("file_path", &e.file_path).unwrap();
-        ex_dict.set_item("line", e.line).unwrap();
-        ex_dict.set_item("confidence", e.confidence as f64).unwrap();
-        ex_dict.set_item("reason", &e.reason).unwrap();
-        ex_dict
-    }));
+    let unused_exports = PyList::new(
+        py,
+        result.unused_exports.iter().map(|e| {
+            let ex_dict = PyDict::new(py);
+            ex_dict.set_item("name", &e.name).unwrap();
+            ex_dict.set_item("kind", &e.kind).unwrap();
+            ex_dict.set_item("file_path", &e.file_path).unwrap();
+            ex_dict.set_item("line", e.line).unwrap();
+            ex_dict.set_item("confidence", e.confidence as f64).unwrap();
+            ex_dict.set_item("reason", &e.reason).unwrap();
+            ex_dict
+        }),
+    )?;
     dict.set_item("unused_exports", unused_exports)?;
 
     // Unreachable code
-    let unreachable = PyList::new(py, result.unreachable_code.iter().map(|u| {
-        let un_dict = PyDict::new(py);
-        un_dict.set_item("file_path", &u.file_path).unwrap();
-        un_dict.set_item("start_line", u.start_line).unwrap();
-        un_dict.set_item("end_line", u.end_line).unwrap();
-        un_dict.set_item("snippet", &u.snippet).unwrap();
-        un_dict.set_item("reason", &u.reason).unwrap();
-        un_dict
-    }));
+    let unreachable = PyList::new(
+        py,
+        result.unreachable_code.iter().map(|u| {
+            let un_dict = PyDict::new(py);
+            un_dict.set_item("file_path", &u.file_path).unwrap();
+            un_dict.set_item("start_line", u.start_line).unwrap();
+            un_dict.set_item("end_line", u.end_line).unwrap();
+            un_dict.set_item("snippet", &u.snippet).unwrap();
+            un_dict.set_item("reason", &u.reason).unwrap();
+            un_dict
+        }),
+    )?;
     dict.set_item("unreachable_code", unreachable)?;
 
     // Unused private symbols
-    let unused_private = PyList::new(py, result.unused_private.iter().map(|s| {
-        let sym_dict = PyDict::new(py);
-        sym_dict.set_item("name", &s.name).unwrap();
-        sym_dict.set_item("kind", &s.kind).unwrap();
-        sym_dict.set_item("file_path", &s.file_path).unwrap();
-        sym_dict.set_item("line", s.line).unwrap();
-        sym_dict
-    }));
+    let unused_private = PyList::new(
+        py,
+        result.unused_private.iter().map(|s| {
+            let sym_dict = PyDict::new(py);
+            sym_dict.set_item("name", &s.name).unwrap();
+            sym_dict.set_item("kind", &s.kind).unwrap();
+            sym_dict.set_item("file_path", &s.file_path).unwrap();
+            sym_dict.set_item("line", s.line).unwrap();
+            sym_dict
+        }),
+    )?;
     dict.set_item("unused_private", unused_private)?;
 
     // Unused imports
-    let unused_imports = PyList::new(py, result.unused_imports.iter().map(|i| {
-        let imp_dict = PyDict::new(py);
-        imp_dict.set_item("name", &i.name).unwrap();
-        imp_dict.set_item("import_path", &i.import_path).unwrap();
-        imp_dict.set_item("file_path", &i.file_path).unwrap();
-        imp_dict.set_item("line", i.line).unwrap();
-        imp_dict
-    }));
+    let unused_imports = PyList::new(
+        py,
+        result.unused_imports.iter().map(|i| {
+            let imp_dict = PyDict::new(py);
+            imp_dict.set_item("name", &i.name).unwrap();
+            imp_dict.set_item("import_path", &i.import_path).unwrap();
+            imp_dict.set_item("file_path", &i.file_path).unwrap();
+            imp_dict.set_item("line", i.line).unwrap();
+            imp_dict
+        }),
+    )?;
     dict.set_item("unused_imports", unused_imports)?;
 
     // Unused variables
-    let unused_variables = PyList::new(py, result.unused_variables.iter().map(|v| {
-        let var_dict = PyDict::new(py);
-        var_dict.set_item("name", &v.name).unwrap();
-        var_dict.set_item("file_path", &v.file_path).unwrap();
-        var_dict.set_item("line", v.line).unwrap();
-        if let Some(ref scope) = v.scope {
-            var_dict.set_item("scope", scope).unwrap();
-        }
-        var_dict
-    }));
+    let unused_variables = PyList::new(
+        py,
+        result.unused_variables.iter().map(|v| {
+            let var_dict = PyDict::new(py);
+            var_dict.set_item("name", &v.name).unwrap();
+            var_dict.set_item("file_path", &v.file_path).unwrap();
+            var_dict.set_item("line", v.line).unwrap();
+            if let Some(ref scope) = v.scope {
+                var_dict.set_item("scope", scope).unwrap();
+            }
+            var_dict
+        }),
+    )?;
     dict.set_item("unused_variables", unused_variables)?;
 
     Ok(dict.into())
@@ -3621,16 +3672,17 @@ fn detect_dead_code(py: Python, path: &str, languages: Option<Vec<String>>) -> P
 ///     ...     print(f"{change['severity']}: {change['description']}")
 #[pyfunction]
 #[pyo3(signature = (path, old_ref, new_ref))]
-fn detect_breaking_changes(py: Python, path: &str, old_ref: &str, new_ref: &str) -> PyResult<PyObject> {
+fn detect_breaking_changes(
+    py: Python,
+    path: &str,
+    old_ref: &str,
+    new_ref: &str,
+) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::BreakingChangeDetector;
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
@@ -3650,28 +3702,35 @@ fn detect_breaking_changes(py: Python, path: &str, old_ref: &str, new_ref: &str)
     dict.set_item("new_ref", &report.new_ref)?;
 
     // Changes
-    let changes = PyList::new(py, report.changes.iter().map(|c| {
-        let change_dict = PyDict::new(py);
-        change_dict.set_item("change_type", format!("{:?}", c.change_type)).unwrap();
-        change_dict.set_item("symbol_name", &c.symbol_name).unwrap();
-        change_dict.set_item("symbol_kind", &c.symbol_kind).unwrap();
-        change_dict.set_item("file_path", &c.file_path).unwrap();
-        if let Some(line) = c.line {
-            change_dict.set_item("line", line).unwrap();
-        }
-        if let Some(ref old_sig) = c.old_signature {
-            change_dict.set_item("old_signature", old_sig).unwrap();
-        }
-        if let Some(ref new_sig) = c.new_signature {
-            change_dict.set_item("new_signature", new_sig).unwrap();
-        }
-        change_dict.set_item("description", &c.description).unwrap();
-        change_dict.set_item("severity", format!("{:?}", c.severity)).unwrap();
-        if let Some(ref hint) = c.migration_hint {
-            change_dict.set_item("migration_hint", hint).unwrap();
-        }
-        change_dict
-    }));
+    let changes = PyList::new(
+        py,
+        report.changes.iter().map(|c| {
+            let change_dict = PyDict::new(py);
+            change_dict
+                .set_item("change_type", format!("{:?}", c.change_type))
+                .unwrap();
+            change_dict.set_item("symbol_name", &c.symbol_name).unwrap();
+            change_dict.set_item("symbol_kind", &c.symbol_kind).unwrap();
+            change_dict.set_item("file_path", &c.file_path).unwrap();
+            if let Some(line) = c.line {
+                change_dict.set_item("line", line).unwrap();
+            }
+            if let Some(ref old_sig) = c.old_signature {
+                change_dict.set_item("old_signature", old_sig).unwrap();
+            }
+            if let Some(ref new_sig) = c.new_signature {
+                change_dict.set_item("new_signature", new_sig).unwrap();
+            }
+            change_dict.set_item("description", &c.description).unwrap();
+            change_dict
+                .set_item("severity", format!("{:?}", c.severity))
+                .unwrap();
+            if let Some(ref hint) = c.migration_hint {
+                change_dict.set_item("migration_hint", hint).unwrap();
+            }
+            change_dict
+        }),
+    )?;
     dict.set_item("changes", changes)?;
 
     // Summary
@@ -3719,23 +3778,21 @@ fn detect_breaking_changes(py: Python, path: &str, old_ref: &str, new_ref: &str)
 ///     ...     print(f"  Depth {ancestor['depth']}: {ancestor['name']}")
 #[pyfunction]
 #[pyo3(signature = (path, symbol_name))]
-fn get_type_hierarchy(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_type_hierarchy(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::TypeHierarchyBuilder;
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     let mut builder = TypeHierarchyBuilder::new();
 
     for file in &repo.files {
-        let lang = file.language.as_ref()
+        let lang = file
+            .language
+            .as_ref()
             .and_then(|l| parse_analysis_language(l).ok())
             .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
         builder.add_symbols(&file.symbols, &file.relative_path, lang);
@@ -3755,16 +3812,21 @@ fn get_type_hierarchy(py: Python, path: &str, symbol_name: &str) -> PyResult<PyO
     dict.set_item("implements", &hierarchy.implements)?;
 
     // Ancestors
-    let ancestors = PyList::new(py, hierarchy.ancestors.iter().map(|a| {
-        let ancestor_dict = PyDict::new(py);
-        ancestor_dict.set_item("name", &a.name).unwrap();
-        ancestor_dict.set_item("kind", format!("{:?}", a.kind)).unwrap();
-        ancestor_dict.set_item("depth", a.depth).unwrap();
-        if let Some(ref file_path) = a.file_path {
-            ancestor_dict.set_item("file_path", file_path).unwrap();
-        }
-        ancestor_dict
-    }));
+    let ancestors = PyList::new(
+        py,
+        hierarchy.ancestors.iter().map(|a| {
+            let ancestor_dict = PyDict::new(py);
+            ancestor_dict.set_item("name", &a.name).unwrap();
+            ancestor_dict
+                .set_item("kind", format!("{:?}", a.kind))
+                .unwrap();
+            ancestor_dict.set_item("depth", a.depth).unwrap();
+            if let Some(ref file_path) = a.file_path {
+                ancestor_dict.set_item("file_path", file_path).unwrap();
+            }
+            ancestor_dict
+        }),
+    )?;
     dict.set_item("ancestors", ancestors)?;
 
     dict.set_item("descendants", &hierarchy.descendants)?;
@@ -3791,23 +3853,21 @@ fn get_type_hierarchy(py: Python, path: &str, symbol_name: &str) -> PyResult<PyO
 ///     ...     print(f"{a['name']} (depth: {a['depth']})")
 #[pyfunction]
 #[pyo3(signature = (path, symbol_name))]
-fn get_type_ancestors(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_type_ancestors(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::TypeHierarchyBuilder;
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     let mut builder = TypeHierarchyBuilder::new();
 
     for file in &repo.files {
-        let lang = file.language.as_ref()
+        let lang = file
+            .language
+            .as_ref()
             .and_then(|l| parse_analysis_language(l).ok())
             .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
         builder.add_symbols(&file.symbols, &file.relative_path, lang);
@@ -3816,16 +3876,19 @@ fn get_type_ancestors(py: Python, path: &str, symbol_name: &str) -> PyResult<PyO
     // Use get_hierarchy() and extract ancestors from the result
     let hierarchy = builder.get_hierarchy(symbol_name);
 
-    let result = PyList::new(py, hierarchy.ancestors.iter().map(|a| {
-        let dict = PyDict::new(py);
-        dict.set_item("name", &a.name).unwrap();
-        dict.set_item("kind", format!("{:?}", a.kind)).unwrap();
-        dict.set_item("depth", a.depth).unwrap();
-        if let Some(ref file_path) = a.file_path {
-            dict.set_item("file_path", file_path).unwrap();
-        }
-        dict
-    }));
+    let result = PyList::new(
+        py,
+        hierarchy.ancestors.iter().map(|a| {
+            let dict = PyDict::new(py);
+            dict.set_item("name", &a.name).unwrap();
+            dict.set_item("kind", format!("{:?}", a.kind)).unwrap();
+            dict.set_item("depth", a.depth).unwrap();
+            if let Some(ref file_path) = a.file_path {
+                dict.set_item("file_path", file_path).unwrap();
+            }
+            dict
+        }),
+    )?;
 
     Ok(result.into())
 }
@@ -3847,23 +3910,21 @@ fn get_type_ancestors(py: Python, path: &str, symbol_name: &str) -> PyResult<PyO
 ///     >>> print(f"Types extending BaseService: {descendants}")
 #[pyfunction]
 #[pyo3(signature = (path, symbol_name))]
-fn get_type_descendants(py: Python, path: &str, symbol_name: &str) -> PyResult<PyObject> {
+fn get_type_descendants(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::TypeHierarchyBuilder;
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     let mut builder = TypeHierarchyBuilder::new();
 
     for file in &repo.files {
-        let lang = file.language.as_ref()
+        let lang = file
+            .language
+            .as_ref()
             .and_then(|l| parse_analysis_language(l).ok())
             .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
         builder.add_symbols(&file.symbols, &file.relative_path, lang);
@@ -3872,7 +3933,7 @@ fn get_type_descendants(py: Python, path: &str, symbol_name: &str) -> PyResult<P
     // Use get_hierarchy() and extract descendants from the result
     let hierarchy = builder.get_hierarchy(symbol_name);
 
-    Ok(PyList::new(py, hierarchy.descendants.iter()).into())
+    Ok(PyList::new(py, hierarchy.descendants.iter())?.into())
 }
 
 /// Get all types implementing an interface
@@ -3892,23 +3953,21 @@ fn get_type_descendants(py: Python, path: &str, symbol_name: &str) -> PyResult<P
 ///     >>> print(f"Types implementing Serializable: {implementors}")
 #[pyfunction]
 #[pyo3(signature = (path, interface_name))]
-fn get_implementors(py: Python, path: &str, interface_name: &str) -> PyResult<PyObject> {
+fn get_implementors(py: Python, path: &str, interface_name: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::TypeHierarchyBuilder;
 
     let path_buf = PathBuf::from(path);
 
-    let config = ScanConfig {
-        read_contents: true,
-        skip_symbols: false,
-        ..Default::default()
-    };
+    let config = ScanConfig { read_contents: true, skip_symbols: false, ..Default::default() };
 
     let repo = scan_repository(&path_buf, config).map_err(to_py_err)?;
 
     let mut builder = TypeHierarchyBuilder::new();
 
     for file in &repo.files {
-        let lang = file.language.as_ref()
+        let lang = file
+            .language
+            .as_ref()
             .and_then(|l| parse_analysis_language(l).ok())
             .unwrap_or(infiniloom_engine::parser::Language::JavaScript);
         builder.add_symbols(&file.symbols, &file.relative_path, lang);
@@ -3916,7 +3975,7 @@ fn get_implementors(py: Python, path: &str, interface_name: &str) -> PyResult<Py
 
     let implementors = builder.get_implementors(interface_name);
 
-    Ok(PyList::new(py, implementors.iter()).into())
+    Ok(PyList::new(py, implementors.iter())?.into())
 }
 
 // ============================================================================
@@ -3957,7 +4016,7 @@ fn get_implementors(py: Python, path: &str, interface_name: &str) -> PyResult<Py
 ///     >>> print(f"LOC: {metrics['loc']['source']}")
 #[pyfunction]
 #[pyo3(signature = (source, language="javascript"))]
-fn calculate_complexity(py: Python, source: &str, language: &str) -> PyResult<PyObject> {
+fn calculate_complexity(py: Python, source: &str, language: &str) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::calculate_complexity_from_source;
 
     let lang = parse_analysis_language(language)?;
@@ -4044,7 +4103,7 @@ fn check_complexity(
     max_cyclomatic: u32,
     max_cognitive: u32,
     max_nesting: u32,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     use infiniloom_engine::analysis::calculate_complexity_from_source;
 
     let lang = parse_analysis_language(language)?;
@@ -4083,7 +4142,7 @@ fn check_complexity(
     }
 
     dict.set_item("passed", violations.is_empty())?;
-    dict.set_item("violations", PyList::new(py, violations))?;
+    dict.set_item("violations", PyList::new(py, violations)?)?;
 
     // Include metrics
     let metrics_dict = PyDict::new(py);
@@ -4107,7 +4166,7 @@ fn check_complexity(
 
 /// Python module definition
 #[pymodule]
-fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _infiniloom(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     // Core Functions
@@ -4174,7 +4233,7 @@ fn _infiniloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<GitRepo>()?;
 
     // Exceptions
-    m.add("InfiniloomError", _py.get_type::<InfiniloomError>())?;
+    m.add("InfiniloomError", m.py().get_type::<InfiniloomError>())?;
 
     Ok(())
 }
