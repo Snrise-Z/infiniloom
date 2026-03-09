@@ -534,7 +534,12 @@ pub fn calculate_complexity_from_source(
         Language::Scala => tree_sitter_scala::LANGUAGE.into(),
         Language::Haskell => tree_sitter_haskell::LANGUAGE.into(),
         Language::Elixir => tree_sitter_elixir::LANGUAGE.into(),
-        Language::Clojure => tree_sitter_clojure::LANGUAGE.into(),
+        Language::Clojure => {
+            return Err(
+                "Clojure complexity analysis not available (tree-sitter-clojure incompatible with tree-sitter 0.26)"
+                    .to_owned(),
+            )
+        },
         Language::OCaml => tree_sitter_ocaml::LANGUAGE_OCAML.into(),
         Language::Lua => tree_sitter_lua::LANGUAGE.into(),
         Language::R => tree_sitter_r::LANGUAGE.into(),

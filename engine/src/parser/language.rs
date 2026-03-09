@@ -130,7 +130,9 @@ impl Language {
     /// Check if this language has full tree-sitter support
     #[must_use]
     pub const fn has_parser_support(self) -> bool {
-        !matches!(self, Self::FSharp)
+        // Clojure: tree-sitter-clojure 0.1.0 depends on tree-sitter ^0.25 (normal dep),
+        // which is incompatible with tree-sitter 0.26. No compatible version exists.
+        !matches!(self, Self::FSharp | Self::Clojure)
     }
 
     /// Get the tree-sitter language for this language
@@ -153,7 +155,7 @@ impl Language {
             Self::Scala => tree_sitter_scala::LANGUAGE.into(),
             Self::Haskell => tree_sitter_haskell::LANGUAGE.into(),
             Self::Elixir => tree_sitter_elixir::LANGUAGE.into(),
-            Self::Clojure => tree_sitter_clojure::LANGUAGE.into(),
+            Self::Clojure => return None, // tree-sitter-clojure incompatible with tree-sitter 0.26
             Self::OCaml => tree_sitter_ocaml::LANGUAGE_OCAML.into(),
             Self::Lua => tree_sitter_lua::LANGUAGE.into(),
             Self::R => tree_sitter_r::LANGUAGE.into(),
