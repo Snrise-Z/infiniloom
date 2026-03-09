@@ -128,6 +128,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_cell_to_string_variants() {
         assert_eq!(cell_to_string(&Data::Int(42)), "42");
         assert_eq!(cell_to_string(&Data::Float(3.14)), "3.14");
