@@ -158,7 +158,8 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
         | Language::FSharp
         | Language::Elixir
         | Language::Clojure
-        | Language::R => {
+        | Language::R
+        | Language::Hcl => {
             let start = node.start_byte();
             let mut end = start;
             for byte in &source_code.as_bytes()[start..] {
@@ -409,6 +410,7 @@ pub fn extract_docstring(node: Node<'_>, source_code: &str, language: Language) 
             }
             None
         },
+        Language::Hcl => None,
     }
 }
 
@@ -576,7 +578,8 @@ pub fn extract_visibility(node: Node<'_>, source_code: &str, language: Language)
         | Language::OCaml
         | Language::FSharp
         | Language::Lua
-        | Language::R => Visibility::Public,
+        | Language::R
+        | Language::Hcl => Visibility::Public,
     }
 }
 
@@ -690,7 +693,8 @@ pub fn find_body_node(node: Node<'_>, language: Language) -> Option<Node<'_>> {
         | Language::Clojure
         | Language::OCaml
         | Language::FSharp
-        | Language::R => {
+        | Language::R
+        | Language::Hcl => {
             return Some(node);
         },
         Language::Lua => {
@@ -870,7 +874,8 @@ fn collect_calls_recursive_with_depth(
         | Language::OCaml
         | Language::FSharp
         | Language::Lua
-        | Language::R => {
+        | Language::R
+        | Language::Hcl => {
             if kind == "function_call" || kind == "call" || kind == "application" {
                 node.children(&mut node.walk())
                     .find(|child| child.kind() == "identifier" || child.kind() == "variable")
@@ -1202,7 +1207,8 @@ pub fn is_builtin(name: &str, language: Language) -> bool {
         | Language::OCaml
         | Language::FSharp
         | Language::Lua
-        | Language::R => false,
+        | Language::R
+        | Language::Hcl => false,
     }
 }
 
@@ -1529,7 +1535,8 @@ pub fn extract_inheritance(
         | Language::OCaml
         | Language::FSharp
         | Language::Lua
-        | Language::R => {},
+        | Language::R
+        | Language::Hcl => {},
     }
 
     (extends, implements)

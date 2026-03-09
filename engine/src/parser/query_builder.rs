@@ -1149,6 +1149,35 @@ pub fn r_super_query() -> Result<Query, ParserError> {
         .map_err(|e| ParserError::QueryError(e.to_string()))
 }
 
+// ==========================================================================
+// HCL
+// ==========================================================================
+
+pub fn hcl_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        (block
+          (identifier) @type
+          (string_lit
+            (template_literal) @name)) @block
+    "#;
+
+    Query::new(&tree_sitter_hcl::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn hcl_super_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        ; Blocks with labels (resource, data, module, variable, output, etc.)
+        (block
+          (identifier) @type
+          (string_lit
+            (template_literal) @name)) @block
+    "#;
+
+    Query::new(&tree_sitter_hcl::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1286,5 +1315,11 @@ mod tests {
     fn test_r_queries() {
         assert!(r_query().is_ok());
         assert!(r_super_query().is_ok());
+    }
+
+    #[test]
+    fn test_hcl_queries() {
+        assert!(hcl_query().is_ok());
+        assert!(hcl_super_query().is_ok());
     }
 }

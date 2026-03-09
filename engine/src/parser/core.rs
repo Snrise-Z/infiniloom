@@ -153,6 +153,9 @@ impl Parser {
                 Language::R => {
                     (init::r()?, query_builder::r_query()?, query_builder::r_super_query()?)
                 },
+                Language::Hcl => {
+                    (init::hcl()?, query_builder::hcl_query()?, query_builder::hcl_super_query()?)
+                },
             };
             parser_entry.insert(parser);
             self.queries.insert(language, query);

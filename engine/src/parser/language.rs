@@ -32,6 +32,7 @@ pub enum Language {
     FSharp,
     Lua,
     R,
+    Hcl,
 }
 
 impl Language {
@@ -61,6 +62,7 @@ impl Language {
             "fs" | "fsi" | "fsx" | "fsscript" => Some(Self::FSharp),
             "lua" => Some(Self::Lua),
             "r" | "rmd" => Some(Self::R),
+            "tf" | "hcl" | "tfvars" => Some(Self::Hcl),
             _ => None,
         }
     }
@@ -91,6 +93,7 @@ impl Language {
             Self::FSharp => "fsharp",
             Self::Lua => "lua",
             Self::R => "r",
+            Self::Hcl => "hcl",
         }
     }
 
@@ -120,6 +123,7 @@ impl Language {
             Self::FSharp => "F#",
             Self::Lua => "Lua",
             Self::R => "R",
+            Self::Hcl => "HCL",
         }
     }
 
@@ -153,6 +157,7 @@ impl Language {
             Self::OCaml => tree_sitter_ocaml::LANGUAGE_OCAML.into(),
             Self::Lua => tree_sitter_lua::LANGUAGE.into(),
             Self::R => tree_sitter_r::LANGUAGE.into(),
+            Self::Hcl => tree_sitter_hcl::LANGUAGE.into(),
             Self::FSharp => return None,
         })
     }
@@ -182,6 +187,7 @@ impl Language {
             Self::OCaml => queries::OCAML,
             Self::Lua => queries::LUA,
             Self::R => queries::R,
+            Self::Hcl => queries::HCL,
             Self::FSharp => return None,
         })
     }
@@ -238,6 +244,7 @@ impl Language {
             Self::FSharp,
             Self::Lua,
             Self::R,
+            Self::Hcl,
         ]
     }
 
@@ -461,6 +468,7 @@ impl std::str::FromStr for Language {
             "fsharp" | "f#" | "fs" => Ok(Self::FSharp),
             "lua" => Ok(Self::Lua),
             "r" => Ok(Self::R),
+            "hcl" | "terraform" | "tf" => Ok(Self::Hcl),
             _ => Err(ParserError::UnsupportedLanguage(s.to_owned())),
         }
     }
@@ -511,7 +519,7 @@ mod tests {
     #[test]
     fn test_all_languages() {
         let all = Language::all();
-        assert_eq!(all.len(), 22);
+        assert_eq!(all.len(), 23);
         assert!(all.contains(&Language::Python));
         assert!(all.contains(&Language::Rust));
     }
@@ -554,5 +562,22 @@ mod tests {
 
         assert!(Language::Haskell.is_functional());
         assert!(!Language::Python.is_functional());
+    }
+
+    #[test]
+    fn test_hcl_language() {
+        assert_eq!(Language::from_extension("tf"), Some(Language::Hcl));
+        assert_eq!(Language::from_extension("hcl"), Some(Language::Hcl));
+        assert_eq!(Language::from_extension("tfvars"), Some(Language::Hcl));
+        assert_eq!(Language::Hcl.name(), "hcl");
+        assert_eq!(Language::Hcl.display_name(), "HCL");
+        assert!(Language::Hcl.has_parser_support());
+        assert!(Language::Hcl.tree_sitter_language().is_some());
+        assert!(Language::Hcl.query_string().is_some());
+        assert!(Language::Hcl.init_parser().is_ok());
+        assert!(Language::Hcl.create_query().is_ok());
+        assert_eq!("hcl".parse::<Language>().unwrap(), Language::Hcl);
+        assert_eq!("terraform".parse::<Language>().unwrap(), Language::Hcl);
+        assert_eq!("tf".parse::<Language>().unwrap(), Language::Hcl);
     }
 }

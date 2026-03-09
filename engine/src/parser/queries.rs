@@ -380,6 +380,14 @@ pub const R: &str = r#"
       value: (function_definition)) @function
 "#;
 
+/// HCL/Terraform symbol extraction query
+pub const HCL: &str = r#"
+    (block
+      (identifier) @type
+      (string_lit
+        (template_literal) @name)) @block
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,5 +418,6 @@ mod tests {
         assert!(!OCAML.is_empty());
         assert!(!LUA.is_empty());
         assert!(!R.is_empty());
+        assert!(!HCL.is_empty());
     }
 }

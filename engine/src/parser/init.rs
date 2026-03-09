@@ -195,6 +195,15 @@ pub fn r() -> Result<TSParser, ParserError> {
     Ok(parser)
 }
 
+/// Initialize HCL parser
+pub fn hcl() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&tree_sitter_hcl::LANGUAGE.into())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +311,10 @@ mod tests {
     #[test]
     fn test_r_init() {
         assert!(r().is_ok());
+    }
+
+    #[test]
+    fn test_hcl_init() {
+        assert!(hcl().is_ok());
     }
 }
