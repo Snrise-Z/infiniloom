@@ -91,9 +91,7 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
 
         // Table handling — require leading or trailing pipe to avoid false positives
         // from prose containing | (shell commands, logical expressions, etc.)
-        if !line.trim().is_empty()
-            && (line.trim().starts_with('|') || line.trim().ends_with('|'))
-        {
+        if !line.trim().is_empty() && (line.trim().starts_with('|') || line.trim().ends_with('|')) {
             let cells: Vec<String> = line
                 .trim()
                 .trim_matches('|')
