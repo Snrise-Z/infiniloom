@@ -159,8 +159,8 @@ fn test_detect_language_misc() {
     assert_eq!(detect_language(&PathBuf::from("main.zig")), Some("zig".to_owned()));
     assert_eq!(detect_language(&PathBuf::from("script.lua")), Some("lua".to_owned()));
     assert_eq!(detect_language(&PathBuf::from("query.sql")), Some("sql".to_owned()));
-    assert_eq!(detect_language(&PathBuf::from("infra.tf")), Some("terraform".to_owned()));
-    assert_eq!(detect_language(&PathBuf::from("vars.tfvars")), Some("terraform".to_owned()));
+    assert_eq!(detect_language(&PathBuf::from("infra.tf")), Some("hcl".to_owned()));
+    assert_eq!(detect_language(&PathBuf::from("vars.tfvars")), Some("hcl".to_owned()));
     assert_eq!(detect_language(&PathBuf::from("config.nix")), Some("nix".to_owned()));
     assert_eq!(detect_language(&PathBuf::from("script.jl")), Some("julia".to_owned()));
     assert_eq!(detect_language(&PathBuf::from("analysis.r")), Some("r".to_owned()));

@@ -146,10 +146,20 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
             let tag = if list.ordered { "ordered_list" } else { "list" };
             out.push_str(&format!("{indent}<{tag}>\n"));
             for item in &list.items {
-                out.push_str(&format!(
-                    "{indent}  <item>{}</item>\n",
-                    escaping::escape_xml_text(&item.text)
-                ));
+                if let Some(children) = &item.children {
+                    // Item with nested sub-list
+                    out.push_str(&format!(
+                        "{indent}  <item>{}\n",
+                        escaping::escape_xml_text(&item.text)
+                    ));
+                    write_block_xml(out, &ContentBlock::List(children.clone()), depth + 2);
+                    out.push_str(&format!("{indent}  </item>\n"));
+                } else {
+                    out.push_str(&format!(
+                        "{indent}  <item>{}</item>\n",
+                        escaping::escape_xml_text(&item.text)
+                    ));
+                }
             }
             out.push_str(&format!("{indent}</{tag}>\n"));
         },
@@ -280,6 +290,16 @@ fn write_block_md(out: &mut String, block: &ContentBlock) {
                     out.push_str(&format!("{}. {}\n", i + 1, item.text));
                 } else {
                     out.push_str(&format!("- {}\n", item.text));
+                }
+                if let Some(children) = &item.children {
+                    // Render nested sub-list with indentation
+                    for (j, sub_item) in children.items.iter().enumerate() {
+                        if children.ordered {
+                            out.push_str(&format!("  {}. {}\n", j + 1, sub_item.text));
+                        } else {
+                            out.push_str(&format!("  - {}\n", sub_item.text));
+                        }
+                    }
                 }
             }
         },

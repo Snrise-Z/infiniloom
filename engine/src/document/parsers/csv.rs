@@ -8,6 +8,10 @@ use crate::document::types::*;
 use crate::document::ParseOptions;
 use crate::error::InfiniloomError;
 
+/// Maximum number of rows to parse from a CSV file.
+/// Prevents unbounded memory allocation from extremely large files.
+const MAX_CSV_ROWS: usize = 1_000_000;
+
 /// Parse CSV content into a Document containing a table.
 pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, InfiniloomError> {
     let mut doc = Document::new("", DocumentFormat::Csv);
@@ -30,6 +34,9 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
     for line in lines {
         if is_skippable(line) {
             continue;
+        }
+        if rows.len() >= MAX_CSV_ROWS {
+            break;
         }
         let mut row = split_csv_line(line, delimiter);
         // Pad ragged rows to match header width
@@ -68,14 +75,15 @@ fn detect_delimiter(line: &str) -> char {
     if max == 0 {
         return ',';
     }
-    if tab_count == max {
+    // Prefer comma as default when tied, then tab, then semicolon, then pipe
+    if comma_count == max {
+        ','
+    } else if tab_count == max {
         '\t'
     } else if semicolon_count == max {
         ';'
-    } else if pipe_count == max {
-        '|'
     } else {
-        ','
+        '|'
     }
 }
 

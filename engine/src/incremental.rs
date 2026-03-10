@@ -138,7 +138,7 @@ impl RepoCache {
         Ok(cache)
     }
 
-    /// Save cache to file
+    /// Save cache to file atomically (write to temp file, then rename).
     pub fn save(&self, cache_path: &Path) -> Result<(), CacheError> {
         // Ensure parent directory exists
         if let Some(parent) = cache_path.parent() {
@@ -147,7 +147,10 @@ impl RepoCache {
 
         let content = serialize(self).map_err(|e| CacheError::SerializeError(e.to_string()))?;
 
-        fs::write(cache_path, content).map_err(|e| CacheError::IoError(e.to_string()))?;
+        // Write to temp file first for atomicity (prevents corruption on crash)
+        let tmp_path = cache_path.with_extension("tmp");
+        fs::write(&tmp_path, content).map_err(|e| CacheError::IoError(e.to_string()))?;
+        fs::rename(&tmp_path, cache_path).map_err(|e| CacheError::IoError(e.to_string()))?;
 
         Ok(())
     }

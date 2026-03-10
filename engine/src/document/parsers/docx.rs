@@ -10,7 +10,7 @@
 //! - Lists (numbered and bulleted via `w:numPr`)
 //! - Metadata (title, author, dates, subject, keywords)
 
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Take};
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -18,6 +18,10 @@ use quick_xml::Reader;
 use crate::document::types::*;
 use crate::document::ParseOptions;
 use crate::error::InfiniloomError;
+
+/// Maximum decompressed size for a single ZIP entry (100 MB).
+/// Protects against decompression bombs (zip bombs).
+const MAX_ZIP_ENTRY_SIZE: u64 = 100 * 1024 * 1024;
 
 /// Parse a DOCX file from raw bytes into a [`Document`].
 pub fn parse(content: &[u8], options: &ParseOptions) -> Result<Document, InfiniloomError> {
@@ -29,20 +33,25 @@ pub fn parse(content: &[u8], options: &ParseOptions) -> Result<Document, Infinil
     let mut doc = Document::new("", DocumentFormat::Docx);
 
     // Extract metadata from docProps/core.xml (if present).
-    if let Ok(mut entry) = archive.by_name("docProps/core.xml") {
+    // Safety: wrap in a bounded reader to protect against zip bombs where the
+    // declared size in the zip header is falsified.
+    if let Ok(entry) = archive.by_name("docProps/core.xml") {
+        let mut bounded: Take<zip::read::ZipFile<'_>> = entry.take(MAX_ZIP_ENTRY_SIZE);
         let mut xml = String::new();
-        if entry.read_to_string(&mut xml).is_ok() {
+        if bounded.read_to_string(&mut xml).is_ok() {
             extract_core_metadata(&xml, &mut doc.metadata);
         }
     }
 
     // Parse main document body from word/document.xml.
+    // Safety: wrap in a bounded reader to protect against zip bombs.
     let body_xml = {
-        let mut entry = archive.by_name("word/document.xml").map_err(|e| {
+        let entry = archive.by_name("word/document.xml").map_err(|e| {
             InfiniloomError::invalid_input(format!("DOCX archive missing word/document.xml: {e}"))
         })?;
+        let mut bounded: Take<zip::read::ZipFile<'_>> = entry.take(MAX_ZIP_ENTRY_SIZE);
         let mut xml = String::new();
-        entry.read_to_string(&mut xml).map_err(|e| {
+        bounded.read_to_string(&mut xml).map_err(|e| {
             InfiniloomError::invalid_input(format!("Failed to read word/document.xml: {e}"))
         })?;
         xml

@@ -419,7 +419,7 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
         // Docker
         "dockerfile" => "dockerfile",
         // Terraform/HCL
-        "tf" | "tfvars" | "hcl" => "terraform",
+        "tf" | "tfvars" | "hcl" => "hcl",
         // Makefile-like
         "makefile" | "mk" => "make",
         "cmake" => "cmake",

@@ -10,9 +10,11 @@
 //! use infiniloom_engine::document::pii;
 //!
 //! let findings = pii::scan_document(&doc);
+//! // Note: avoid logging f.text in production — it contains raw PII values
 //! for f in &findings {
-//!     println!("{:?} found at {}: {}", f.kind, f.location, f.text);
+//!     println!("{:?} found at {} line ~{}", f.kind, f.location, f.line_approx);
 //! }
+//! println!("{}", pii::summarize(&findings));
 //!
 //! // Redact all PII in-place
 //! pii::redact_document(&mut doc);

@@ -27,19 +27,27 @@ fn score_section(section: &mut Section) {
         block_count += 1.0;
     }
 
-    // Title-based scoring
+    // Normalize: average score per block first
+    let avg_score = if block_count > 0.0 {
+        total_score / block_count
+    } else {
+        0.3 // Empty sections get low default
+    };
+
+    // Title-based scoring — applied as bounded adjustments to the average
+    let mut title_adjustment: f32 = 0.0;
     if let Some(title) = &section.title {
         let lower = title.to_lowercase();
         // Definitions/glossary sections are high value
         if lower.contains("definition") || lower.contains("glossary") || lower.contains("terms") {
-            total_score += 2.0;
+            title_adjustment += 0.2;
         }
         // Requirements sections are high value
         if lower.contains("requirement")
             || lower.contains("obligation")
             || lower.contains("control")
         {
-            total_score += 2.0;
+            title_adjustment += 0.2;
         }
         // Introduction/background sections are lower value
         if lower.contains("introduction")
@@ -47,16 +55,11 @@ fn score_section(section: &mut Section) {
             || lower.contains("overview")
             || lower.contains("purpose")
         {
-            total_score -= 0.5;
+            title_adjustment -= 0.15;
         }
     }
 
-    // Normalize: average score per block, with section title bonus
-    section.importance = if block_count > 0.0 {
-        (total_score / block_count).clamp(0.0, 1.0)
-    } else {
-        0.3 // Empty sections get low default
-    };
+    section.importance = (avg_score + title_adjustment).clamp(0.0, 1.0);
 
     // Recursively score children
     for child in &mut section.children {

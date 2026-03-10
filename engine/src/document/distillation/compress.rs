@@ -39,14 +39,23 @@ fn compress_block(block: &mut ContentBlock) {
     }
 }
 
+/// Maximum replacement iterations per pattern to prevent infinite loops.
+const MAX_REPLACEMENTS_PER_PATTERN: usize = 1000;
+
 /// Apply filler pattern replacement to a text string.
+/// All patterns in FILLER_PATTERNS must be ASCII-only (to_ascii_lowercase preserves byte positions).
 pub fn compress_text(text: &str) -> String {
     let mut result = text.to_owned();
 
     for &(pattern, replacement) in FILLER_PATTERNS {
-        // Case-insensitive replacement of ALL occurrences
+        // Case-insensitive replacement of ALL occurrences, with iteration cap.
+        let mut iterations = 0;
         loop {
-            let lower = result.to_lowercase();
+            if iterations >= MAX_REPLACEMENTS_PER_PATTERN {
+                break;
+            }
+            iterations += 1;
+            let lower = result.to_ascii_lowercase();
             let pat_lower = pattern;
             if let Some(pos) = lower.find(pat_lower) {
                 let end_pos = pos + pattern.len();

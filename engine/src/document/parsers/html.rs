@@ -219,8 +219,10 @@ fn push_section(sections: &mut Vec<Section>, current: &mut Section) {
 fn strip_non_content(html: &str) -> String {
     let mut result = html.to_owned();
     // Remove script, style, nav, footer, header tags and their content.
-    // Uses to_ascii_lowercase to preserve byte positions for non-ASCII content.
+    // Compute lowercased string once per tag and reuse for all iterations.
     for tag in &["script", "style", "nav", "footer", "noscript", "svg", "iframe"] {
+        let open = format!("<{}", tag);
+        let close = format!("</{}>", tag);
         let mut iterations = 0;
         loop {
             if iterations >= MAX_STRIP_ITERATIONS {
@@ -228,12 +230,13 @@ fn strip_non_content(html: &str) -> String {
             }
             iterations += 1;
             let lower = result.to_ascii_lowercase();
-            let open = format!("<{}", tag);
-            let close = format!("</{}>", tag);
             if let Some(start) = lower.find(&open) {
                 if let Some(end) = lower[start..].find(&close) {
-                    result =
-                        format!("{}{}", &result[..start], &result[start + end + close.len()..]);
+                    let new_len = result.len() - (end + close.len());
+                    let mut new_result = String::with_capacity(start + new_len);
+                    new_result.push_str(&result[..start]);
+                    new_result.push_str(&result[start + end + close.len()..]);
+                    result = new_result;
                     continue;
                 }
             }
@@ -249,7 +252,10 @@ fn strip_non_content(html: &str) -> String {
         iterations += 1;
         if let Some(start) = result.find("<!--") {
             if let Some(end) = result[start..].find("-->") {
-                result = format!("{}{}", &result[..start], &result[start + end + 3..]);
+                let mut new_result = String::with_capacity(result.len() - (end + 3));
+                new_result.push_str(&result[..start]);
+                new_result.push_str(&result[start + end + 3..]);
+                result = new_result;
                 continue;
             }
         }
@@ -346,7 +352,7 @@ fn strip_tags(html: &str) -> String {
 }
 
 fn decode_entities(text: &str) -> String {
-    let mut result = text
+    let result = text
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
@@ -366,10 +372,12 @@ fn decode_entities(text: &str) -> String {
         .replace("&middot;", "\u{00B7}");
 
     // Decode numeric character references: &#NNN; and &#xHHHH;
-    let mut search_from = 0;
-    while let Some(offset) = result[search_from..].find("&#") {
-        let start = search_from + offset;
-        let rest = &result[start + 2..];
+    // Build result in a single pass to avoid quadratic string concatenation.
+    let mut out = String::with_capacity(result.len());
+    let mut remaining = result.as_str();
+    while let Some(offset) = remaining.find("&#") {
+        out.push_str(&remaining[..offset]);
+        let rest = &remaining[offset + 2..];
         if let Some(semi) = rest.find(';') {
             let num_str = &rest[..semi];
             let decoded = if let Some(hex) = num_str
@@ -381,19 +389,18 @@ fn decode_entities(text: &str) -> String {
                 num_str.parse::<u32>().ok().and_then(char::from_u32)
             };
             if let Some(ch) = decoded {
-                let before = &result[..start];
-                let after = &result[start + 2 + semi + 1..];
-                result = format!("{before}{ch}{after}");
-                // Continue from the position after the decoded character
-                search_from = start + ch.len_utf8();
+                out.push(ch);
+                remaining = &rest[semi + 1..];
                 continue;
             }
         }
-        // Can't decode this entity, skip past "&#" and continue looking
-        search_from = start + 2;
+        // Can't decode this entity, emit "&#" literally and continue
+        out.push_str("&#");
+        remaining = rest;
     }
+    out.push_str(remaining);
 
-    result
+    out
 }
 
 /// Find the position of a matching closing tag, accounting for nesting depth.
