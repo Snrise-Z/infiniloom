@@ -4,7 +4,7 @@
 
 **AST-aware code context engine for RAG, vector databases, and AI code assistants**
 
-A high-performance Rust library and CLI for generating intelligent code context for LLMs. Uses Tree-sitter AST parsing (22 languages), PageRank symbol ranking, and BLAKE3 content-addressable hashing. Integrates with Pinecone, Weaviate, Qdrant, ChromaDB, and any vector database. Optimized for Claude, GPT-5, GPT-4o, Gemini, Llama, and 27+ LLM tokenizers.
+A high-performance Rust library and CLI for generating intelligent code context for LLMs. Uses Tree-sitter AST parsing (21 languages), PageRank symbol ranking, and BLAKE3 content-addressable hashing. Integrates with Pinecone, Weaviate, Qdrant, ChromaDB, and any vector database. Optimized for Claude, GPT-5, GPT-4o, Gemini, Llama, and 27+ LLM tokenizers.
 
 [![CI](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml/badge.svg)](https://github.com/Topos-Labs/infiniloom/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Topos-Labs/infiniloom/graph/badge.svg)](https://codecov.io/gh/Topos-Labs/infiniloom)
@@ -186,7 +186,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | **Multiple output formats** | XML, Markdown, YAML, JSON — optimized for different AI models |
 | **Token-aware packaging** | Respects context limits so you can fit within model constraints |
 | **Git integration** | Understands diffs, branches, and commit history for change-aware context |
-| **22 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, and more |
+| **21 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, HCL/Terraform, and more |
 
 ---
 
@@ -202,6 +202,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | `index` | Create a symbol index for fast queries |
 | `impact` | Analyze what depends on a file or function |
 | `chunk` | Split large repositories for multi-turn conversations |
+| `ingest` | Ingest documents (Markdown, HTML, CSV, DOCX, XLSX) for LLM consumption |
 | `init` | Create a configuration file |
 
 See the [Command Reference](docs/commands/) for detailed documentation.
@@ -214,7 +215,7 @@ See the [Command Reference](docs/commands/) for detailed documentation.
 |---------|---------|
 | 🎯 **Smart Ranking** | PageRank algorithm identifies important symbols — prioritizes core business logic over utilities |
 | 🔗 **Content-Addressable** | BLAKE3 hashing produces stable chunk IDs — same code anywhere = same ID for deduplication |
-| 🌳 **AST-Aware** | Tree-sitter parsing (22 languages) preserves semantic boundaries — never splits mid-function |
+| 🌳 **AST-Aware** | Tree-sitter parsing (21 languages) preserves semantic boundaries — never splits mid-function |
 | 🔒 **Security-First** | Automatic secret detection with regex + NFKC normalization prevents API key leaks |
 | 📊 **27+ Tokenizers** | Exact counts for GPT-5/4o via tiktoken, calibrated estimation for Claude/Gemini/Llama |
 | 🚀 **Blazing Fast** | Pure Rust + Rayon parallelism — handles 100K+ file repos in seconds |
@@ -229,7 +230,7 @@ See the [Command Reference](docs/commands/) for detailed documentation.
 
 | Feature | Infiniloom | Repomix | Aider | Continue | Cursor |
 |---------|:----------:|:-------:|:-----:|:--------:|:------:|
-| **AST Parsing (Tree-sitter)** | ✅ 22 languages | ❌ | ❌ | ❌ | ✅ |
+| **AST Parsing (Tree-sitter)** | ✅ 21 languages | ❌ | ❌ | ❌ | ✅ |
 | **PageRank Symbol Ranking** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Content-Addressable Chunks** | ✅ BLAKE3 | ❌ | ❌ | ❌ | ❌ |
 | **Incremental Updates (Diffing)** | ✅ Manifest-based | ❌ | ✅ Git-based | ❌ | ✅ |
@@ -297,10 +298,12 @@ Context quality beats context quantity. A smaller, well-structured context produ
 Infiniloom is **stable and actively maintained**.
 
 **What's solid today:**
-- Core packing workflow across 22 languages
-- **NEW in v0.6.0**: `embed` command for vector database chunking
+- Core packing workflow across 21 languages (including HCL/Terraform)
+- `embed` command for vector database chunking (v0.6.0+)
+- `ingest` command for document ingestion — Markdown, HTML, CSV, DOCX, XLSX (v0.6.3+)
 - All output formats (XML, Markdown, YAML, JSON)
 - Security scanning and secret redaction
+- PII detection and redaction for documents
 - Git-aware diff context
 - Python and Node.js bindings
 

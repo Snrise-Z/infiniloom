@@ -29,6 +29,7 @@ Welcome to the Infiniloom documentation. This guide will help you get started an
 | [diff](commands/diff.md) | Get context for code changes |
 | [index](commands/index.md) | Build symbol index |
 | [impact](commands/impact.md) | Analyze change impact |
+| [ingest](commands/ingest.md) | Convert documents (MD, HTML, CSV, DOCX, XLSX) to LLM format |
 | [init](commands/init.md) | Create configuration file |
 | [info](commands/info.md) | Show version and config |
 

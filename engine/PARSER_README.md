@@ -4,10 +4,11 @@ A comprehensive code parsing module for the Infiniloom engine that extracts symb
 
 ## Features
 
-- **Multi-language Support**: 22 languages with full AST parsing
+- **Multi-language Support**: 21 languages with full AST parsing
   - **Tier 1 (Full Support)**: Python, JavaScript, TypeScript, Rust, Go, Java, C, C++
   - **Tier 2 (Good Support)**: C#, Ruby, PHP, Kotlin, Swift, Scala, Bash
-  - **Tier 3 (Basic Support)**: Haskell, Elixir, Clojure, OCaml, Lua, R
+  - **Tier 3 (Basic Support)**: Haskell, Elixir, OCaml, Lua, R, HCL/Terraform
+  - **Detected Only (No AST)**: Clojure (tree-sitter-clojure incompatible with tree-sitter 0.26), F#
 - **Symbol Extraction**: Functions, classes, methods, structs, enums, interfaces, traits
 - **Metadata Capture**:
   - Symbol names and types
@@ -23,7 +24,7 @@ A comprehensive code parsing module for the Infiniloom engine that extracts symb
 The parser module is already included in the Infiniloom engine. The following dependencies are in `Cargo.toml`:
 
 ```toml
-# Tree-sitter for AST parsing (22 languages)
+# Tree-sitter for AST parsing (21 languages)
 tree-sitter = "0.25"
 tree-sitter-python = "0.23"
 tree-sitter-javascript = "0.23"
@@ -282,7 +283,7 @@ cargo test -p infiniloom-engine --test parser_all_languages
 
 Tests cover:
 - Language detection
-- Symbol extraction for all 22 languages
+- Symbol extraction for all 21 languages
 - Metadata capture (signatures, docstrings)
 - Import detection
 - Edge cases

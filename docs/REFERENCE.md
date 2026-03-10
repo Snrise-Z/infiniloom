@@ -34,6 +34,7 @@ infiniloom index . && infiniloom diff .
 | `diff` | Get context for code changes | Code review, debugging |
 | `impact` | Analyze change impact | Pre-change analysis |
 | `chunk` | Split repo for multi-turn | Large codebases |
+| `ingest` | Convert documents to LLM format | Document ingestion (MD, HTML, CSV, DOCX, XLSX) |
 | `init` | Create configuration file | Project setup |
 | `info` | Show version and config | Debug, discovery |
 
@@ -345,6 +346,50 @@ infiniloom chunk . --output chunks/        # Save to directory
 infiniloom chunk . --priority-first        # Most important chunks first
 infiniloom chunk . --include-tests         # Include test files
 ```
+
+---
+
+## ingest - Document Ingestion
+
+Convert documents (Markdown, HTML, CSV, DOCX, XLSX) to LLM-optimized formats with optional PII detection, distillation, and chunking.
+
+```bash
+# Basic usage
+infiniloom ingest report.md                    # Markdown → XML (default)
+infiniloom ingest page.html -f markdown        # HTML → Markdown
+infiniloom ingest data.csv -f json             # CSV → JSON
+infiniloom ingest report.docx -o output.xml    # DOCX → XML file
+
+# Distillation levels
+infiniloom ingest doc.md -d minimal            # Light compression
+infiniloom ingest doc.md -d balanced           # Default
+infiniloom ingest doc.md -d aggressive         # Heavy compression
+
+# PII detection and redaction
+infiniloom ingest doc.md --pii-scan            # Scan and report PII
+infiniloom ingest doc.md --redact-pii          # Redact PII in output
+
+# Chunking for multi-turn conversations
+infiniloom ingest doc.md --chunk               # Split into chunks
+infiniloom ingest doc.md --chunk --max-chunk-tokens 8000
+infiniloom ingest doc.md --chunk --overlap-tokens 500
+
+# Token budget warning
+infiniloom ingest doc.md --max-tokens 50000 -m claude
+
+# Verbose output
+infiniloom ingest doc.md -v
+```
+
+### Supported Formats
+
+| Format | Extensions | Notes |
+|--------|-----------|-------|
+| Markdown | `.md`, `.markdown` | CommonMark + GFM tables |
+| HTML | `.html`, `.htm` | Strips tags, preserves structure |
+| CSV | `.csv`, `.tsv` | Auto-detects delimiter |
+| DOCX | `.docx` | Microsoft Word (requires `document` feature) |
+| XLSX | `.xlsx` | Microsoft Excel (requires `document-xlsx` feature) |
 
 ---
 

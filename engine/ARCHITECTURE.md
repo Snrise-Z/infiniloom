@@ -1,6 +1,6 @@
 # Infiniloom Engine Architecture
 
-> Last updated: 2025-12-24
+> Last updated: 2026-03-10
 
 ## Overview
 
@@ -29,10 +29,10 @@ The infiniloom-engine is a high-performance Rust library for generating optimize
     └──────┬──────┘               └─────────────┘
            │
            ▼
-    ┌─────────────┐               ┌─────────────┐
-    │   output/   │               │   index/    │
-    │ (formatters)│               │ (diff ctx)  │
-    └─────────────┘               └─────────────┘
+    ┌─────────────┐               ┌─────────────┐               ┌─────────────┐
+    │   output/   │               │   index/    │               │  document/  │
+    │ (formatters)│               │ (diff ctx)  │               │  (ingest)   │
+    └─────────────┘               └─────────────┘               └─────────────┘
 ```
 
 ## Module Descriptions
@@ -41,7 +41,7 @@ The infiniloom-engine is a high-performance Rust library for generating optimize
 
 | Module | Path | Description |
 |--------|------|-------------|
-| `parser/` | `src/parser/` | Tree-sitter based AST parsing for 21 languages |
+| `parser/` | `src/parser/` | Tree-sitter based AST parsing for 21 languages (23 detected, 21 with full AST support) |
 | `tokenizer/` | `src/tokenizer/` | Multi-model token counting (tiktoken + estimation) |
 | `repomap/` | `src/repomap/` | PageRank-based symbol importance ranking |
 | `ranking` | `src/ranking.rs` | File importance scoring algorithms |
@@ -54,6 +54,17 @@ The infiniloom-engine is a high-performance Rust library for generating optimize
 | `output/` | `src/output/` | Model-specific formatters (XML, Markdown, YAML, JSON, TOON) |
 | `chunking/` | `src/chunking/` | Semantic code chunking strategies |
 | `budget` | `src/budget.rs` | Token budget enforcement and truncation |
+
+### Document Ingestion
+
+| Module | Path | Description |
+|--------|------|-------------|
+| `document/` | `src/document/` | Document ingestion with parsers for Markdown, HTML, CSV, DOCX, XLSX |
+| `document/parsers/` | `src/document/parsers/` | Format-specific parsers |
+| `document/distillation/` | `src/document/distillation/` | Content compression and filler removal |
+| `document/pii` | `src/document/pii.rs` | PII detection and redaction |
+| `document/chunking` | `src/document/chunking.rs` | Document chunking for multi-turn conversations |
+| `document/output` | `src/document/output.rs` | XML, Markdown, JSON output formatters |
 
 ### Git & Index
 
@@ -156,7 +167,7 @@ DiffContext (files + symbols + tests)
 parser/
 ├── mod.rs           # Public API, re-exports
 ├── core.rs          # Parser struct, main entry point
-├── language.rs      # Language enum (21 variants)
+├── language.rs      # Language enum (23 variants, 21 with full AST support)
 ├── extraction.rs    # Symbol extraction from AST
 ├── queries.rs       # Tree-sitter query strings
 ├── query_builder.rs # Super-query construction

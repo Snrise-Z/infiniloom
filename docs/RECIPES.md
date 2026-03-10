@@ -22,6 +22,7 @@
 14. [Watch Mode for Development](#14-watch-mode-for-development)
 15. [Remote Repository Analysis](#15-remote-repository-analysis)
 16. [Call Graph Analysis](#16-call-graph-analysis)
+17. [Document Ingestion with PII Redaction](#17-document-ingestion-with-pii-redaction)
 
 ---
 
@@ -462,6 +463,34 @@ for c in transitive:
 - **Refactoring**: Understand blast radius before changing a function
 - **Documentation**: Generate dependency diagrams
 - **Code review**: Understand what a PR affects
+
+---
+
+## 17. Document Ingestion with PII Redaction
+
+**Goal:** Convert business documents to LLM-ready format with sensitive data protection.
+
+```bash
+# Convert DOCX report to Claude-optimized XML
+infiniloom ingest quarterly-report.docx -f xml -o report.xml
+
+# Process HTML page with heavy distillation
+infiniloom ingest terms-of-service.html -d aggressive -o tos.xml
+
+# Scan for PII first, then redact
+infiniloom ingest employee-data.csv --pii-scan
+infiniloom ingest employee-data.csv --redact-pii -o safe-data.xml
+
+# Chunk a large document for multi-turn conversations
+infiniloom ingest whitepaper.md --chunk --max-chunk-tokens 6000 -f markdown
+
+# Convert with token budget warning
+infiniloom ingest large-report.docx -m claude --max-tokens 50000 -o report.xml
+```
+
+**Supported formats:** Markdown, HTML, CSV, DOCX, XLSX
+
+**PII detected:** SSNs, credit cards (Luhn-validated), emails, phone numbers, IP addresses
 
 ---
 

@@ -410,7 +410,7 @@ The scanner uses NFKC Unicode normalization to detect obfuscated secrets using l
 
 ## Language Support
 
-Embedding chunk generation supports all 22 languages from the Tree-sitter parser:
+Embedding chunk generation supports all 21 languages with full Tree-sitter AST support:
 
 - **Systems**: Rust, C, C++, Go
 - **Web**: JavaScript, TypeScript, JSX, TSX
