@@ -487,10 +487,11 @@ pub enum BatchOperation {
     Delete,
 }
 
-/// Constant-time byte comparison to prevent timing attacks
+/// Constant-time byte comparison to prevent timing attacks.
 ///
-/// Returns true if both slices are equal, using constant-time comparison
-/// that doesn't short-circuit on first difference.
+/// Returns true if both slices are equal. Uses XOR accumulation that
+/// doesn't short-circuit on first difference. The length check is
+/// acceptable here since BLAKE3 checksums are always the same fixed length.
 #[inline]
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {

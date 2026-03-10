@@ -18,6 +18,7 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
 
     let mut lines = content.lines().peekable();
     let mut in_code_block = false;
+    let mut code_fence_char: char = '`';
     let mut code_lang: Option<String> = None;
     let mut code_buf = String::new();
     let mut para_buf = String::new();
@@ -32,9 +33,10 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
     let mut blockquote_buf = String::new();
 
     while let Some(line) = lines.next() {
-        // Code fence handling
+        // Code fence handling — closing fence must match opening fence character
         if line.starts_with("```") || line.starts_with("~~~") {
-            if in_code_block {
+            let fence_char = line.chars().next().unwrap();
+            if in_code_block && fence_char == code_fence_char {
                 current_section
                     .content
                     .push(ContentBlock::CodeBlock(CodeBlock {
@@ -45,14 +47,17 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
                 in_code_block = false;
                 continue;
             }
-            in_code_block = true;
-            let lang = line.trim_start_matches('`').trim_start_matches('~').trim();
-            code_lang = if lang.is_empty() {
-                None
-            } else {
-                Some(lang.to_owned())
-            };
-            continue;
+            if !in_code_block {
+                in_code_block = true;
+                code_fence_char = fence_char;
+                let lang = line.trim_start_matches(fence_char).trim();
+                code_lang = if lang.is_empty() {
+                    None
+                } else {
+                    Some(lang.to_owned())
+                };
+                continue;
+            }
         }
         if in_code_block {
             if !code_buf.is_empty() {
@@ -71,7 +76,7 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
             }
             let text = line.strip_prefix("> ").unwrap_or("");
             if !blockquote_buf.is_empty() {
-                blockquote_buf.push(' ');
+                blockquote_buf.push('\n');
             }
             blockquote_buf.push_str(text);
             continue;
@@ -84,8 +89,11 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
             in_blockquote = false;
         }
 
-        // Table handling
-        if line.contains('|') && !line.trim().is_empty() {
+        // Table handling — require leading or trailing pipe to avoid false positives
+        // from prose containing | (shell commands, logical expressions, etc.)
+        if !line.trim().is_empty()
+            && (line.trim().starts_with('|') || line.trim().ends_with('|'))
+        {
             let cells: Vec<String> = line
                 .trim()
                 .trim_matches('|')
@@ -378,12 +386,11 @@ fn build_hierarchy(flat: Vec<Section>) -> Vec<Section> {
 /// Strip YAML frontmatter from the beginning of a Markdown document.
 /// Frontmatter is delimited by `---` at the very start of the file.
 fn strip_frontmatter(content: &str) -> &str {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
+    if !content.starts_with("---") {
         return content;
     }
     // Find the closing `---` (must be on its own line after the opening)
-    let after_open = &trimmed[3..];
+    let after_open = &content[3..];
     // Skip the rest of the opening line
     let after_newline = match after_open.find('\n') {
         Some(pos) => &after_open[pos + 1..],

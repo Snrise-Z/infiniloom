@@ -92,17 +92,18 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
             let mut items = Vec::new();
             let ordered = trimmed.chars().next().map_or(false, |c| c.is_ascii_digit());
             while i < lines.len() {
-                let l = lines[i].trim();
-                if l.is_empty() {
+                let l = lines[i];
+                let l_trimmed = l.trim();
+                if l_trimmed.is_empty() {
                     break;
                 }
-                if let Some(text) = strip_bullet(l) {
+                if let Some(text) = strip_bullet(l_trimmed) {
                     items.push(ListItem { text: text.to_owned(), children: None });
                 } else if l.starts_with("  ") || l.starts_with('\t') {
-                    // Continuation
+                    // Continuation of previous list item (indented line)
                     if let Some(last) = items.last_mut() {
                         last.text.push(' ');
-                        last.text.push_str(l.trim());
+                        last.text.push_str(l_trimmed);
                     }
                 } else {
                     break;

@@ -76,6 +76,9 @@ pub(crate) fn cmd_ingest(config: IngestConfig) -> Result<()> {
     // Apply distillation pipeline
     distillation::distill(&mut doc, config.distillation);
 
+    // Recompute token counts after distillation (the original counts are stale)
+    doc.token_count = document::count_output_tokens(&doc.full_text());
+
     if config.verbose {
         eprintln!(
             "After distillation: {} sections, {} content blocks",
@@ -85,7 +88,7 @@ pub(crate) fn cmd_ingest(config: IngestConfig) -> Result<()> {
 
         let tc = &doc.token_count;
         eprintln!(
-            "Token counts (raw): claude={}, gpt4o={}, gemini={}",
+            "Token counts (distilled): claude={}, gpt4o={}, gemini={}",
             tc.claude, tc.o200k, tc.gemini
         );
 
@@ -100,10 +103,7 @@ pub(crate) fn cmd_ingest(config: IngestConfig) -> Result<()> {
 
         if config.verbose {
             for f in &findings {
-                eprintln!(
-                    "  PII: {:?} at [{}] line ~{}: {}",
-                    f.kind, f.location, f.line_approx, f.text
-                );
+                eprintln!("  PII: {:?} at [{}] line ~{}", f.kind, f.location, f.line_approx);
             }
         }
 

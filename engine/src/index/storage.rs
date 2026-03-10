@@ -171,7 +171,10 @@ impl IndexStorage {
 
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        let graph: DepGraph = deserialize_from_with_limit(reader)?;
+        let mut graph: DepGraph = deserialize_from_with_limit(reader)?;
+
+        // Rebuild adjacency maps (skipped by serde)
+        graph.rebuild_adjacency_maps();
 
         Ok(graph)
     }
@@ -320,6 +323,11 @@ mod tests {
         assert_eq!(loaded_index.files.len(), 1);
         assert_eq!(loaded_index.symbols.len(), 1);
         assert_eq!(loaded_graph.file_imports.len(), 1);
+
+        // Verify adjacency maps are rebuilt after deserialization
+        let importers = loaded_graph.get_importers(1);
+        assert_eq!(importers.len(), 1);
+        assert_eq!(importers[0], 0);
 
         // Verify lookups work
         assert!(loaded_index.get_file("src/main.rs").is_some());

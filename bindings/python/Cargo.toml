@@ -21,7 +21,7 @@ pyo3 = { version = "0.28", features = ["extension-module", "abi3-py38"] }
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
