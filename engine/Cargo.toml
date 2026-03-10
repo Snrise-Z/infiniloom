@@ -55,7 +55,7 @@ ignore = "0.4"
 unicode-segmentation = "1.10"
 unicode-normalization = "0.1"
 
-# Tree-sitter for AST parsing (21 languages)
+# Tree-sitter for AST parsing (21 languages with full support)
 # Using tree-sitter 0.26 with compatible grammar versions
 # All grammar crates use tree-sitter-language ^0.1 as runtime dep,
 # which is compatible with both tree-sitter 0.25 and 0.26.
@@ -118,9 +118,9 @@ dashmap = "6.1"
 # Temp directory with RAII cleanup
 tempfile = "3.10"
 
-# DOCX parsing (ZIP archive + XML)
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
-quick-xml = "0.37"
+# DOCX parsing (ZIP archive + XML) — gated behind "document" feature
+zip = { version = "2.4", default-features = false, features = ["deflate"], optional = true }
+quick-xml = { version = "0.37", optional = true }
 
 # XLSX/XLS spreadsheet parsing
 calamine = { version = "0.26", optional = true }
@@ -138,13 +138,11 @@ optional = true
 [features]
 default = ["document"]
 
-# Document ingestion module (Markdown, HTML, CSV, plain-text parsers)
-# Phase 1 parsers are all hand-written with zero external dependencies.
-# Future phases (DOCX, XLSX) will add optional deps behind sub-features.
-document = []
+# Document ingestion module (Markdown, HTML, CSV, plain-text, DOCX parsers)
+document = ["zip", "quick-xml"]
 
 # XLSX/XLS spreadsheet parsing via calamine (requires document feature)
-document-xlsx = ["calamine"]
+document-xlsx = ["document", "calamine"]
 
 # Async runtime support (placeholder - not yet implemented)
 # When implemented, will enable async file scanning and parallel processing

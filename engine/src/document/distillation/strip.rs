@@ -66,15 +66,22 @@ fn is_zero_value(block: &ContentBlock) -> bool {
 
 fn is_page_number(text: &str) -> bool {
     let trimmed = text.trim_matches(|c: char| c == '-' || c == ' ' || c == '–' || c == '—');
-    // Pure number
-    if trimmed.chars().all(|c| c.is_ascii_digit()) && !trimmed.is_empty() && trimmed.len() <= 4 {
+    // Pure number surrounded by dashes/spaces (e.g., "- 42 -", "-- 3 --")
+    // Require surrounding dashes to distinguish from plain numbers like "2024"
+    let has_dash_wrapper = text.trim() != trimmed;
+    if has_dash_wrapper
+        && trimmed.chars().all(|c| c.is_ascii_digit())
+        && !trimmed.is_empty()
+        && trimmed.len() <= 4
+    {
         return true;
     }
     // "Page X" or "Page X of Y"
-    if text.starts_with("page ") {
+    let lower = text.to_ascii_lowercase();
+    if lower.starts_with("page ") {
         return true;
     }
-    // "X / Y" pattern
+    // "X / Y" pattern (e.g., "3 / 10")
     let parts: Vec<&str> = text.split('/').map(|s| s.trim()).collect();
     if parts.len() == 2
         && parts[0].chars().all(|c| c.is_ascii_digit())
@@ -142,9 +149,14 @@ mod tests {
     #[test]
     fn test_strip_page_numbers() {
         assert!(is_page_number("page 1 of 5"));
+        assert!(is_page_number("Page 3"));
         assert!(is_page_number("- 3 -"));
-        assert!(is_page_number("42"));
+        assert!(is_page_number("-- 42 --"));
         assert!(is_page_number("3 / 10"));
+        // Bare numbers should NOT be detected as page numbers (avoids false positives on years, IDs)
+        assert!(!is_page_number("42"));
+        assert!(!is_page_number("2024"));
+        assert!(!is_page_number("100"));
         assert!(!is_page_number("This is a sentence."));
     }
 

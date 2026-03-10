@@ -7,11 +7,25 @@ use crate::document::types::*;
 use crate::document::ParseOptions;
 use crate::error::InfiniloomError;
 
+/// Maximum input size for HTML parsing (50 MB).
+/// Prevents unbounded memory allocation from very large HTML files.
+const MAX_HTML_SIZE: usize = 50 * 1024 * 1024;
+
+/// Maximum iterations for tag stripping loops to prevent quadratic behavior.
+const MAX_STRIP_ITERATIONS: usize = 10_000;
+
 /// Parse HTML content into a Document.
 ///
 /// Uses a simple tag-based approach without external HTML parser dependencies.
 /// For production use with malformed HTML, consider adding `scraper`/`html5ever`.
 pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, InfiniloomError> {
+    if content.len() > MAX_HTML_SIZE {
+        return Err(InfiniloomError::invalid_input(format!(
+            "HTML input exceeds size limit ({} bytes > {} bytes)",
+            content.len(),
+            MAX_HTML_SIZE
+        )));
+    }
     let mut doc = Document::new("", DocumentFormat::Html);
 
     // Extract <title> for metadata
@@ -61,7 +75,7 @@ fn parse_body(html: &str) -> Vec<Section> {
             if let Some(tag_end) = html[tag_start..].find('>') {
                 let tag_end = tag_start + tag_end + 1;
                 let tag = &html[tag_start..tag_end];
-                let tag_lower = tag.to_lowercase();
+                let tag_lower = tag.to_ascii_lowercase();
 
                 // Heading tags h1-h6
                 let mut found_heading = false;
@@ -69,7 +83,7 @@ fn parse_body(html: &str) -> Vec<Section> {
                     let open = format!("<h{}", level);
                     let close = format!("</h{}>", level);
                     if tag_lower.starts_with(&open) {
-                        if let Some(close_pos) = html[tag_end..].to_lowercase().find(&close) {
+                        if let Some(close_pos) = html[tag_end..].to_ascii_lowercase().find(&close) {
                             let heading_text = strip_tags(&html[tag_end..tag_end + close_pos]);
                             let decoded = decode_entities(&heading_text);
                             if !decoded.trim().is_empty() {
@@ -91,7 +105,7 @@ fn parse_body(html: &str) -> Vec<Section> {
                     && (tag_lower.as_bytes().get(2) == Some(&b'>')
                         || tag_lower.as_bytes().get(2) == Some(&b' '))
                 {
-                    if let Some(close_pos) = html[tag_end..].to_lowercase().find("</p>") {
+                    if let Some(close_pos) = html[tag_end..].to_ascii_lowercase().find("</p>") {
                         let para_text = strip_tags(&html[tag_end..tag_end + close_pos]);
                         let decoded = decode_entities(&para_text);
                         if !decoded.trim().is_empty() {
@@ -107,8 +121,8 @@ fn parse_body(html: &str) -> Vec<Section> {
                 // Lists (ul/ol)
                 if tag_lower.starts_with("<ul") || tag_lower.starts_with("<ol") {
                     let ordered = tag_lower.starts_with("<ol");
-                    let close_tag = if ordered { "</ol>" } else { "</ul>" };
-                    if let Some(close_pos) = html[tag_end..].to_lowercase().find(close_tag) {
+                    let open_tag = if ordered { "ol" } else { "ul" };
+                    if let Some(close_pos) = find_matching_close_tag(&html[tag_end..], open_tag) {
                         let list_html = &html[tag_end..tag_end + close_pos];
                         let items = extract_list_items(list_html);
                         if !items.is_empty() {
@@ -116,6 +130,7 @@ fn parse_body(html: &str) -> Vec<Section> {
                                 .content
                                 .push(ContentBlock::List(List { ordered, items }));
                         }
+                        let close_tag = format!("</{}>", open_tag);
                         pos = tag_end + close_pos + close_tag.len();
                         continue;
                     }
@@ -123,7 +138,7 @@ fn parse_body(html: &str) -> Vec<Section> {
 
                 // Table
                 if tag_lower.starts_with("<table") {
-                    if let Some(close_pos) = html[tag_end..].to_lowercase().find("</table>") {
+                    if let Some(close_pos) = html[tag_end..].to_ascii_lowercase().find("</table>") {
                         let table_html = &html[tag_end..tag_end + close_pos];
                         if let Some(table) = extract_table(table_html) {
                             current.content.push(ContentBlock::Table(table));
@@ -135,7 +150,7 @@ fn parse_body(html: &str) -> Vec<Section> {
 
                 // Pre/code blocks
                 if tag_lower.starts_with("<pre") {
-                    if let Some(close_pos) = html[tag_end..].to_lowercase().find("</pre>") {
+                    if let Some(close_pos) = html[tag_end..].to_ascii_lowercase().find("</pre>") {
                         let code_text = strip_tags(&html[tag_end..tag_end + close_pos]);
                         let decoded = decode_entities(&code_text);
                         current.content.push(ContentBlock::CodeBlock(CodeBlock {
@@ -149,7 +164,9 @@ fn parse_body(html: &str) -> Vec<Section> {
 
                 // Blockquote
                 if tag_lower.starts_with("<blockquote") {
-                    if let Some(close_pos) = html[tag_end..].to_lowercase().find("</blockquote>") {
+                    if let Some(close_pos) =
+                        html[tag_end..].to_ascii_lowercase().find("</blockquote>")
+                    {
                         let bq_text = strip_tags(&html[tag_end..tag_end + close_pos]);
                         let decoded = decode_entities(&bq_text);
                         if !decoded.trim().is_empty() {
@@ -201,10 +218,16 @@ fn push_section(sections: &mut Vec<Section>, current: &mut Section) {
 
 fn strip_non_content(html: &str) -> String {
     let mut result = html.to_owned();
-    // Remove script, style, nav, footer, header tags and their content
+    // Remove script, style, nav, footer, header tags and their content.
+    // Uses to_ascii_lowercase to preserve byte positions for non-ASCII content.
     for tag in &["script", "style", "nav", "footer", "noscript", "svg", "iframe"] {
+        let mut iterations = 0;
         loop {
-            let lower = result.to_lowercase();
+            if iterations >= MAX_STRIP_ITERATIONS {
+                break;
+            }
+            iterations += 1;
+            let lower = result.to_ascii_lowercase();
             let open = format!("<{}", tag);
             let close = format!("</{}>", tag);
             if let Some(start) = lower.find(&open) {
@@ -218,7 +241,12 @@ fn strip_non_content(html: &str) -> String {
         }
     }
     // Remove HTML comments
+    let mut iterations = 0;
     loop {
+        if iterations >= MAX_STRIP_ITERATIONS {
+            break;
+        }
+        iterations += 1;
         if let Some(start) = result.find("<!--") {
             if let Some(end) = result[start..].find("-->") {
                 result = format!("{}{}", &result[..start], &result[start + end + 3..]);
@@ -231,7 +259,7 @@ fn strip_non_content(html: &str) -> String {
 }
 
 fn extract_tag_content(html: &str, tag: &str) -> Option<String> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let open = format!("<{}", tag);
     let close = format!("</{}>", tag);
     let start = lower.find(&open)?;
@@ -241,13 +269,13 @@ fn extract_tag_content(html: &str, tag: &str) -> Option<String> {
 }
 
 fn extract_meta_tags(html: &str, metadata: &mut DocumentMetadata) {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let mut pos = 0;
     while let Some(start) = lower[pos..].find("<meta") {
         let start = pos + start;
         if let Some(end) = lower[start..].find('>') {
             let tag = &html[start..start + end + 1];
-            let tag_lower = tag.to_lowercase();
+            let tag_lower = tag.to_ascii_lowercase();
 
             let name =
                 extract_attr(&tag_lower, "name").or_else(|| extract_attr(&tag_lower, "property"));
@@ -318,18 +346,102 @@ fn strip_tags(html: &str) -> String {
 }
 
 fn decode_entities(text: &str) -> String {
-    text.replace("&amp;", "&")
+    let mut result = text
+        .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&apos;", "'")
-        .replace("&nbsp;", " ")
+        .replace("&nbsp;", "\u{00A0}")
+        .replace("&mdash;", "\u{2014}")
+        .replace("&ndash;", "\u{2013}")
+        .replace("&hellip;", "\u{2026}")
+        .replace("&copy;", "\u{00A9}")
+        .replace("&reg;", "\u{00AE}")
+        .replace("&trade;", "\u{2122}")
+        .replace("&laquo;", "\u{00AB}")
+        .replace("&raquo;", "\u{00BB}")
+        .replace("&bull;", "\u{2022}")
+        .replace("&middot;", "\u{00B7}");
+
+    // Decode numeric character references: &#NNN; and &#xHHHH;
+    let mut search_from = 0;
+    while let Some(offset) = result[search_from..].find("&#") {
+        let start = search_from + offset;
+        let rest = &result[start + 2..];
+        if let Some(semi) = rest.find(';') {
+            let num_str = &rest[..semi];
+            let decoded = if let Some(hex) = num_str
+                .strip_prefix('x')
+                .or_else(|| num_str.strip_prefix('X'))
+            {
+                u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+            } else {
+                num_str.parse::<u32>().ok().and_then(char::from_u32)
+            };
+            if let Some(ch) = decoded {
+                let before = &result[..start];
+                let after = &result[start + 2 + semi + 1..];
+                result = format!("{before}{ch}{after}");
+                // Continue from the position after the decoded character
+                search_from = start + ch.len_utf8();
+                continue;
+            }
+        }
+        // Can't decode this entity, skip past "&#" and continue looking
+        search_from = start + 2;
+    }
+
+    result
+}
+
+/// Find the position of a matching closing tag, accounting for nesting depth.
+/// Returns the byte position of the start of the closing tag, or None.
+fn find_matching_close_tag(html: &str, tag: &str) -> Option<usize> {
+    let lower = html.to_ascii_lowercase();
+    let open = format!("<{}", tag);
+    let close = format!("</{}>", tag);
+    let mut depth = 1usize;
+    let mut pos = 0;
+    while pos < lower.len() {
+        let next_open = lower[pos..].find(&open);
+        let next_close = lower[pos..].find(&close);
+        match (next_open, next_close) {
+            (_, None) => return None,
+            (None, Some(c)) => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(pos + c);
+                }
+                pos += c + close.len();
+            },
+            (Some(o), Some(c)) if o < c => {
+                // Check that the open tag is actually an opening tag (not a substring)
+                let after_open = pos + o + open.len();
+                if after_open < lower.len() {
+                    let next_char = lower.as_bytes()[after_open];
+                    if next_char == b'>' || next_char == b' ' || next_char == b'\n' {
+                        depth += 1;
+                    }
+                }
+                pos += o + 1;
+            },
+            (Some(_), Some(c)) => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(pos + c);
+                }
+                pos += c + close.len();
+            },
+        }
+    }
+    None
 }
 
 fn extract_list_items(html: &str) -> Vec<ListItem> {
     let mut items = Vec::new();
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let mut pos = 0;
     while let Some(start) = lower[pos..].find("<li") {
         let start = pos + start;
@@ -353,7 +465,7 @@ fn extract_list_items(html: &str) -> Vec<ListItem> {
 }
 
 fn extract_table(html: &str) -> Option<Table> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let mut headers = Vec::new();
     let mut rows = Vec::new();
 
@@ -382,7 +494,7 @@ fn extract_table(html: &str) -> Option<Table> {
             .find("</tr>")
             .map_or(html.len(), |e| tr_start + e);
         let tr_html = &html[tr_start..tr_end];
-        let tr_lower = tr_html.to_lowercase();
+        let tr_lower = tr_html.to_ascii_lowercase();
 
         // Only process rows with <td> (skip header rows)
         if tr_lower.contains("<td") {
@@ -467,5 +579,24 @@ mod tests {
     #[test]
     fn test_decode_entities() {
         assert_eq!(decode_entities("&amp; &lt; &gt;"), "& < >");
+    }
+
+    #[test]
+    fn test_decode_entities_numeric() {
+        // Basic numeric entity
+        assert_eq!(decode_entities("&#65;"), "A");
+        // Hex entity
+        assert_eq!(decode_entities("&#x41;"), "A");
+        // Malformed entity should not prevent decoding subsequent ones
+        assert_eq!(decode_entities("&#invalid; and &#169;"), "&#invalid; and \u{00A9}");
+    }
+
+    #[test]
+    fn test_nested_list() {
+        let html = "<ul><li>A<ul><li>B</li></ul></li><li>C</li></ul>";
+        let doc = parse(html, &ParseOptions::default()).unwrap();
+        let text = doc.full_text();
+        assert!(text.contains("A"));
+        assert!(text.contains("C"));
     }
 }

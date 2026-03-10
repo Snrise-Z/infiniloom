@@ -39,7 +39,9 @@ static RE_EMAIL: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_PHONE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
+    // Require either parentheses around area code OR at least one separator between digit groups
+    // to avoid matching bare 10-digit numbers like account IDs or timestamps.
+    Regex::new(r"(?:\+?1[-.\s]?)?\(\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}\b|\b(?:\+?1[-.\s]?)?\d{3}[-.\s]\d{3}[-.\s]\d{4}\b")
         .expect("RE_PHONE: invalid regex")
 });
 
@@ -124,6 +126,19 @@ fn luhn_check(digits: &str) -> bool {
     sum % 10 == 0
 }
 
+/// Validate SSN area/group/serial rules to reduce false positives.
+/// Real SSNs never start with 000, 666, or 9xx; group is never 00; serial is never 0000.
+fn is_valid_ssn(ssn: &str) -> bool {
+    let parts: Vec<&str> = ssn.split('-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let area: u16 = parts[0].parse().unwrap_or(0);
+    let group: u16 = parts[1].parse().unwrap_or(0);
+    let serial: u16 = parts[2].parse().unwrap_or(0);
+    area != 0 && area != 666 && area < 900 && group != 0 && serial != 0
+}
+
 /// Validate that each octet of an IPv4 address is in 0-255.
 fn is_valid_ipv4(ip: &str) -> bool {
     let octets: Vec<&str> = ip.split('.').collect();
@@ -171,14 +186,17 @@ fn scan_sections(sections: &[Section], path: &[String], findings: &mut Vec<PiiFi
 
 fn scan_text(text: &str, location: &str, findings: &mut Vec<PiiFinding>) {
     for (line_idx, line) in text.lines().enumerate() {
-        // SSN
+        // SSN (validated)
         for m in RE_SSN.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::Ssn,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            let matched = m.as_str();
+            if is_valid_ssn(matched) {
+                findings.push(PiiFinding {
+                    kind: PiiKind::Ssn,
+                    text: matched.to_owned(),
+                    location: location.to_owned(),
+                    line_approx: line_idx + 1,
+                });
+            }
         }
 
         // Credit card (Luhn validated)
@@ -238,8 +256,8 @@ fn scan_text(text: &str, location: &str, findings: &mut Vec<PiiFinding>) {
 pub fn redact_text(text: &str) -> String {
     let mut result = text.to_owned();
 
-    // SSN
-    result = RE_SSN.replace_all(&result, "[REDACTED-SSN]").into_owned();
+    // SSN (validated)
+    result = redact_ssns(&result);
 
     // Credit card — needs Luhn validation, so we do manual replacement
     result = redact_credit_cards(&result);
@@ -257,6 +275,22 @@ pub fn redact_text(text: &str) -> String {
     // IP address — needs octet validation
     result = redact_ip_addresses(&result);
 
+    result
+}
+
+fn redact_ssns(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+    for m in RE_SSN.find_iter(text) {
+        if is_valid_ssn(m.as_str()) {
+            result.push_str(&text[last_end..m.start()]);
+            result.push_str("[REDACTED-SSN]");
+        } else {
+            result.push_str(&text[last_end..m.end()]);
+        }
+        last_end = m.end();
+    }
+    result.push_str(&text[last_end..]);
     result
 }
 
@@ -328,6 +362,7 @@ fn redact_block(block: &mut ContentBlock) {
             redact_list(list);
         },
         ContentBlock::Definition(def) => {
+            def.term = redact_text(&def.term);
             def.definition = redact_text(&def.definition);
         },
         ContentBlock::CodeBlock(_)
@@ -408,6 +443,46 @@ mod tests {
         scan_text("The code is 1234-56-7890", "test", &mut findings);
         let ssn_findings: Vec<_> = findings.iter().filter(|f| f.kind == PiiKind::Ssn).collect();
         assert!(ssn_findings.is_empty());
+    }
+
+    #[test]
+    fn test_ssn_invalid_area_group_serial() {
+        let mut findings = Vec::new();
+        // Area 000 is invalid
+        scan_text("SSN: 000-12-3456", "test", &mut findings);
+        assert!(findings.iter().all(|f| f.kind != PiiKind::Ssn));
+
+        // Area 666 is invalid
+        findings.clear();
+        scan_text("SSN: 666-12-3456", "test", &mut findings);
+        assert!(findings.iter().all(|f| f.kind != PiiKind::Ssn));
+
+        // Area 900+ is invalid
+        findings.clear();
+        scan_text("SSN: 900-12-3456", "test", &mut findings);
+        assert!(findings.iter().all(|f| f.kind != PiiKind::Ssn));
+
+        // Group 00 is invalid
+        findings.clear();
+        scan_text("SSN: 123-00-3456", "test", &mut findings);
+        assert!(findings.iter().all(|f| f.kind != PiiKind::Ssn));
+
+        // Serial 0000 is invalid
+        findings.clear();
+        scan_text("SSN: 123-45-0000", "test", &mut findings);
+        assert!(findings.iter().all(|f| f.kind != PiiKind::Ssn));
+    }
+
+    #[test]
+    fn test_ssn_redact_validates() {
+        // Invalid SSN should NOT be redacted
+        let result = redact_text("SSN: 000-12-3456");
+        assert!(result.contains("000-12-3456"), "Invalid SSN should be preserved");
+
+        // Valid SSN should be redacted
+        let result = redact_text("SSN: 123-45-6789");
+        assert!(result.contains("[REDACTED-SSN]"));
+        assert!(!result.contains("123-45-6789"));
     }
 
     #[test]

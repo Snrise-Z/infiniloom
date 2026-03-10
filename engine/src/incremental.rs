@@ -100,7 +100,7 @@ pub struct RepoCache {
 
 impl RepoCache {
     /// Current cache version
-    pub const VERSION: u32 = 2;
+    pub const VERSION: u32 = 3;
 
     /// Create a new empty cache
     pub fn new(root_path: &str) -> Self {

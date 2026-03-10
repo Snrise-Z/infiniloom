@@ -9,6 +9,9 @@ use crate::error::InfiniloomError;
 
 /// Parse Markdown content into a Document.
 pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, InfiniloomError> {
+    // Strip YAML frontmatter (--- delimited block at the start of file)
+    let content = strip_frontmatter(content);
+
     let mut doc = Document::new("", DocumentFormat::Markdown);
     let mut sections: Vec<Section> = Vec::new();
     let mut current_section = Section::root();
@@ -372,6 +375,45 @@ fn build_hierarchy(flat: Vec<Section>) -> Vec<Section> {
     result
 }
 
+/// Strip YAML frontmatter from the beginning of a Markdown document.
+/// Frontmatter is delimited by `---` at the very start of the file.
+fn strip_frontmatter(content: &str) -> &str {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return content;
+    }
+    // Find the closing `---` (must be on its own line after the opening)
+    let after_open = &trimmed[3..];
+    // Skip the rest of the opening line
+    let after_newline = match after_open.find('\n') {
+        Some(pos) => &after_open[pos + 1..],
+        None => return content, // No newline after opening `---`
+    };
+    // Find closing `---` on its own line
+    // Use byte-accurate offset tracking to handle both LF and CRLF line endings
+    let mut byte_offset = 0;
+    for line in after_newline.lines() {
+        let line_byte_len = line.len();
+        // Advance past the line content
+        byte_offset += line_byte_len;
+        // Advance past the line ending (LF or CRLF)
+        if byte_offset < after_newline.len() {
+            if after_newline.as_bytes()[byte_offset] == b'\r' {
+                byte_offset += 1; // CR
+            }
+            if byte_offset < after_newline.len() && after_newline.as_bytes()[byte_offset] == b'\n' {
+                byte_offset += 1; // LF
+            }
+        }
+        if line.trim() == "---" {
+            let remaining = &after_newline[byte_offset.min(after_newline.len())..];
+            return remaining;
+        }
+    }
+    // No closing `---` found, return content as-is
+    content
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,5 +529,15 @@ mod tests {
         let md = "Just some plain text\nwith multiple lines.\n";
         let doc = parse(md, &ParseOptions::default()).unwrap();
         assert!(doc.section_count() >= 1);
+    }
+
+    #[test]
+    fn test_frontmatter_stripped() {
+        let md = "---\ntitle: My Doc\ndate: 2025-01-01\n---\n# Heading\nContent here.\n";
+        let doc = parse(md, &ParseOptions::default()).unwrap();
+        let text = doc.full_text();
+        assert!(!text.contains("title: My Doc"));
+        assert!(text.contains("Heading"));
+        assert!(text.contains("Content here"));
     }
 }

@@ -44,7 +44,7 @@ use super::types::{EmbedChunk, EmbedSettings, RepoIdentifier};
 use crate::bincode_safe::{deserialize_with_limit, serialize};
 
 /// Current checkpoint format version
-pub const CHECKPOINT_VERSION: u32 = 1;
+pub const CHECKPOINT_VERSION: u32 = 2;
 
 /// Bincode-compatible repository identifier for checkpoint serialization
 ///
@@ -456,7 +456,7 @@ impl CheckpointManager {
 
         let checkpoint: EmbedCheckpoint =
             deserialize_with_limit(&bytes).map_err(|e| EmbedError::DeserializationError {
-                reason: format!("Failed to deserialize checkpoint: {}", e),
+                reason: format!("Failed to deserialize checkpoint (it may have been created by an older version of infiniloom; delete {:?} and re-run): {}", &self.path, e),
             })?;
 
         // Verify integrity

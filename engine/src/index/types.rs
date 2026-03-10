@@ -348,7 +348,7 @@ impl Default for SymbolIndex {
 }
 
 impl SymbolIndex {
-    pub const CURRENT_VERSION: u32 = 1;
+    pub const CURRENT_VERSION: u32 = 2;
 
     pub fn new() -> Self {
         Self {
