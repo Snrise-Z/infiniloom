@@ -23,7 +23,7 @@ use super::types::{ChunkKind, EmbedChunk, EmbedSettings};
 use crate::bincode_safe::{deserialize_with_limit, serialize};
 
 /// Current manifest format version
-pub const MANIFEST_VERSION: u32 = 2;
+pub const MANIFEST_VERSION: u32 = 3;
 
 /// Manifest tracking all chunks for incremental updates
 ///
@@ -201,7 +201,7 @@ impl EmbedManifest {
             .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         let mut manifest: Self = deserialize_with_limit(&bytes)
-            .map_err(|e| EmbedError::DeserializationError { reason: e.to_string() })?;
+            .map_err(|e| EmbedError::DeserializationError { reason: format!("Failed to read embed manifest (it may have been created by an older version of infiniloom; delete {:?} and re-run): {}", path, e) })?;
 
         // Version check
         if manifest.version > MANIFEST_VERSION {

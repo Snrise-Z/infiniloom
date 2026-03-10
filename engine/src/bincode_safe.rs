@@ -33,14 +33,14 @@ fn limited_config() -> bincode::config::Configuration<
 
 /// Serialize a value using bincode 2.0 serde compat layer
 ///
-/// Uses `bincode::config::standard()` for consistent serialization.
+/// Uses `limited_config()` (standard + 1GB cap) for consistency with deserialization.
 ///
 /// # Errors
 ///
 /// Returns `bincode::error::EncodeError` if serialization fails.
 #[inline]
 pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, bincode::error::EncodeError> {
-    bincode::serde::encode_to_vec(value, bincode::config::standard())
+    bincode::serde::encode_to_vec(value, limited_config())
 }
 
 /// Serialize a value into a writer using bincode 2.0 serde compat layer
@@ -53,7 +53,7 @@ pub fn serialize_into<T: Serialize, W: std::io::Write>(
     mut writer: W,
     value: &T,
 ) -> Result<(), bincode::error::EncodeError> {
-    bincode::serde::encode_into_std_write(value, &mut writer, bincode::config::standard())?;
+    bincode::serde::encode_into_std_write(value, &mut writer, limited_config())?;
     Ok(())
 }
 
@@ -77,18 +77,12 @@ pub fn deserialize_with_limit<T: DeserializeOwned>(
 
 /// Deserialize from a reader with size limit
 ///
-/// # Arguments
-///
-/// * `reader` - The reader to deserialize from
-/// * `_expected_size` - Expected size (retained for API compatibility; limit is compile-time)
-///
 /// # Errors
 ///
 /// Returns `bincode::error::DecodeError` if deserialization fails or exceeds the limit.
 #[inline]
 pub fn deserialize_from_with_limit<T: DeserializeOwned, R: Read>(
     mut reader: R,
-    _expected_size: u64,
 ) -> Result<T, bincode::error::DecodeError> {
     bincode::serde::decode_from_std_read(&mut reader, limited_config())
 }
@@ -129,7 +123,7 @@ mod tests {
 
         let bytes = serialize(&original).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
-        let restored: TestStruct = deserialize_from_with_limit(cursor, bytes.len() as u64).unwrap();
+        let restored: TestStruct = deserialize_from_with_limit(cursor).unwrap();
 
         assert_eq!(original, restored);
     }

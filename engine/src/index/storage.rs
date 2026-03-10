@@ -28,7 +28,7 @@ pub enum StorageError {
     #[error("Serialization error: {0}")]
     Encode(#[from] bincode::error::EncodeError),
 
-    #[error("Deserialization error: {0}")]
+    #[error("Deserialization error (index may have been created by an older version of infiniloom; rebuild with `infiniloom index --force`): {0}")]
     Decode(#[from] bincode::error::DecodeError),
 
     #[error("JSON error: {0}")]
@@ -126,10 +126,9 @@ impl IndexStorage {
             return Err(StorageError::NotFound(path));
         }
 
-        let file_size = fs::metadata(&path)?.len();
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        let mut index: SymbolIndex = deserialize_from_with_limit(reader, file_size)?;
+        let mut index: SymbolIndex = deserialize_from_with_limit(reader)?;
 
         // Check version compatibility
         if index.version != SymbolIndex::CURRENT_VERSION {
@@ -170,10 +169,9 @@ impl IndexStorage {
             return Err(StorageError::NotFound(path));
         }
 
-        let file_size = fs::metadata(&path)?.len();
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        let graph: DepGraph = deserialize_from_with_limit(reader, file_size)?;
+        let graph: DepGraph = deserialize_from_with_limit(reader)?;
 
         Ok(graph)
     }

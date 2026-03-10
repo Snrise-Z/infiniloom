@@ -7,7 +7,7 @@ use crate::output::escaping;
 
 /// Format a document as Claude-optimized XML.
 pub fn format_xml(doc: &Document) -> String {
-    let mut out = String::with_capacity(doc.full_text().len() * 2);
+    let mut out = String::with_capacity(doc.block_count() * 200);
     out.push_str("<document>\n");
 
     // Metadata
@@ -120,7 +120,7 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
         ContentBlock::Table(table) => {
             out.push_str(&format!("{indent}<table"));
             if let Some(cap) = &table.caption {
-                out.push_str(&format!(" caption=\"{}\"", escaping::escape_xml_text(cap)));
+                out.push_str(&format!(" caption=\"{}\"", escaping::escape_xml_attribute(cap)));
             }
             out.push_str(">\n");
             if !table.headers.is_empty() {
@@ -168,7 +168,7 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
         ContentBlock::Definition(def) => {
             out.push_str(&format!(
                 "{indent}<definition term=\"{}\">{}</definition>\n",
-                escaping::escape_xml_text(&def.term),
+                escaping::escape_xml_attribute(&def.term),
                 escaping::escape_xml_text(&def.definition)
             ));
         },
@@ -181,7 +181,7 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
         ContentBlock::CrossReference(cr) => {
             out.push_str(&format!(
                 "{indent}<cross_ref target=\"{}\">{}</cross_ref>\n",
-                escaping::escape_xml_text(&cr.target_id),
+                escaping::escape_xml_attribute(&cr.target_id),
                 escaping::escape_xml_text(&cr.display_text)
             ));
         },
@@ -196,7 +196,7 @@ fn write_block_xml(out: &mut String, block: &ContentBlock, depth: usize) {
 
 /// Format a document as GPT-optimized Markdown.
 pub fn format_markdown(doc: &Document) -> String {
-    let mut out = String::with_capacity(doc.full_text().len() * 2);
+    let mut out = String::with_capacity(doc.block_count() * 200);
 
     // Title and metadata
     if let Some(title) = &doc.title {
@@ -232,7 +232,7 @@ pub fn format_markdown(doc: &Document) -> String {
 
 fn write_section_md(out: &mut String, section: &Section) {
     if let Some(title) = &section.title {
-        let prefix = "#".repeat(section.level.min(6) as usize);
+        let prefix = "#".repeat(section.level.max(1).min(6) as usize);
         let number = section
             .number
             .as_ref()
@@ -309,8 +309,17 @@ fn write_block_md(out: &mut String, block: &ContentBlock) {
 }
 
 /// Format a document as agent-friendly JSON.
+///
+/// Returns an error message in the output if serialization fails (should not
+/// happen for well-formed Document values).
 pub fn format_json(doc: &Document) -> String {
-    serde_json::to_string_pretty(doc).unwrap_or_default()
+    match serde_json::to_string_pretty(doc) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!("Warning: JSON serialization failed: {e}");
+            String::new()
+        },
+    }
 }
 
 #[cfg(test)]
