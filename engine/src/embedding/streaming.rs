@@ -543,6 +543,8 @@ impl ChunkStream {
                     called_by: Vec::new(),
                     imports: Vec::new(),
                     tags: Vec::new(),
+                    keywords: Vec::new(),
+                    context_prefix: None,
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                 },

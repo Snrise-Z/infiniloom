@@ -202,6 +202,18 @@ pub struct ChunkContext {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub tags: Vec<String>,
 
+    // === RAG Retrieval Enhancements ===
+    /// Top keywords extracted from chunk content for BM25/sparse retrieval.
+    /// Identifiers are split on non-alphanumeric boundaries, filtered for stopwords,
+    /// and ranked by frequency (top 10).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub keywords: Vec<String>,
+
+    /// Brief description of where the chunk fits in the codebase.
+    /// Generated from file path + parent context, e.g. "From src/auth.rs, in class AuthService:"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_prefix: Option<String>,
+
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
     /// Lines of code in this chunk (excluding blank lines and comments)

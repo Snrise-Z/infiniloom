@@ -425,7 +425,7 @@ impl EmbedChunker {
                 let hash = hash_content(&chunk_content);
 
                 // Extract context (with complexity metrics)
-                let context = self.extract_context(symbol, &chunk_content);
+                let context = self.extract_context(symbol, &chunk_content, &relative_path);
 
                 // Compute fully qualified name for symbol disambiguation
                 let fqn = self.compute_fqn(&relative_path, symbol);
@@ -561,6 +561,9 @@ impl EmbedChunker {
             // Only create chunk if above minimum
             if tokens >= self.settings.min_tokens {
                 let hash = hash_content(&part_content);
+                let part_keywords = extract_keywords(&part_content);
+                let part_prefix =
+                    Some(generate_context_prefix(file, Some(&symbol.name), &symbol.kind));
 
                 // Track actual overlap lines included (for metadata)
                 let actual_overlap = if part_num > 1 {
@@ -594,6 +597,8 @@ impl EmbedChunker {
                         // Propagate docstring to ALL parts for better RAG retrieval
                         // Each part should be self-contained for semantic search
                         docstring: symbol.docstring.clone(),
+                        keywords: part_keywords,
+                        context_prefix: part_prefix,
                         ..Default::default()
                     },
                     part: Some(ChunkPart {
@@ -669,6 +674,9 @@ impl EmbedChunker {
         }
 
         let hash = hash_content(&content);
+        let keywords = extract_keywords(&content);
+        let context_prefix =
+            Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
 
         Some(EmbedChunk {
             id: hash.short_id,
@@ -687,13 +695,13 @@ impl EmbedChunker {
                 visibility: Visibility::Public,
                 is_test: false,
             },
-            context: ChunkContext::default(),
+            context: ChunkContext { keywords, context_prefix, ..Default::default() },
             part: None,
         })
     }
 
     /// Extract semantic context for retrieval
-    fn extract_context(&self, symbol: &Symbol, content: &str) -> ChunkContext {
+    fn extract_context(&self, symbol: &Symbol, content: &str, file_path: &str) -> ChunkContext {
         ChunkContext {
             docstring: symbol.docstring.clone(),
             comments: Vec::new(), // TODO: Extract inline comments
@@ -702,6 +710,12 @@ impl EmbedChunker {
             called_by: Vec::new(), // Populated from dependency graph
             imports: Vec::new(),   // Populated from file-level
             tags: self.generate_tags(symbol),
+            keywords: extract_keywords(content),
+            context_prefix: Some(generate_context_prefix(
+                file_path,
+                symbol.parent.as_deref(),
+                &symbol.kind,
+            )),
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
         }
@@ -1317,6 +1331,116 @@ impl EmbedChunker {
     fn parse_token_model(&self, model: &str) -> TokenModel {
         TokenModel::from_model_name(model).unwrap_or(TokenModel::Claude)
     }
+}
+
+/// Extract top keywords from chunk content for BM25/sparse retrieval.
+///
+/// Splits content on non-alphanumeric boundaries, splits identifiers by
+/// camelCase/snake_case, filters stopwords and short tokens, then returns
+/// the top 10 by frequency.
+fn extract_keywords(content: &str) -> Vec<String> {
+    use std::collections::HashMap;
+
+    const STOPWORDS: &[&str] = &[
+        "the", "a", "an", "and", "or", "not", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may",
+        "might", "shall", "can", "need", "must", "let", "var", "const", "mut", "pub", "fn", "def",
+        "class", "struct", "enum", "impl", "trait", "use", "import", "from", "return", "if",
+        "else", "for", "while", "loop", "match", "true", "false", "none", "null", "self", "this",
+        "super", "new", "type", "static", "async", "await", "try", "catch", "throw", "throws",
+        "void", "int", "str", "string", "bool", "float", "double", "char", "byte",
+    ];
+
+    let mut freq: HashMap<String, usize> = HashMap::new();
+
+    for token in content.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        let sub_tokens = split_identifier(token);
+        for sub in &sub_tokens {
+            let lower = sub.to_lowercase();
+            if lower.len() >= 3 && !STOPWORDS.contains(&lower.as_str()) {
+                *freq.entry(lower).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let mut entries: Vec<(String, usize)> = freq.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    entries.into_iter().take(10).map(|(word, _)| word).collect()
+}
+
+/// Generate a context prefix describing where the chunk fits in the codebase.
+///
+/// Examples:
+/// - "From src/auth.rs, function"
+/// - "From src/models/user.rs, in UserService, method"
+fn generate_context_prefix(
+    file_path: &str,
+    parent: Option<&str>,
+    kind: &crate::types::SymbolKind,
+) -> String {
+    let kind_name = match kind {
+        crate::types::SymbolKind::Function => "function",
+        crate::types::SymbolKind::Method => "method",
+        crate::types::SymbolKind::Class => "class",
+        crate::types::SymbolKind::Struct => "struct",
+        crate::types::SymbolKind::Enum => "enum",
+        crate::types::SymbolKind::Interface => "interface",
+        crate::types::SymbolKind::Trait => "trait",
+        crate::types::SymbolKind::Import => "import",
+        crate::types::SymbolKind::Constant => "constant",
+        crate::types::SymbolKind::Variable => "variable",
+        crate::types::SymbolKind::TypeAlias => "type",
+        crate::types::SymbolKind::Export => "export",
+        crate::types::SymbolKind::Module => "module",
+        crate::types::SymbolKind::Macro => "macro",
+    };
+
+    match parent {
+        Some(p) => format!("From {file_path}, in {p}, {kind_name}"),
+        None => format!("From {file_path}, {kind_name}"),
+    }
+}
+
+/// Split an identifier into sub-tokens by camelCase, PascalCase, and snake_case boundaries.
+///
+/// Examples:
+/// - "getUserName" -> ["get", "User", "Name"]
+/// - "get_user_name" -> ["get", "user", "name"]
+/// - "HTTPClient" -> ["HTTP", "Client"]
+fn split_identifier(ident: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    for ch in ident.chars() {
+        if ch == '_' {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+        } else if ch.is_uppercase() && !current.is_empty() {
+            let last_was_upper = current.chars().last().is_some_and(|c| c.is_uppercase());
+            if !last_was_upper {
+                // camelCase boundary: "getUser" -> ["get", "U..."]
+                tokens.push(std::mem::take(&mut current));
+            }
+            current.push(ch);
+        } else {
+            // Transition from uppercase run to lowercase: "HTTPClient" -> ["HTTP", "Client"]
+            if ch.is_lowercase() && current.len() > 1 && current.chars().all(|c| c.is_uppercase()) {
+                let last = current.pop().unwrap();
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+                current.push(last);
+            }
+            current.push(ch);
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
 }
 
 #[cfg(test)]
