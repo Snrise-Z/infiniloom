@@ -423,6 +423,55 @@ impl TokenModel {
         ]
     }
 
+    /// Get approximate context window size for this model (in tokens)
+    pub fn context_window(&self) -> u32 {
+        match self {
+            // OpenAI GPT-5.x - 128K context
+            Self::Gpt52
+            | Self::Gpt52Pro
+            | Self::Gpt51
+            | Self::Gpt51Mini
+            | Self::Gpt51Codex
+            | Self::Gpt5
+            | Self::Gpt5Mini
+            | Self::Gpt5Nano => 128_000,
+            // OpenAI O-series - 200K context
+            Self::O4Mini | Self::O3 | Self::O3Mini | Self::O1 | Self::O1Mini | Self::O1Preview => {
+                200_000
+            },
+            // OpenAI GPT-4o - 128K
+            Self::Gpt4o | Self::Gpt4oMini => 128_000,
+            // Legacy OpenAI
+            Self::Gpt4 => 128_000,
+            Self::Gpt35Turbo => 16_000,
+            // Anthropic Claude - 200K (1M beta)
+            Self::Claude => 200_000,
+            // Google Gemini - 1M+
+            Self::Gemini => 1_000_000,
+            // Meta Llama - 128K
+            Self::Llama | Self::CodeLlama => 128_000,
+            // Mistral - 128K
+            Self::Mistral => 128_000,
+            // DeepSeek - 128K
+            Self::DeepSeek => 128_000,
+            // Qwen - 128K
+            Self::Qwen => 128_000,
+            // Cohere - 128K
+            Self::Cohere => 128_000,
+            // Grok - 2M
+            Self::Grok => 2_000_000,
+        }
+    }
+
+    /// Get recommended default token budget for packing output (about 75% of context window, capped at 500K)
+    pub fn default_budget(&self) -> u32 {
+        let window = self.context_window();
+        // Use ~75% of context to leave room for response
+        let budget = (window as f64 * 0.75) as u32;
+        // Cap at 500K to keep output manageable
+        budget.min(500_000)
+    }
+
     /// Get the vendor/provider name for this model
     pub fn vendor(&self) -> &'static str {
         match self {
