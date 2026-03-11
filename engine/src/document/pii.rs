@@ -1,8 +1,10 @@
 //! PII (Personally Identifiable Information) detection for documents.
 //!
 //! Scans document text for common PII patterns including SSNs, credit card numbers
-//! (Luhn-validated), email addresses, phone numbers, and IP addresses. Provides both
-//! detection (scan) and redaction (replace with `[REDACTED-KIND]` placeholders).
+//! (Luhn-validated), email addresses, phone numbers, IP addresses (IPv4 and IPv6),
+//! IBAN bank account numbers, UK National Insurance Numbers, international phone
+//! numbers (E.164), and EU VAT numbers. Provides both detection (scan) and redaction
+//! (replace with `[REDACTED-KIND]` placeholders).
 //!
 //! # Example
 //!
@@ -50,6 +52,51 @@ static RE_PHONE: Lazy<Regex> = Lazy::new(|| {
 static RE_IP_ADDRESS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").expect("RE_IP_ADDRESS: invalid regex"));
 
+/// IBAN: 2 uppercase letters (country) + 2 check digits + up to 30 alphanumeric characters.
+static RE_IBAN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b").expect("RE_IBAN: invalid regex"));
+
+/// UK National Insurance Number: 2 letters + 6 digits + 1 letter (with optional spaces).
+/// First letter excludes D, F, I, Q, U, V; second letter also excludes O.
+static RE_UK_NINO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b")
+        .expect("RE_UK_NINO: invalid regex")
+});
+
+/// International phone number in E.164 format: + followed by country code and subscriber
+/// number, totaling 7-15 digits. Must start with + to distinguish from US phone patterns.
+static RE_INTL_PHONE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\+[1-9]\d{0,2}[-.\s]?\d[\d\-.\s]{4,13}\d\b").expect("RE_INTL_PHONE: invalid regex")
+});
+
+/// IPv6 address: 8 groups of 4 hex digits separated by colons, with support for :: shorthand.
+static RE_IPV6: Lazy<Regex> = Lazy::new(|| {
+    // Match full 8-group IPv6, or various :: shorthand forms.
+    Regex::new(concat!(
+        r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,7}:\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}\b",
+        r"|(?i)\b(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}\b",
+        r"|(?i)\b[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}\b",
+        r"|(?i)(?:^|\s)::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}\b",
+        r"|(?i)(?:^|\s)::\b",
+    ))
+    .expect("RE_IPV6: invalid regex")
+});
+
+/// EU VAT number: 2 uppercase letters (EU country code) + 2-12 alphanumeric characters.
+static RE_EU_VAT: Lazy<Regex> = Lazy::new(|| {
+    // Only match known EU member state country codes to reduce false positives.
+    Regex::new(concat!(
+        r"\b(?:AT|BE|BG|CY|CZ|DE|DK|EE|EL|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|",
+        r"SE|SI|SK)[A-Z0-9]{2,12}\b",
+    ))
+    .expect("RE_EU_VAT: invalid regex")
+});
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -67,6 +114,16 @@ pub enum PiiKind {
     Phone,
     /// IPv4 address (each octet 0-255)
     IpAddress,
+    /// IBAN bank account number (international)
+    Iban,
+    /// UK National Insurance Number
+    UkNino,
+    /// International phone number (E.164 format)
+    IntlPhone,
+    /// IPv6 address
+    Ipv6Address,
+    /// EU VAT identification number
+    EuVat,
 }
 
 impl PiiKind {
@@ -78,6 +135,11 @@ impl PiiKind {
             Self::Email => "EMAIL",
             Self::Phone => "PHONE",
             Self::IpAddress => "IP-ADDRESS",
+            Self::Iban => "IBAN",
+            Self::UkNino => "UK-NINO",
+            Self::IntlPhone => "INTL-PHONE",
+            Self::Ipv6Address => "IPV6-ADDRESS",
+            Self::EuVat => "EU-VAT",
         }
     }
 }
@@ -152,6 +214,43 @@ fn is_valid_ipv4(ip: &str) -> bool {
         .all(|o| o.parse::<u16>().map_or(false, |n| n <= 255))
 }
 
+/// Validate IBAN using the MOD-97 check digit algorithm (ISO 13616).
+/// Returns true if the IBAN has valid check digits.
+fn is_valid_iban(iban: &str) -> bool {
+    let clean: String = iban.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() < 5 || clean.len() > 34 {
+        return false;
+    }
+    // Move first 4 chars to end
+    let rearranged = format!("{}{}", &clean[4..], &clean[..4]);
+    // Convert letters to numbers (A=10, B=11, ..., Z=35)
+    let mut numeric = String::with_capacity(rearranged.len() * 2);
+    for ch in rearranged.chars() {
+        if ch.is_ascii_digit() {
+            numeric.push(ch);
+        } else if ch.is_ascii_uppercase() {
+            let val = (ch as u32) - ('A' as u32) + 10;
+            numeric.push_str(&val.to_string());
+        } else {
+            return false;
+        }
+    }
+    // MOD 97 on the large number (process in chunks to avoid overflow)
+    let mut remainder: u64 = 0;
+    for chunk in numeric.as_bytes().chunks(9) {
+        let s = std::str::from_utf8(chunk).unwrap_or("0");
+        let combined = format!("{remainder}{s}");
+        remainder = combined.parse::<u64>().unwrap_or(0) % 97;
+    }
+    remainder == 1
+}
+
+/// Validate that an E.164 phone number has the right digit count (7-15 digits total).
+fn is_valid_intl_phone(phone: &str) -> bool {
+    let digit_count = phone.chars().filter(|c| c.is_ascii_digit()).count();
+    (7..=15).contains(&digit_count)
+}
+
 // ---------------------------------------------------------------------------
 // Scanning
 // ---------------------------------------------------------------------------
@@ -224,7 +323,7 @@ fn scan_text(text: &str, location: &str, findings: &mut Vec<PiiFinding>) {
             });
         }
 
-        // Phone
+        // Phone (US formats)
         for m in RE_PHONE.find_iter(line) {
             findings.push(PiiFinding {
                 kind: PiiKind::Phone,
@@ -245,6 +344,62 @@ fn scan_text(text: &str, location: &str, findings: &mut Vec<PiiFinding>) {
                     line_approx: line_idx + 1,
                 });
             }
+        }
+
+        // IBAN (MOD-97 validated)
+        for m in RE_IBAN.find_iter(line) {
+            let matched = m.as_str();
+            if is_valid_iban(matched) {
+                findings.push(PiiFinding {
+                    kind: PiiKind::Iban,
+                    text: matched.to_owned(),
+                    location: location.to_owned(),
+                    line_approx: line_idx + 1,
+                });
+            }
+        }
+
+        // UK National Insurance Number
+        for m in RE_UK_NINO.find_iter(line) {
+            findings.push(PiiFinding {
+                kind: PiiKind::UkNino,
+                text: m.as_str().to_owned(),
+                location: location.to_owned(),
+                line_approx: line_idx + 1,
+            });
+        }
+
+        // International phone (E.164, validated digit count)
+        for m in RE_INTL_PHONE.find_iter(line) {
+            let matched = m.as_str();
+            if is_valid_intl_phone(matched) {
+                findings.push(PiiFinding {
+                    kind: PiiKind::IntlPhone,
+                    text: matched.to_owned(),
+                    location: location.to_owned(),
+                    line_approx: line_idx + 1,
+                });
+            }
+        }
+
+        // IPv6 address
+        for m in RE_IPV6.find_iter(line) {
+            findings.push(PiiFinding {
+                kind: PiiKind::Ipv6Address,
+                text: m.as_str().to_owned(),
+                location: location.to_owned(),
+                line_approx: line_idx + 1,
+            });
+        }
+
+        // EU VAT number
+        for m in RE_EU_VAT.find_iter(line) {
+            findings.push(PiiFinding {
+                kind: PiiKind::EuVat,
+                text: m.as_str().to_owned(),
+                location: location.to_owned(),
+                line_approx: line_idx + 1,
+            });
         }
     }
 }
@@ -269,13 +424,34 @@ pub fn redact_text(text: &str) -> String {
         .replace_all(&result, "[REDACTED-EMAIL]")
         .into_owned();
 
-    // Phone
+    // Phone (US)
     result = RE_PHONE
         .replace_all(&result, "[REDACTED-PHONE]")
         .into_owned();
 
     // IP address — needs octet validation
     result = redact_ip_addresses(&result);
+
+    // IBAN — needs MOD-97 validation
+    result = redact_ibans(&result);
+
+    // UK NINO
+    result = RE_UK_NINO
+        .replace_all(&result, "[REDACTED-UK-NINO]")
+        .into_owned();
+
+    // International phone — needs digit count validation
+    result = redact_intl_phones(&result);
+
+    // IPv6
+    result = RE_IPV6
+        .replace_all(&result, "[REDACTED-IPV6-ADDRESS]")
+        .into_owned();
+
+    // EU VAT
+    result = RE_EU_VAT
+        .replace_all(&result, "[REDACTED-EU-VAT]")
+        .into_owned();
 
     result
 }
@@ -319,6 +495,38 @@ fn redact_ip_addresses(text: &str) -> String {
         if is_valid_ipv4(m.as_str()) {
             result.push_str(&text[last_end..m.start()]);
             result.push_str("[REDACTED-IP-ADDRESS]");
+        } else {
+            result.push_str(&text[last_end..m.end()]);
+        }
+        last_end = m.end();
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
+fn redact_ibans(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+    for m in RE_IBAN.find_iter(text) {
+        if is_valid_iban(m.as_str()) {
+            result.push_str(&text[last_end..m.start()]);
+            result.push_str("[REDACTED-IBAN]");
+        } else {
+            result.push_str(&text[last_end..m.end()]);
+        }
+        last_end = m.end();
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
+fn redact_intl_phones(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+    for m in RE_INTL_PHONE.find_iter(text) {
+        if is_valid_intl_phone(m.as_str()) {
+            result.push_str(&text[last_end..m.start()]);
+            result.push_str("[REDACTED-INTL-PHONE]");
         } else {
             result.push_str(&text[last_end..m.end()]);
         }
@@ -399,6 +607,20 @@ pub fn summarize(findings: &[PiiFinding]) -> String {
         .iter()
         .filter(|f| f.kind == PiiKind::IpAddress)
         .count();
+    let iban_count = findings.iter().filter(|f| f.kind == PiiKind::Iban).count();
+    let nino_count = findings
+        .iter()
+        .filter(|f| f.kind == PiiKind::UkNino)
+        .count();
+    let intl_phone_count = findings
+        .iter()
+        .filter(|f| f.kind == PiiKind::IntlPhone)
+        .count();
+    let ipv6_count = findings
+        .iter()
+        .filter(|f| f.kind == PiiKind::Ipv6Address)
+        .count();
+    let vat_count = findings.iter().filter(|f| f.kind == PiiKind::EuVat).count();
 
     let mut parts = Vec::new();
     if ssn_count > 0 {
@@ -415,6 +637,24 @@ pub fn summarize(findings: &[PiiFinding]) -> String {
     }
     if ip_count > 0 {
         parts.push(format!("{ip_count} IP address{}", if ip_count > 1 { "es" } else { "" }));
+    }
+    if iban_count > 0 {
+        parts.push(format!("{iban_count} IBAN{}", if iban_count > 1 { "s" } else { "" }));
+    }
+    if nino_count > 0 {
+        parts.push(format!("{nino_count} UK NINO{}", if nino_count > 1 { "s" } else { "" }));
+    }
+    if intl_phone_count > 0 {
+        parts.push(format!(
+            "{intl_phone_count} intl phone{}",
+            if intl_phone_count > 1 { "s" } else { "" }
+        ));
+    }
+    if ipv6_count > 0 {
+        parts.push(format!("{ipv6_count} IPv6 address{}", if ipv6_count > 1 { "es" } else { "" }));
+    }
+    if vat_count > 0 {
+        parts.push(format!("{vat_count} EU VAT{}", if vat_count > 1 { "s" } else { "" }));
     }
 
     format!("PII scan: found {} items ({})", findings.len(), parts.join(", "))
@@ -805,5 +1045,280 @@ mod tests {
         assert!(result.contains("[REDACTED-EMAIL]"));
         assert!(!result.contains("123-45-6789"));
         assert!(!result.contains("user@test.com"));
+    }
+
+    // -----------------------------------------------------------------------
+    // International PII pattern tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_iban_detection() {
+        let mut findings = Vec::new();
+        // Valid German IBAN (passes MOD-97)
+        scan_text("IBAN: DE89370400440532013000", "test", &mut findings);
+        let ibans: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Iban)
+            .collect();
+        assert_eq!(ibans.len(), 1);
+        assert_eq!(ibans[0].text, "DE89370400440532013000");
+    }
+
+    #[test]
+    fn test_iban_gb() {
+        let mut findings = Vec::new();
+        // Valid UK IBAN
+        scan_text("Account: GB29NWBK60161331926819", "test", &mut findings);
+        let ibans: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Iban)
+            .collect();
+        assert_eq!(ibans.len(), 1);
+        assert_eq!(ibans[0].text, "GB29NWBK60161331926819");
+    }
+
+    #[test]
+    fn test_iban_invalid_check_digits() {
+        let mut findings = Vec::new();
+        // Invalid check digits (DE00 instead of DE89)
+        scan_text("IBAN: DE00370400440532013000", "test", &mut findings);
+        let ibans: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Iban)
+            .collect();
+        assert!(ibans.is_empty(), "Invalid IBAN check digits should not match");
+    }
+
+    #[test]
+    fn test_iban_redact() {
+        let result = redact_text("IBAN: DE89370400440532013000");
+        assert!(result.contains("[REDACTED-IBAN]"));
+        assert!(!result.contains("DE89370400440532013000"));
+    }
+
+    #[test]
+    fn test_iban_redact_preserves_invalid() {
+        let result = redact_text("IBAN: DE00370400440532013000");
+        assert!(result.contains("DE00370400440532013000"), "Invalid IBAN should be preserved");
+    }
+
+    #[test]
+    fn test_uk_nino_detection() {
+        let mut findings = Vec::new();
+        scan_text("NI number: AB123456C", "test", &mut findings);
+        let ninos: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::UkNino)
+            .collect();
+        assert_eq!(ninos.len(), 1);
+        assert_eq!(ninos[0].text, "AB123456C");
+    }
+
+    #[test]
+    fn test_uk_nino_with_spaces() {
+        let mut findings = Vec::new();
+        scan_text("NI: AB 12 34 56 C", "test", &mut findings);
+        let ninos: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::UkNino)
+            .collect();
+        assert_eq!(ninos.len(), 1);
+    }
+
+    #[test]
+    fn test_uk_nino_invalid_prefix() {
+        let mut findings = Vec::new();
+        // D is not allowed as first letter
+        scan_text("NI: DA123456C", "test", &mut findings);
+        let ninos: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::UkNino)
+            .collect();
+        assert!(ninos.is_empty(), "Invalid NINO prefix should not match");
+    }
+
+    #[test]
+    fn test_uk_nino_redact() {
+        let result = redact_text("NI number: AB123456C");
+        assert!(result.contains("[REDACTED-UK-NINO]"));
+        assert!(!result.contains("AB123456C"));
+    }
+
+    #[test]
+    fn test_intl_phone_e164_detection() {
+        let mut findings = Vec::new();
+        // UK phone number
+        scan_text("Phone: +442071234567", "test", &mut findings);
+        let phones: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::IntlPhone)
+            .collect();
+        assert_eq!(phones.len(), 1);
+        assert_eq!(phones[0].text, "+442071234567");
+    }
+
+    #[test]
+    fn test_intl_phone_with_separators() {
+        let mut findings = Vec::new();
+        // German phone with separators
+        scan_text("Tel: +49 30 1234567", "test", &mut findings);
+        let phones: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::IntlPhone)
+            .collect();
+        assert_eq!(phones.len(), 1);
+    }
+
+    #[test]
+    fn test_intl_phone_too_short() {
+        let mut findings = Vec::new();
+        // Only 5 digits total — too short for E.164
+        scan_text("Code: +12345", "test", &mut findings);
+        let phones: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::IntlPhone)
+            .collect();
+        assert!(phones.is_empty(), "Too-short intl phone should not match");
+    }
+
+    #[test]
+    fn test_intl_phone_redact() {
+        let result = redact_text("Call: +442071234567");
+        assert!(result.contains("[REDACTED-INTL-PHONE]"));
+        assert!(!result.contains("+442071234567"));
+    }
+
+    #[test]
+    fn test_ipv6_full_detection() {
+        let mut findings = Vec::new();
+        scan_text("Server: 2001:0db8:85a3:0000:0000:8a2e:0370:7334", "test", &mut findings);
+        let ipv6s: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Ipv6Address)
+            .collect();
+        assert_eq!(ipv6s.len(), 1);
+        assert_eq!(ipv6s[0].text, "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+    }
+
+    #[test]
+    fn test_ipv6_abbreviated() {
+        let mut findings = Vec::new();
+        scan_text("Host: 2001:db8::1", "test", &mut findings);
+        let ipv6s: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Ipv6Address)
+            .collect();
+        assert_eq!(ipv6s.len(), 1);
+    }
+
+    #[test]
+    fn test_ipv6_loopback() {
+        let mut findings = Vec::new();
+        scan_text("Loopback: ::1", "test", &mut findings);
+        let ipv6s: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Ipv6Address)
+            .collect();
+        assert_eq!(ipv6s.len(), 1);
+    }
+
+    #[test]
+    fn test_ipv6_redact() {
+        let result = redact_text("Server: 2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        assert!(result.contains("[REDACTED-IPV6-ADDRESS]"));
+        assert!(!result.contains("2001:0db8:85a3:0000:0000:8a2e:0370:7334"));
+    }
+
+    #[test]
+    fn test_eu_vat_detection() {
+        let mut findings = Vec::new();
+        // German VAT number
+        scan_text("VAT: DE123456789", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "DE123456789");
+    }
+
+    #[test]
+    fn test_eu_vat_fr() {
+        let mut findings = Vec::new();
+        // French VAT number
+        scan_text("TVA: FR12345678901", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "FR12345678901");
+    }
+
+    #[test]
+    fn test_eu_vat_non_eu_country() {
+        let mut findings = Vec::new();
+        // US is not an EU country code
+        scan_text("VAT: US123456789", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert!(vats.is_empty(), "Non-EU country code should not match");
+    }
+
+    #[test]
+    fn test_eu_vat_redact() {
+        let result = redact_text("VAT: DE123456789");
+        assert!(result.contains("[REDACTED-EU-VAT]"));
+        assert!(!result.contains("DE123456789"));
+    }
+
+    #[test]
+    fn test_is_valid_iban() {
+        // Valid IBANs
+        assert!(is_valid_iban("DE89370400440532013000"));
+        assert!(is_valid_iban("GB29NWBK60161331926819"));
+        assert!(is_valid_iban("FR7630006000011234567890189"));
+        // Invalid check digits
+        assert!(!is_valid_iban("DE00370400440532013000"));
+        // Too short
+        assert!(!is_valid_iban("DE89"));
+    }
+
+    #[test]
+    fn test_is_valid_intl_phone() {
+        assert!(is_valid_intl_phone("+442071234567")); // 12 digits
+        assert!(is_valid_intl_phone("+49 30 1234567")); // 11 digits
+        assert!(!is_valid_intl_phone("+123")); // only 3 digits
+    }
+
+    #[test]
+    fn test_summarize_international() {
+        let findings = vec![
+            PiiFinding {
+                kind: PiiKind::Iban,
+                text: "DE89370400440532013000".into(),
+                location: "test".into(),
+                line_approx: 1,
+            },
+            PiiFinding {
+                kind: PiiKind::UkNino,
+                text: "AB123456C".into(),
+                location: "test".into(),
+                line_approx: 2,
+            },
+            PiiFinding {
+                kind: PiiKind::Ipv6Address,
+                text: "::1".into(),
+                location: "test".into(),
+                line_approx: 3,
+            },
+        ];
+        let summary = summarize(&findings);
+        assert!(summary.contains("found 3 items"));
+        assert!(summary.contains("1 IBAN"));
+        assert!(summary.contains("1 UK NINO"));
+        assert!(summary.contains("1 IPv6 address"));
     }
 }
