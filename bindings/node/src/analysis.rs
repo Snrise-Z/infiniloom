@@ -344,6 +344,40 @@ pub struct ComplexityOptions {
     pub language: String,
 }
 
+/// Options for complexity threshold checking
+#[napi(object)]
+pub struct CheckComplexityOptions {
+    /// The programming language (e.g., "javascript", "python", "rust")
+    pub language: String,
+    /// Maximum cyclomatic complexity (default: 10)
+    pub max_cyclomatic: Option<u32>,
+    /// Maximum cognitive complexity (default: 15)
+    pub max_cognitive: Option<u32>,
+    /// Maximum nesting depth (default: 4)
+    pub max_nesting: Option<u32>,
+    /// Maximum parameter count (default: 5)
+    pub max_params: Option<u32>,
+    /// Minimum maintainability index (default: 40.0; lower is worse)
+    pub min_maintainability: Option<f64>,
+}
+
+/// A single complexity threshold violation
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsComplexityViolation {
+    pub metric: String,
+    pub value: f64,
+    pub threshold: f64,
+}
+
+/// Result of checking complexity against thresholds
+#[napi(object)]
+pub struct JsComplexityCheckResult {
+    pub passed: bool,
+    pub violations: Vec<JsComplexityViolation>,
+    pub metrics: JsComplexityMetrics,
+}
+
 /// Options for dead code detection
 #[napi(object)]
 pub struct DeadCodeOptions {
@@ -624,6 +658,165 @@ pub async fn detect_breaking_changes_async(
 }
 
 // ============================================================================
+// Complexity Functions
+// ============================================================================
+
+/// Calculate complexity metrics for source code
+///
+/// Analyzes source code and returns cyclomatic complexity, cognitive complexity,
+/// Halstead metrics, lines of code, maintainability index, and more.
+///
+/// # Arguments
+/// * `source` - The source code to analyze
+/// * `options` - Options including the programming language
+///
+/// # Returns
+/// Complexity metrics object
+///
+/// # Example
+/// ```javascript
+/// const { calculateComplexity } = require('infiniloom-node');
+///
+/// const metrics = calculateComplexity('function foo(a, b) { if (a) return b; }', {
+///   language: 'javascript'
+/// });
+/// console.log(`Cyclomatic: ${metrics.cyclomatic}`);
+/// ```
+#[napi]
+pub fn calculate_complexity(
+    source: String,
+    options: ComplexityOptions,
+) -> Result<JsComplexityMetrics> {
+    use infiniloom_engine::analysis::calculate_complexity_from_source;
+
+    let language = parse_language(&options.language)?;
+    let metrics = calculate_complexity_from_source(&source, language)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to analyze complexity: {}", e)))?;
+
+    Ok(convert_complexity_metrics(metrics))
+}
+
+/// Async version of calculateComplexity
+#[napi]
+pub async fn calculate_complexity_async(
+    source: String,
+    options: ComplexityOptions,
+) -> Result<JsComplexityMetrics> {
+    tokio::task::spawn_blocking(move || calculate_complexity(source, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+/// Check complexity against configurable thresholds
+///
+/// Calculates complexity metrics then validates them against thresholds.
+/// Returns a structured result with pass/fail status, violations, and metrics.
+///
+/// # Arguments
+/// * `source` - The source code to analyze
+/// * `options` - Options including language and optional thresholds
+///
+/// # Returns
+/// Check result with `passed` boolean, `violations` array, and full `metrics`
+///
+/// # Example
+/// ```javascript
+/// const { checkComplexity } = require('infiniloom-node');
+///
+/// const result = checkComplexity(complexCode, {
+///   language: 'javascript',
+///   maxCyclomatic: 5,
+///   maxCognitive: 10
+/// });
+///
+/// if (!result.passed) {
+///   for (const v of result.violations) {
+///     console.log(`${v.metric}: ${v.value} exceeds threshold ${v.threshold}`);
+///   }
+/// }
+/// ```
+#[napi]
+pub fn check_complexity(
+    source: String,
+    options: CheckComplexityOptions,
+) -> Result<JsComplexityCheckResult> {
+    use infiniloom_engine::analysis::calculate_complexity_from_source;
+
+    let language = parse_language(&options.language)?;
+    let metrics = calculate_complexity_from_source(&source, language)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to analyze complexity: {}", e)))?;
+
+    let max_cyclomatic = options.max_cyclomatic.unwrap_or(10);
+    let max_cognitive = options.max_cognitive.unwrap_or(15);
+    let max_nesting = options.max_nesting.unwrap_or(4);
+    let max_params = options.max_params.unwrap_or(5);
+    let min_maintainability = options.min_maintainability.unwrap_or(40.0);
+
+    let mut violations = Vec::new();
+
+    if metrics.cyclomatic >= max_cyclomatic {
+        violations.push(JsComplexityViolation {
+            metric: "cyclomatic".to_string(),
+            value: metrics.cyclomatic as f64,
+            threshold: max_cyclomatic as f64,
+        });
+    }
+
+    if metrics.cognitive >= max_cognitive {
+        violations.push(JsComplexityViolation {
+            metric: "cognitive".to_string(),
+            value: metrics.cognitive as f64,
+            threshold: max_cognitive as f64,
+        });
+    }
+
+    if metrics.max_nesting_depth >= max_nesting {
+        violations.push(JsComplexityViolation {
+            metric: "max_nesting_depth".to_string(),
+            value: metrics.max_nesting_depth as f64,
+            threshold: max_nesting as f64,
+        });
+    }
+
+    if metrics.parameter_count >= max_params {
+        violations.push(JsComplexityViolation {
+            metric: "parameter_count".to_string(),
+            value: metrics.parameter_count as f64,
+            threshold: max_params as f64,
+        });
+    }
+
+    if let Some(mi) = metrics.maintainability_index {
+        if (mi as f64) <= min_maintainability {
+            violations.push(JsComplexityViolation {
+                metric: "maintainability_index".to_string(),
+                value: mi as f64,
+                threshold: min_maintainability,
+            });
+        }
+    }
+
+    let js_metrics = convert_complexity_metrics(metrics);
+
+    Ok(JsComplexityCheckResult {
+        passed: violations.is_empty(),
+        violations,
+        metrics: js_metrics,
+    })
+}
+
+/// Async version of checkComplexity
+#[napi]
+pub async fn check_complexity_async(
+    source: String,
+    options: CheckComplexityOptions,
+) -> Result<JsComplexityCheckResult> {
+    tokio::task::spawn_blocking(move || check_complexity(source, options))
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, format!("Task failed: {}", e)))?
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -688,5 +881,315 @@ fn convert_documentation(doc: infiniloom_engine::analysis::Documentation) -> JsD
         is_deprecated: doc.is_deprecated,
         deprecation_message: doc.deprecation_message,
         raw: doc.raw,
+    }
+}
+
+fn convert_halstead(h: infiniloom_engine::analysis::HalsteadMetrics) -> JsHalsteadMetrics {
+    JsHalsteadMetrics {
+        distinct_operators: h.distinct_operators,
+        distinct_operands: h.distinct_operands,
+        total_operators: h.total_operators,
+        total_operands: h.total_operands,
+        vocabulary: h.vocabulary,
+        length: h.length,
+        calculated_length: h.calculated_length as f64,
+        volume: h.volume as f64,
+        difficulty: h.difficulty as f64,
+        effort: h.effort as f64,
+        time: h.time as f64,
+        bugs: h.bugs as f64,
+    }
+}
+
+fn convert_complexity_metrics(m: infiniloom_engine::analysis::ComplexityMetrics) -> JsComplexityMetrics {
+    JsComplexityMetrics {
+        cyclomatic: m.cyclomatic,
+        cognitive: m.cognitive,
+        halstead: m.halstead.map(convert_halstead),
+        loc: JsLocMetrics {
+            total: m.loc.total,
+            source: m.loc.source,
+            comments: m.loc.comments,
+            blank: m.loc.blank,
+        },
+        maintainability_index: m.maintainability_index.map(|mi| mi as f64),
+        max_nesting_depth: m.max_nesting_depth,
+        parameter_count: m.parameter_count,
+        return_count: m.return_count,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn js_source() -> &'static str {
+        r#"function foo(a, b) {
+    if (a > 0) {
+        return a + b;
+    }
+    return b;
+}"#
+    }
+
+    fn complex_js_source() -> &'static str {
+        r#"function complex(a, b, c, d, e, f) {
+    if (a > 0) {
+        if (b > 0) {
+            if (c > 0) {
+                if (d > 0) {
+                    if (e > 0) {
+                        return a + b + c + d + e + f;
+                    }
+                }
+            }
+        }
+    }
+    switch (a) {
+        case 1: return 1;
+        case 2: return 2;
+        case 3: return 3;
+        case 4: return 4;
+        case 5: return 5;
+        case 6: return 6;
+        case 7: return 7;
+        case 8: return 8;
+        case 9: return 9;
+        case 10: return 10;
+    }
+    for (let i = 0; i < a; i++) {
+        for (let j = 0; j < b; j++) {
+            if (i === j) continue;
+        }
+    }
+    return 0;
+}"#
+    }
+
+    // ---- calculate_complexity tests ----
+
+    #[test]
+    fn test_calculate_complexity_valid_source() {
+        let result = calculate_complexity(
+            js_source().to_string(),
+            ComplexityOptions { language: "javascript".to_string() },
+        );
+        assert!(result.is_ok());
+        let metrics = result.unwrap();
+        assert!(metrics.cyclomatic > 0);
+        assert!(metrics.loc.total > 0);
+        assert!(metrics.loc.source > 0);
+    }
+
+    #[test]
+    fn test_calculate_complexity_empty_source() {
+        let result = calculate_complexity(
+            String::new(),
+            ComplexityOptions { language: "javascript".to_string() },
+        );
+        assert!(result.is_ok());
+        let metrics = result.unwrap();
+        // Engine returns base cyclomatic of 1 (one path through empty program)
+        assert!(metrics.cyclomatic <= 1);
+    }
+
+    #[test]
+    fn test_calculate_complexity_invalid_language() {
+        let result = calculate_complexity(
+            js_source().to_string(),
+            ComplexityOptions { language: "brainfuck".to_string() },
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_calculate_complexity_clojure_returns_error() {
+        let result = calculate_complexity(
+            "(defn foo [x] (+ x 1))".to_string(),
+            ComplexityOptions { language: "clojure".to_string() },
+        );
+        assert!(result.is_err());
+    }
+
+    // ---- check_complexity tests ----
+
+    #[test]
+    fn test_check_complexity_low_complexity_passes() {
+        let result = check_complexity(
+            js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: None,
+                max_cognitive: None,
+                max_nesting: None,
+                max_params: None,
+                min_maintainability: None,
+            },
+        );
+        assert!(result.is_ok());
+        let check = result.unwrap();
+        assert!(check.passed);
+        assert!(check.violations.is_empty());
+        assert!(check.metrics.cyclomatic > 0);
+    }
+
+    #[test]
+    fn test_check_complexity_exceeding_cyclomatic() {
+        let result = check_complexity(
+            complex_js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: Some(3),
+                max_cognitive: Some(100),
+                max_nesting: Some(100),
+                max_params: Some(100),
+                min_maintainability: Some(0.0),
+            },
+        );
+        assert!(result.is_ok());
+        let check = result.unwrap();
+        assert!(!check.passed);
+        let cyclomatic_violation = check.violations.iter().find(|v| v.metric == "cyclomatic");
+        assert!(cyclomatic_violation.is_some());
+        assert_eq!(cyclomatic_violation.unwrap().threshold, 3.0);
+    }
+
+    #[test]
+    fn test_check_complexity_multiple_violations() {
+        let result = check_complexity(
+            complex_js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: Some(3),
+                max_cognitive: Some(3),
+                max_nesting: Some(2),
+                max_params: Some(3),
+                min_maintainability: None,
+            },
+        );
+        assert!(result.is_ok());
+        let check = result.unwrap();
+        assert!(!check.passed);
+        assert!(check.violations.len() >= 3);
+    }
+
+    #[test]
+    fn test_check_complexity_defaults_applied() {
+        let result = check_complexity(
+            js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: None,
+                max_cognitive: None,
+                max_nesting: None,
+                max_params: None,
+                min_maintainability: None,
+            },
+        );
+        assert!(result.is_ok());
+        let check = result.unwrap();
+        // Simple source should pass all defaults (cyc=10, cog=15, nest=4, params=5, mi=40)
+        assert!(check.passed);
+    }
+
+    #[test]
+    fn test_check_complexity_boundary_gte_semantics() {
+        // First calculate actual cyclomatic complexity of the source
+        let calc = calculate_complexity(
+            js_source().to_string(),
+            ComplexityOptions { language: "javascript".to_string() },
+        ).unwrap();
+        let actual_cyclomatic = calc.cyclomatic;
+        assert!(actual_cyclomatic > 0, "need non-zero complexity for boundary test");
+
+        // Set threshold exactly equal to value -- should be a violation (>= semantics)
+        let result = check_complexity(
+            js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: Some(actual_cyclomatic),
+                max_cognitive: Some(100),
+                max_nesting: Some(100),
+                max_params: Some(100),
+                min_maintainability: Some(0.0),
+            },
+        );
+        assert!(result.is_ok());
+        let check = result.unwrap();
+        let cyclomatic_violation = check.violations.iter().find(|v| v.metric == "cyclomatic");
+        assert!(
+            cyclomatic_violation.is_some(),
+            "value {} at threshold {} should be a violation with >= semantics",
+            actual_cyclomatic, actual_cyclomatic
+        );
+        assert_eq!(cyclomatic_violation.unwrap().value, actual_cyclomatic as f64);
+        assert_eq!(cyclomatic_violation.unwrap().threshold, actual_cyclomatic as f64);
+    }
+
+    // ---- conversion helper tests ----
+
+    #[test]
+    fn test_convert_complexity_metrics_with_halstead() {
+        use infiniloom_engine::analysis::{ComplexityMetrics, HalsteadMetrics, LocMetrics};
+
+        let engine_metrics = ComplexityMetrics {
+            cyclomatic: 5,
+            cognitive: 3,
+            halstead: Some(HalsteadMetrics {
+                distinct_operators: 4,
+                distinct_operands: 6,
+                total_operators: 10,
+                total_operands: 15,
+                vocabulary: 10,
+                length: 25,
+                calculated_length: 28.5,
+                volume: 83.0,
+                difficulty: 5.0,
+                effort: 415.0,
+                time: 23.1,
+                bugs: 0.028,
+            }),
+            loc: LocMetrics { total: 10, source: 7, comments: 2, blank: 1 },
+            maintainability_index: Some(65.5),
+            max_nesting_depth: 2,
+            parameter_count: 3,
+            return_count: 1,
+        };
+
+        let js = convert_complexity_metrics(engine_metrics);
+        assert_eq!(js.cyclomatic, 5);
+        assert_eq!(js.cognitive, 3);
+        assert!(js.halstead.is_some());
+        let h = js.halstead.unwrap();
+        assert_eq!(h.calculated_length, 28.5_f32 as f64);
+        assert_eq!(h.volume, 83.0_f32 as f64);
+        assert_eq!(h.difficulty, 5.0_f32 as f64);
+        assert_eq!(js.maintainability_index, Some(65.5_f32 as f64));
+        assert_eq!(js.loc.total, 10);
+        assert_eq!(js.loc.source, 7);
+        assert_eq!(js.max_nesting_depth, 2);
+        assert_eq!(js.parameter_count, 3);
+        assert_eq!(js.return_count, 1);
+    }
+
+    #[test]
+    fn test_convert_complexity_metrics_none_halstead() {
+        use infiniloom_engine::analysis::{ComplexityMetrics, LocMetrics};
+
+        let engine_metrics = ComplexityMetrics {
+            cyclomatic: 1,
+            cognitive: 0,
+            halstead: None,
+            loc: LocMetrics { total: 3, source: 2, comments: 0, blank: 1 },
+            maintainability_index: None,
+            max_nesting_depth: 0,
+            parameter_count: 0,
+            return_count: 0,
+        };
+
+        let js = convert_complexity_metrics(engine_metrics);
+        assert!(js.halstead.is_none());
+        assert!(js.maintainability_index.is_none());
+        assert_eq!(js.cyclomatic, 1);
     }
 }
