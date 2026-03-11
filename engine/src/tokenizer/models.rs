@@ -99,7 +99,7 @@ pub enum TokenModel {
     // =========================================================================
     // xAI Grok - Estimation (~3.5 chars/token)
     // =========================================================================
-    /// Grok (Grok 2, Grok 3) - estimation ~3.5 chars/token
+    /// Grok (Grok 2, 3, 4) - estimation ~3.5 chars/token
     Grok,
 }
 
@@ -380,7 +380,7 @@ impl TokenModel {
             // =================================================================
             // xAI Grok
             // =================================================================
-            "grok" | "grok-1" | "grok-2" | "grok-3" | "grok-beta" => Some(Self::Grok),
+            "grok" | "grok-1" | "grok-2" | "grok-3" | "grok-4" | "grok-beta" => Some(Self::Grok),
             s if s.starts_with("grok") => Some(Self::Grok),
 
             // Unknown model
