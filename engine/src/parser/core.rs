@@ -156,6 +156,14 @@ impl Parser {
                 Language::Hcl => {
                     (init::hcl()?, query_builder::hcl_query()?, query_builder::hcl_super_query()?)
                 },
+                Language::Zig => {
+                    (init::zig()?, query_builder::zig_query()?, query_builder::zig_super_query()?)
+                },
+                Language::Dart => (
+                    init::dart()?,
+                    query_builder::dart_query()?,
+                    query_builder::dart_super_query()?,
+                ),
             };
             parser_entry.insert(parser);
             self.queries.insert(language, query);

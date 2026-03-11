@@ -43,6 +43,8 @@ pub enum Language {
     Lua,
     R,
     Hcl,
+    Zig,
+    Dart,
 }
 
 #[allow(deprecated)]
@@ -74,6 +76,8 @@ impl Language {
             "lua" => Some(Self::Lua),
             "r" | "rmd" => Some(Self::R),
             "tf" | "hcl" | "tfvars" => Some(Self::Hcl),
+            "zig" | "zon" => Some(Self::Zig),
+            "dart" => Some(Self::Dart),
             _ => None,
         }
     }
@@ -105,6 +109,8 @@ impl Language {
             Self::Lua => "lua",
             Self::R => "r",
             Self::Hcl => "hcl",
+            Self::Zig => "zig",
+            Self::Dart => "dart",
         }
     }
 
@@ -135,6 +141,8 @@ impl Language {
             Self::Lua => "Lua",
             Self::R => "R",
             Self::Hcl => "HCL",
+            Self::Zig => "Zig",
+            Self::Dart => "Dart",
         }
     }
 
@@ -171,6 +179,8 @@ impl Language {
             Self::Lua => tree_sitter_lua::LANGUAGE.into(),
             Self::R => tree_sitter_r::LANGUAGE.into(),
             Self::Hcl => tree_sitter_hcl::LANGUAGE.into(),
+            Self::Zig => tree_sitter_zig::LANGUAGE.into(),
+            Self::Dart => tree_sitter_dart_orchard::LANGUAGE.into(),
             Self::FSharp => return None,
         })
     }
@@ -201,6 +211,8 @@ impl Language {
             Self::Lua => queries::LUA,
             Self::R => queries::R,
             Self::Hcl => queries::HCL,
+            Self::Zig => queries::ZIG,
+            Self::Dart => queries::DART,
             Self::FSharp => return None,
         })
     }
@@ -258,6 +270,8 @@ impl Language {
             Self::Lua,
             Self::R,
             Self::Hcl,
+            Self::Zig,
+            Self::Dart,
         ]
     }
 
@@ -294,6 +308,7 @@ impl Language {
                 | Self::Swift
                 | Self::Scala
                 | Self::Php
+                | Self::Dart
         )
     }
 
@@ -484,6 +499,8 @@ impl std::str::FromStr for Language {
             "lua" => Ok(Self::Lua),
             "r" => Ok(Self::R),
             "hcl" | "terraform" | "tf" => Ok(Self::Hcl),
+            "zig" => Ok(Self::Zig),
+            "dart" => Ok(Self::Dart),
             _ => Err(ParserError::UnsupportedLanguage(s.to_owned())),
         }
     }
@@ -535,7 +552,7 @@ mod tests {
     #[test]
     fn test_all_languages() {
         let all = Language::all();
-        assert_eq!(all.len(), 23);
+        assert_eq!(all.len(), 25);
         assert!(all.contains(&Language::Python));
         assert!(all.contains(&Language::Rust));
     }

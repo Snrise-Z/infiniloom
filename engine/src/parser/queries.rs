@@ -395,6 +395,33 @@ pub const HCL: &str = r#"
         (template_literal) @name)) @function
 "#;
 
+/// Zig symbol extraction query
+pub const ZIG: &str = r#"
+    (function_declaration
+      name: (identifier) @name) @function
+
+    (test_declaration) @function
+"#;
+
+/// Dart symbol extraction query
+pub const DART: &str = r#"
+    (function_signature
+      name: (identifier) @name) @function
+
+    (class_definition
+      name: (identifier) @name) @class
+
+    (method_signature
+      (function_signature
+        name: (identifier) @name)) @method
+
+    (enum_declaration
+      name: (identifier) @name) @enum
+
+    (mixin_declaration
+      (identifier) @name) @class
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,5 +453,7 @@ mod tests {
         assert!(!LUA.is_empty());
         assert!(!R.is_empty());
         assert!(!HCL.is_empty());
+        assert!(!ZIG.is_empty());
+        assert!(!DART.is_empty());
     }
 }

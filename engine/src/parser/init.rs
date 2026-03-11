@@ -206,6 +206,24 @@ pub fn hcl() -> Result<TSParser, ParserError> {
     Ok(parser)
 }
 
+/// Initialize Zig parser
+pub fn zig() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&tree_sitter_zig::LANGUAGE.into())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
+/// Initialize Dart parser
+pub fn dart() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&tree_sitter_dart_orchard::LANGUAGE.into())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +338,15 @@ mod tests {
     #[test]
     fn test_hcl_init() {
         assert!(hcl().is_ok());
+    }
+
+    #[test]
+    fn test_zig_init() {
+        assert!(zig().is_ok());
+    }
+
+    #[test]
+    fn test_dart_init() {
+        assert!(dart().is_ok());
     }
 }

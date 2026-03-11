@@ -544,6 +544,8 @@ pub fn calculate_complexity_from_source(
         Language::Lua => tree_sitter_lua::LANGUAGE.into(),
         Language::R => tree_sitter_r::LANGUAGE.into(),
         Language::Hcl => tree_sitter_hcl::LANGUAGE.into(),
+        Language::Zig => tree_sitter_zig::LANGUAGE.into(),
+        Language::Dart => tree_sitter_dart_orchard::LANGUAGE.into(),
         Language::Bash => tree_sitter_bash::LANGUAGE.into(),
         // FSharp doesn't have tree-sitter support yet
         Language::FSharp => {

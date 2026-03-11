@@ -1168,6 +1168,101 @@ pub fn hcl_super_query() -> Result<Query, ParserError> {
         .map_err(|e| ParserError::QueryError(e.to_string()))
 }
 
+// ==========================================================================
+// Zig
+// ==========================================================================
+
+pub fn zig_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        (function_declaration
+          name: (identifier) @name) @function
+
+        (test_declaration) @function
+    "#;
+
+    Query::new(&tree_sitter_zig::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn zig_super_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        ; Function declarations
+        (function_declaration
+          name: (identifier) @name) @function
+
+        ; Test declarations
+        (test_declaration) @function
+
+        ; Imports (const x = @import("..."))
+        (variable_declaration
+          (identifier) @name
+          (builtin_function
+            (builtin_identifier) @_builtin
+            (#eq? @_builtin "@import"))) @import
+    "#;
+
+    Query::new(&tree_sitter_zig::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+// ==========================================================================
+// Dart
+// ==========================================================================
+
+pub fn dart_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        (function_signature
+          name: (identifier) @name) @function
+
+        (class_definition
+          name: (identifier) @name) @class
+
+        (method_signature
+          (function_signature
+            name: (identifier) @name)) @method
+
+        (enum_declaration
+          name: (identifier) @name) @enum
+
+        (mixin_declaration
+          (identifier) @name) @class
+    "#;
+
+    Query::new(&tree_sitter_dart_orchard::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn dart_super_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        ; Functions
+        (function_signature
+          name: (identifier) @name) @function
+
+        ; Classes
+        (class_definition
+          name: (identifier) @name) @class
+
+        ; Methods
+        (method_signature
+          (function_signature
+            name: (identifier) @name)) @method
+
+        ; Enums
+        (enum_declaration
+          name: (identifier) @name) @enum
+
+        ; Mixins
+        (mixin_declaration
+          (identifier) @name) @class
+
+        ; Imports
+        (import_or_export) @import
+    "#;
+
+    Query::new(&tree_sitter_dart_orchard::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1313,5 +1408,17 @@ mod tests {
     fn test_hcl_queries() {
         assert!(hcl_query().is_ok());
         assert!(hcl_super_query().is_ok());
+    }
+
+    #[test]
+    fn test_zig_queries() {
+        assert!(zig_query().is_ok());
+        assert!(zig_super_query().is_ok());
+    }
+
+    #[test]
+    fn test_dart_queries() {
+        assert!(dart_query().is_ok());
+        assert!(dart_super_query().is_ok());
     }
 }

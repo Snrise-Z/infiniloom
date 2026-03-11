@@ -118,7 +118,8 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
         | Language::Php
         | Language::Kotlin
         | Language::Swift
-        | Language::Scala => {
+        | Language::Scala
+        | Language::Dart => {
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "block"
                     || child.kind() == "compound_statement"
@@ -159,7 +160,8 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
         | Language::Elixir
         | Language::Clojure
         | Language::R
-        | Language::Hcl => {
+        | Language::Hcl
+        | Language::Zig => {
             let start = node.start_byte();
             let mut end = start;
             for byte in &source_code.as_bytes()[start..] {
@@ -411,6 +413,32 @@ pub fn extract_docstring(node: Node<'_>, source_code: &str, language: Language) 
             None
         },
         Language::Hcl => None,
+        // Zig and Dart both use /// doc comments (same style as Rust)
+        Language::Zig | Language::Dart => {
+            let start_byte = node.start_byte();
+            let safe_boundary = source_code.floor_char_boundary(start_byte);
+            let lines_before: Vec<_> = source_code[..safe_boundary]
+                .lines()
+                .rev()
+                .take_while(|line| line.trim().starts_with("///") || line.trim().is_empty())
+                .collect();
+
+            if !lines_before.is_empty() {
+                let doc: Vec<String> = lines_before
+                    .into_iter()
+                    .rev()
+                    .filter_map(|line| {
+                        let trimmed = line.trim();
+                        trimmed.strip_prefix("///").map(|s| s.trim().to_owned())
+                    })
+                    .collect();
+
+                if !doc.is_empty() {
+                    return Some(doc.join(" "));
+                }
+            }
+            None
+        },
     }
 }
 
@@ -579,7 +607,19 @@ pub fn extract_visibility(node: Node<'_>, source_code: &str, language: Language)
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl => Visibility::Public,
+        | Language::Hcl
+        | Language::Zig => Visibility::Public,
+        Language::Dart => {
+            // Dart uses _ prefix for private members
+            if let Some(name_node) = node.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source_code.as_bytes()) {
+                    if name.starts_with('_') {
+                        return Visibility::Private;
+                    }
+                }
+            }
+            Visibility::Public
+        },
     }
 }
 
@@ -694,7 +734,9 @@ pub fn find_body_node(node: Node<'_>, language: Language) -> Option<Node<'_>> {
         | Language::OCaml
         | Language::FSharp
         | Language::R
-        | Language::Hcl => {
+        | Language::Hcl
+        | Language::Zig
+        | Language::Dart => {
             return Some(node);
         },
         Language::Lua => {
@@ -875,7 +917,9 @@ fn collect_calls_recursive_with_depth(
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl => {
+        | Language::Hcl
+        | Language::Zig
+        | Language::Dart => {
             if kind == "function_call" || kind == "call" || kind == "application" {
                 node.children(&mut node.walk())
                     .find(|child| child.kind() == "identifier" || child.kind() == "variable")
@@ -1208,7 +1252,9 @@ pub fn is_builtin(name: &str, language: Language) -> bool {
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl => false,
+        | Language::Hcl
+        | Language::Zig
+        | Language::Dart => false,
     }
 }
 
@@ -1536,7 +1582,9 @@ pub fn extract_inheritance(
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl => {},
+        | Language::Hcl
+        | Language::Zig
+        | Language::Dart => {},
     }
 
     (extends, implements)
