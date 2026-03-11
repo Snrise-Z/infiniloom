@@ -1691,8 +1691,8 @@ def select_output_format(
         "claude-sonnet": 200_000,
         "gpt-4o": 128_000,
         "gpt-4-turbo": 128_000,
-        "gemini-1.5-pro": 1_000_000,
-        "gemini-2.0-flash": 1_000_000,
+        "gemini-3.1-pro": 1_000_000,
+        "gemini-3.1-flash": 1_000_000,
         "llama-3-70b": 8_000,
         "codellama-34b": 16_000,
         "deepseek-coder": 16_000,
@@ -1756,7 +1756,7 @@ model:
       path: ./output-claude.xml
     - model: gpt-4o
       path: ./output-gpt.md
-    - model: gemini-2.0-flash
+    - model: gemini-3.1-flash
       path: ./output-gemini.yaml
 
 # Output settings

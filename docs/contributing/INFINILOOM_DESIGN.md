@@ -981,7 +981,7 @@ from infiniloom.models.google import GeminiOptimizer, GeminiConfig
 
 optimizer = GeminiOptimizer(
     config=GeminiConfig(
-        model="gemini-2.0-flash",
+        model="gemini-3.1-flash",
         context_window=1000000,  # 1M tokens!
 
         # Leverage massive context

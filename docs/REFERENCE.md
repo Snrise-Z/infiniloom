@@ -551,7 +551,7 @@ INFINILOOM_SECURITY__REDACT_SECRETS=true
 | `gpt4` | GPT-4 | Exact (tiktoken) |
 | `o3` | O3 | Exact (tiktoken) |
 | `o1` | O1 | Exact (tiktoken) |
-| `gemini` | Gemini 1.5/2 | Estimated (~95%) |
+| `gemini` | Gemini (all versions including 3.1) | Estimated (~95%) |
 | `llama` | Llama 3/4 | Estimated (~95%) |
 | `deepseek` | DeepSeek V3/R1 | Estimated (~95%) |
 | `mistral` | Mistral | Estimated (~95%) |

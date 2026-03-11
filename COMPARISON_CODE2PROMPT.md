@@ -117,7 +117,7 @@ infiniloom diff . HEAD~1 --depth 3
 - **Supported Models**: 27 models across 8 families
   - OpenAI: GPT-5.2, GPT-5.1, GPT-5, O4-mini, O3, O1, GPT-4o, GPT-4o-mini, GPT-4, GPT-3.5-turbo
   - Anthropic: Claude (all versions)
-  - Google: Gemini 1.5 Pro/Flash, Gemma
+  - Google: Gemini 3.1 Pro/Flash, Gemma
   - Meta: Llama 3/4, CodeLlama
   - Others: Mistral, DeepSeek, Qwen, Cohere, Grok
 - **Budget Enforcement**:

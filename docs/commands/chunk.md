@@ -287,7 +287,7 @@ final_prompt = "Now that you have the full codebase, please analyze..."
 | GPT-5/GPT-4o | 20,000-30,000 | 128K context window |
 | GPT-4 Turbo | 15,000-20,000 | 128K context |
 | GPT-4 (legacy) | 6,000-8,000 | Smaller context window |
-| Gemini 1.5 | 50,000-100,000 | Massive context |
+| Gemini 3.1 Pro | 50,000-100,000 | Massive context |
 
 ### Overlap Strategy
 

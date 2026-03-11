@@ -883,7 +883,7 @@ import google.generativeai as genai
 context = infiniloom.pack("/path/to/repo", format="yaml", model="gemini")
 
 genai.configure(api_key="YOUR_API_KEY")
-model = genai.GenerativeModel("gemini-1.5-pro")
+model = genai.GenerativeModel("gemini-3.1-pro")
 response = model.generate_content(f"{context}\n\nSummarize this codebase")
 print(response.text)
 ```

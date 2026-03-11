@@ -61,7 +61,7 @@ pub enum TokenModel {
     // =========================================================================
     // Google Gemini - Estimation (~3.8 chars/token)
     // =========================================================================
-    /// Gemini (all versions including 3, 2.5, 1.5) - estimation ~3.8 chars/token
+    /// Gemini (all versions including 3.1, 2.5, 1.5) - estimation ~3.8 chars/token
     Gemini,
 
     // =========================================================================
@@ -241,7 +241,7 @@ impl TokenModel {
     /// Supports various formats:
     /// - OpenAI: "gpt-5.2", "gpt-5.2-pro", "gpt-5.1", "gpt-5", "o3", "o1", "gpt-4o", etc.
     /// - Claude: "claude", "claude-3", "claude-4", "claude-opus", "claude-sonnet", "claude-haiku"
-    /// - Gemini: "gemini", "gemini-pro", "gemini-flash", "gemini-2.5", "gemini-3"
+    /// - Gemini: "gemini", "gemini-pro", "gemini-flash", "gemini-2.5", "gemini-3", "gemini-3.1"
     /// - Llama: "llama", "llama-3", "llama-4", "codellama"
     /// - Others: "mistral", "deepseek", "qwen", "cohere", "grok"
     ///

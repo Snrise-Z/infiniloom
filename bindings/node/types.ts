@@ -109,7 +109,7 @@ export type OutputFormat = 'xml' | 'markdown' | 'json' | 'yaml' | 'toon' | 'plai
  *
  * Other models (calibrated estimation):
  * - claude: Anthropic Claude models
- * - gemini, gemini-1.5, gemini-2.0: Google Gemini models
+ * - gemini, gemini-1.5, gemini-2.0, gemini-3.1: Google Gemini models
  * - llama, llama-3, llama-3.1, llama-3.2, codellama: Meta Llama models
  * - mistral, mixtral: Mistral AI models
  * - deepseek, deepseek-v3: DeepSeek models
@@ -144,6 +144,7 @@ export type TokenizerModel =
   | 'gemini'
   | 'gemini-1.5'
   | 'gemini-2.0'
+  | 'gemini-3.1'
   // Meta
   | 'llama'
   | 'llama-3'
@@ -521,7 +522,7 @@ export function isTokenizerModel(value: unknown): value is TokenizerModel {
     // Anthropic
     'claude',
     // Google
-    'gemini', 'gemini-1.5', 'gemini-2.0',
+    'gemini', 'gemini-1.5', 'gemini-2.0', 'gemini-3.1',
     // Meta
     'llama', 'llama-3', 'llama-3.1', 'llama-3.2', 'codellama',
     // Mistral

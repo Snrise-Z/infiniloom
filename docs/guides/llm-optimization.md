@@ -97,7 +97,7 @@ YAML format includes:
 
 ### Token Budget for Gemini
 
-- Gemini 1.5 Pro: 1M+ context (but quality degrades)
+- Gemini 3.1 Pro: 1M+ context (but quality degrades beyond ~200K)
 - Practical limit: 100-200K for best results
 
 ```bash

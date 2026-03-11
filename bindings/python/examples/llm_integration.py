@@ -154,7 +154,7 @@ def gemini_example():
     # Send to Gemini
     print("Sending to Gemini API...")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-pro")
+    model = genai.GenerativeModel("gemini-3.1-pro")
 
     try:
         response = model.generate_content(

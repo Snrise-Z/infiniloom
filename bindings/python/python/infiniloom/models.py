@@ -87,6 +87,7 @@ TokenizerModel: TypeAlias = Literal[
     "gemini",
     "gemini-1.5",
     "gemini-2.0",
+    "gemini-3.1",
     # Meta
     "llama",
     "llama-3",
