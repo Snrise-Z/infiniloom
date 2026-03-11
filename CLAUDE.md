@@ -558,7 +558,7 @@ WalkBuilder::new(path)
 #### 4. Accurate Token Counting
 Uses `tiktoken-rs` for exact BPE token counts for OpenAI models:
 - **Exact (tiktoken)**: GPT-5.2, GPT-5.1, GPT-5, O4-mini, O3, O1, GPT-4o, GPT-4o-mini (o200k_base); GPT-4, GPT-3.5-turbo (cl100k_base)
-- **Calibrated estimation (~95% accuracy)**: Claude, Gemini, Llama, CodeLlama, Mistral, DeepSeek, Qwen, Cohere, Grok
+- **Calibrated estimation (~95% for prose, ~85% for code)**: Claude, Gemini, Llama, CodeLlama, Mistral, DeepSeek, Qwen, Cohere, Grok
 
 #### 5. Memory-Mapped I/O (`mmap_scanner.rs`)
 Optional mmap-based scanning for large files using `memmap2` crate.

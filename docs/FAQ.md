@@ -96,7 +96,7 @@ infiniloom pack . --format toon --max-tokens 50000
 ### How accurate is token counting?
 
 - **OpenAI models**: Exact counting via tiktoken
-- **Other models**: Calibrated estimation, ~95% accurate
+- **Other models**: Calibrated estimation, ~95% accurate for prose, ~85% for code
 
 For safety, use 90-95% of your context limit as the budget.
 

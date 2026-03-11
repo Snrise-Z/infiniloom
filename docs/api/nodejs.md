@@ -1294,18 +1294,18 @@ const callers = getCallersFiltered('./my-repo', 'authenticate', {
 
 | Model | Accuracy | Description |
 |-------|----------|-------------|
-| `claude` | ~95% | Anthropic Claude (default) |
+| `claude` | ~95% prose, ~85% code | Anthropic Claude (default) |
 | `gpt52`, `gpt51`, `gpt5` | Exact | OpenAI GPT-5 series |
 | `o4-mini`, `o3`, `o1` | Exact | OpenAI reasoning models |
 | `gpt4o`, `gpt4o-mini` | Exact | OpenAI GPT-4o |
 | `gpt4`, `gpt35-turbo` | Exact | OpenAI legacy |
-| `gemini` | ~95% | Google Gemini |
-| `llama`, `codellama` | ~95% | Meta Llama |
-| `mistral` | ~95% | Mistral AI |
-| `deepseek` | ~95% | DeepSeek |
-| `qwen` | ~95% | Alibaba Qwen |
-| `cohere` | ~95% | Cohere |
-| `grok` | ~95% | xAI Grok |
+| `gemini` | ~95% prose, ~85% code | Google Gemini |
+| `llama`, `codellama` | ~95% prose, ~85% code | Meta Llama |
+| `mistral` | ~95% prose, ~85% code | Mistral AI |
+| `deepseek` | ~95% prose, ~85% code | DeepSeek |
+| `qwen` | ~95% prose, ~85% code | Alibaba Qwen |
+| `cohere` | ~95% prose, ~85% code | Cohere |
+| `grok` | ~95% prose, ~85% code | xAI Grok |
 
 ---
 

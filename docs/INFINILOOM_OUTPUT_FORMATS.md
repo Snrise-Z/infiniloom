@@ -1124,12 +1124,12 @@ const gpt5Tokens = countTokens(text, 'gpt-5.2');
 | GPT-4o, GPT-4o-mini | `o200k_base` | Exact (tiktoken) |
 | GPT-4, GPT-4 Turbo | `cl100k_base` | Exact (tiktoken) |
 | GPT-3.5-Turbo | `cl100k_base` | Exact (tiktoken) |
-| Claude | Calibrated | ~95% accuracy estimation |
-| Gemini | Calibrated | ~95% accuracy estimation |
-| Llama 3/4 | Calibrated | ~95% accuracy estimation |
-| DeepSeek | Calibrated | ~95% accuracy estimation |
-| Mistral | Calibrated | ~95% accuracy estimation |
-| Qwen | Calibrated | ~95% accuracy estimation |
+| Claude | Calibrated | ~95% prose, ~85% code |
+| Gemini | Calibrated | ~95% prose, ~85% code |
+| Llama 3/4 | Calibrated | ~95% prose, ~85% code |
+| DeepSeek | Calibrated | ~95% prose, ~85% code |
+| Mistral | Calibrated | ~95% prose, ~85% code |
+| Qwen | Calibrated | ~95% prose, ~85% code |
 
 ---
 

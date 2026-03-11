@@ -54,7 +54,7 @@ pub fn count_tokens_accurate(content: &str) -> TokenCounts {
 /// Estimate tokens from file size
 ///
 /// Uses calibrated character-per-token ratios for each model family.
-/// Fast (~80x faster than tiktoken) with ~95% accuracy.
+/// Fast (~80x faster than tiktoken) with ~95% accuracy for prose, ~85% for code.
 pub fn estimate_tokens(size_bytes: u64, content: Option<&str>) -> TokenCounts {
     // If we have content, use content length for better accuracy
     let len = content.map_or(size_bytes as f32, |c| c.len() as f32);

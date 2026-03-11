@@ -259,7 +259,7 @@ pub struct TokenCounts {
 }
 ```
 
-**Design Rationale**: Store all token counts upfront to avoid recomputation. OpenAI models use exact tiktoken-based counts, while other models use calibrated estimation (~95% accuracy).
+**Design Rationale**: Store all token counts upfront to avoid recomputation. OpenAI models use exact tiktoken-based counts, while other models use calibrated estimation (~95% for prose, ~85% for code).
 
 ---
 
@@ -566,7 +566,7 @@ Infiniloom counts tokens for 27 different LLM tokenizers grouped by encoding:
 - **o200k_base** (OpenAI modern): GPT-5.2, GPT-5.1, GPT-5, O4-mini, O3, O1, GPT-4o, GPT-4o-mini
 - **cl100k_base** (OpenAI legacy): GPT-4, GPT-3.5-turbo
 
-**Calibrated Estimation** (~95% accuracy):
+**Calibrated Estimation** (~95% for prose, ~85% for code):
 - Claude (Anthropic)
 - Gemini (Google)
 - Llama, CodeLlama (Meta)
@@ -612,7 +612,7 @@ impl Tokenizer {
 **Why Estimation?**:
 - Tiktoken only supports OpenAI tokenizers
 - Other vendors don't provide public tokenizers
-- Estimation is ~95% accurate based on benchmark testing
+- Estimation is ~95% accurate for prose and ~85% for code based on benchmark testing
 
 ---
 

@@ -113,9 +113,9 @@ for file in &mut repo.files {
 |--------------|--------|----------|
 | OpenAI (o200k_base) | tiktoken BPE | 100% exact |
 | OpenAI (cl100k_base) | tiktoken BPE | 100% exact |
-| Claude | Calibrated estimation | ~95% |
-| Gemini | Calibrated estimation | ~95% |
-| Others | Calibrated estimation | ~90-95% |
+| Claude | Calibrated estimation | ~95% prose, ~85% code |
+| Gemini | Calibrated estimation | ~95% prose, ~85% code |
+| Others | Calibrated estimation | ~85-95% |
 
 ### Security Scanner
 

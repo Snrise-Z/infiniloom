@@ -1,7 +1,7 @@
 //! Accurate token counting using actual BPE tokenizers
 //!
 //! This module provides accurate token counts using tiktoken for OpenAI models
-//! and estimation-based counting for other models (~95% accuracy).
+//! and estimation-based counting for other models (~95% accuracy for prose, ~85% for code).
 //!
 //! # Quick Start
 //!
@@ -104,7 +104,7 @@
 //! - **o200k_base**: GPT-5.2, GPT-5.1, GPT-5, GPT-4o, O1, O3, O4-mini (all latest models)
 //! - **cl100k_base**: GPT-4, GPT-3.5-turbo (legacy models)
 //!
-//! ## Other Vendors (Estimation-based, ~95% accuracy)
+//! ## Other Vendors (Estimation-based, ~95% for prose, ~85% for code)
 //! - Claude (Anthropic): ~3.5 chars/token
 //! - Gemini (Google): ~3.8 chars/token
 //! - Llama (Meta): ~3.5 chars/token
@@ -118,7 +118,8 @@
 //!
 //! Most LLM vendors don't provide public tokenizers. We use calibrated
 //! character-to-token ratios based on empirical testing. Accuracy is ~95%
-//! for typical source code, which is sufficient for budget planning.
+//! for prose and ~85% for code (due to different tokenization patterns for
+//! operators, identifiers, and whitespace), which is sufficient for budget planning.
 //!
 //! OpenAI models use exact tiktoken-based counting because the tokenizers
 //! are open-source and officially supported.

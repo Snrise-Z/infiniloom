@@ -10,7 +10,7 @@
 //! - **PageRank-based importance ranking** for intelligent code prioritization
 //! - **Model-specific output formats** (XML for Claude, Markdown for GPT, YAML compatible with Gemini and other models)
 //! - **Automatic secret detection** and redaction (API keys, credentials, tokens)
-//! - **Accurate token counting** using tiktoken-rs for OpenAI models (~95% accuracy)
+//! - **Accurate token counting** using tiktoken-rs for OpenAI models (~95% for prose, ~85% for code)
 //! - **Full dependency resolution** with transitive dependency analysis
 //! - **Remote Git repository support** (GitHub, GitLab, Bitbucket)
 //! - **Incremental scanning** with content-addressed caching

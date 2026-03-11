@@ -360,7 +360,7 @@ repos:
 
 | Model | Encoding | Notes |
 |-------|----------|-------|
-| `claude` | Estimation | Default, ~95% accurate |
+| `claude` | Estimation | Default, ~95% prose / ~85% code |
 | `gpt52`, `gpt51`, `gpt5` | o200k_base | Exact via tiktoken |
 | `o4-mini`, `o3`, `o1` | o200k_base | Exact via tiktoken |
 | `gpt4o`, `gpt4o-mini` | o200k_base | Exact via tiktoken |

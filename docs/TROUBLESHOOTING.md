@@ -226,7 +226,7 @@ Token counting accuracy varies by model:
 infiniloom scan . --model gpt4o      # Exact
 infiniloom scan . --model gpt5       # Exact
 
-# Other models use calibrated estimation (~95% accurate)
+# Other models use calibrated estimation (~95% for prose, ~85% for code)
 infiniloom scan . --model claude     # Estimation
 infiniloom scan . --model gemini     # Estimation
 ```

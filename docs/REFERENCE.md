@@ -544,20 +544,20 @@ INFINILOOM_SECURITY__REDACT_SECRETS=true
 
 | CLI Value | Full Model | Token Counting |
 |-----------|------------|----------------|
-| `claude` | Claude 3.5/4 | Estimated (~95%) |
+| `claude` | Claude 3.5/4 | Estimated (~95% prose, ~85% code) |
 | `gpt52` | GPT-5.2 | Exact (tiktoken) |
 | `gpt5` | GPT-5 | Exact (tiktoken) |
 | `gpt4o` | GPT-4o | Exact (tiktoken) |
 | `gpt4` | GPT-4 | Exact (tiktoken) |
 | `o3` | O3 | Exact (tiktoken) |
 | `o1` | O1 | Exact (tiktoken) |
-| `gemini` | Gemini (all versions including 3.1) | Estimated (~95%) |
-| `llama` | Llama 3/4 | Estimated (~95%) |
-| `deepseek` | DeepSeek V3/R1 | Estimated (~95%) |
-| `mistral` | Mistral | Estimated (~95%) |
-| `qwen` | Qwen | Estimated (~95%) |
-| `cohere` | Command R+ | Estimated (~95%) |
-| `grok` | Grok | Estimated (~95%) |
+| `gemini` | Gemini (all versions including 3.1) | Estimated (~95% prose, ~85% code) |
+| `llama` | Llama 3/4 | Estimated (~95% prose, ~85% code) |
+| `deepseek` | DeepSeek V3/R1 | Estimated (~95% prose, ~85% code) |
+| `mistral` | Mistral | Estimated (~95% prose, ~85% code) |
+| `qwen` | Qwen | Estimated (~95% prose, ~85% code) |
+| `cohere` | Command R+ | Estimated (~95% prose, ~85% code) |
+| `grok` | Grok | Estimated (~95% prose, ~85% code) |
 
 ---
 

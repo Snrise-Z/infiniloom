@@ -115,10 +115,10 @@ Infiniloom - Repository Context Generator
 |-------|--------|----------|
 | OpenAI (o200k_base) | tiktoken | 100% |
 | OpenAI (cl100k_base) | tiktoken | 100% |
-| Claude | Calibrated | ~95% |
-| Gemini | Calibrated | ~95% |
-| Llama | Calibrated | ~95% |
-| Others | Calibrated | ~90-95% |
+| Claude | Calibrated | ~95% prose, ~85% code |
+| Gemini | Calibrated | ~95% prose, ~85% code |
+| Llama | Calibrated | ~95% prose, ~85% code |
+| Others | Calibrated | ~85-95% |
 
 ### Compression Level Details
 

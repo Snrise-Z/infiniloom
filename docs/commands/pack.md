@@ -238,7 +238,7 @@ The `pack` command performs the following operations:
 | `gpt4` | cl100k_base | GPT-4/GPT-4 Turbo (legacy) |
 | `gpt35-turbo` | cl100k_base | GPT-3.5-turbo (legacy) |
 
-### Other Vendors (Calibrated Estimation ~95% accuracy)
+### Other Vendors (Calibrated Estimation ~95% for prose, ~85% for code)
 
 | Model | Vendor |
 |-------|--------|
