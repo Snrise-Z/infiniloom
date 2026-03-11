@@ -714,7 +714,7 @@ enum Format {
     Markdown,
     /// JSON format (generic)
     Json,
-    /// YAML format (Gemini-optimized)
+    /// YAML format (compatible with Gemini and other models)
     Yaml,
     /// TOON format (most token-efficient, 40% smaller)
     Toon,

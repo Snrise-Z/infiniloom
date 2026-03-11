@@ -136,7 +136,7 @@ OutputFormatter (by format or model)
      │
      ├─▶ xml.rs    (Claude)
      ├─▶ markdown.rs (GPT)
-     ├─▶ yaml.rs   (Gemini)
+     ├─▶ yaml.rs   (YAML)
      ├─▶ json.rs   (APIs)
      └─▶ toon.rs   (Compact)
      │

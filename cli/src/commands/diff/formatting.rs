@@ -4,7 +4,7 @@
 //! - XML (Claude-optimized)
 //! - JSON (structured data)
 //! - Markdown (human-readable)
-//! - YAML (Gemini-optimized)
+//! - YAML (compatible with Gemini and other models)
 //! - TOON (token-efficient)
 //! - Plain text (simple)
 

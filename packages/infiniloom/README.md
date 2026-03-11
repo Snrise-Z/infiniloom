@@ -49,7 +49,7 @@ infiniloom map /path/to/repo --budget 2000
 
 - **XML** - Optimized for Claude (prompt caching)
 - **Markdown** - Optimized for GPT models
-- **YAML** - Optimized for Gemini
+- **YAML** - Compatible with Gemini and other models
 - **JSON** - For programmatic access
 - **TOON** - Most token-efficient (~40% smaller)
 

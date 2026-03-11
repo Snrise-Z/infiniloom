@@ -148,7 +148,7 @@ infiniloom pack . --model gpt4o --max-tokens 80000 --compression balanced
 |--------|---------------|----------|
 | **XML** | Claude | CDATA sections, prompt caching tags, hierarchical structure |
 | **Markdown** | GPT-4o/GPT-5 | Tables, headers, code fences, human-readable |
-| **YAML** | Gemini | Structured indentation, key-value hierarchy |
+| **YAML** | Gemini and others | Structured indentation, key-value hierarchy |
 | **JSON** | Programmatic | Standard parsing, API integration |
 | **TOON** | Limited context | Token-optimized (~40% smaller than XML) |
 | **Plain** | Simple use | No markup, easy to read |

@@ -8,7 +8,7 @@ Get the best results from Infiniloom with different LLMs.
 |-------|--------|-----|
 | Claude | XML | Prompt caching, CDATA for code, structured tags |
 | GPT-4/GPT-4o | Markdown | Native markdown understanding, tables, headers |
-| Gemini | YAML | Hierarchical structure, query at end |
+| Gemini | YAML | Hierarchical structure, query at end (not validated as Gemini-specific) |
 | Generic | TOON | ~40% smaller than JSON, works everywhere |
 
 ## Claude Optimization
@@ -82,7 +82,7 @@ Infiniloom uses tiktoken for exact GPT token counts:
 infiniloom scan . --model gpt4o
 ```
 
-## Gemini Optimization
+## Gemini Compatibility
 
 ### Use YAML Format
 
@@ -91,7 +91,7 @@ infiniloom pack . --format yaml --model gemini
 ```
 
 YAML format includes:
-- Structured hierarchy Gemini parses well
+- Structured hierarchy compatible with Gemini and other models
 - Query/instruction section at end
 - Clean key-value structure
 

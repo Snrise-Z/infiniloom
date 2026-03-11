@@ -37,7 +37,7 @@ pub enum OutputFormat {
     Markdown,
     /// JSON (generic)
     Json,
-    /// YAML (Gemini)
+    /// YAML (compatible with Gemini and other models)
     Yaml,
     /// TOON (Token-Oriented Object Notation) - most token-efficient
     Toon,
@@ -347,7 +347,7 @@ impl Formatter for PlainFormatter {
     }
 }
 
-/// YAML formatter (Gemini-optimized)
+/// YAML formatter (compatible with Gemini and other models)
 pub struct YamlFormatter {
     token_model: TokenizerModel,
 }
@@ -365,7 +365,7 @@ impl Formatter for YamlFormatter {
 
         // YAML header
         output.push_str("---\n");
-        output.push_str("# Repository Context for Gemini\n");
+        output.push_str("# Repository Context (YAML)\n");
         output.push_str("# Note: Query should be at the END of this context\n\n");
 
         // Metadata
@@ -419,7 +419,7 @@ impl Formatter for YamlFormatter {
             }
         }
 
-        // Query placeholder at end (Gemini best practice)
+        // Query placeholder at end
         output.push_str("\n# --- INSERT YOUR QUERY BELOW THIS LINE ---\n");
         output.push_str("query: |\n");
         output.push_str("  [Your question about this repository]\n");

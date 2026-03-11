@@ -98,7 +98,7 @@ Available Formats
 - **xml**: Claude-optimized XML format (default)
 - **markdown**: GPT-optimized Markdown format
 - **json**: Generic JSON format
-- **yaml**: Gemini-optimized YAML format
+- **yaml**: YAML format (compatible with Gemini and other models)
 - **toon**: Most token-efficient (~40% smaller than JSON)
 
 Supported Models

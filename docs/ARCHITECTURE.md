@@ -403,7 +403,7 @@ pub trait StreamingFormatter {
 - **XML**: Claude-optimized, CDATA sections for code
 - **Markdown**: GPT-optimized, fenced code blocks with syntax highlighting
 - **TOON**: Token-efficient (30-40% fewer tokens), custom format
-- **YAML**: Gemini-optimized, query at end
+- **YAML**: Compatible with Gemini and other models, query at end
 - **JSON**: Machine-readable, fully structured
 - **Plain**: Simple text, no formatting
 

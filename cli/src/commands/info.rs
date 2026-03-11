@@ -54,7 +54,7 @@ pub(crate) fn cmd_info(path: Option<PathBuf>) -> Result<()> {
     println!("    xml       - Claude-optimized (with cache hints)");
     println!("    markdown  - GPT-optimized (with code blocks)");
     println!("    json      - Generic structured format");
-    println!("    yaml      - Gemini-optimized (query at end)");
+    println!("    yaml      - YAML format (compatible with Gemini and other models)");
     println!("    toon      - Most token-efficient (~40% smaller)");
     println!("    plain     - Simple plain text (no markup)");
     println!();

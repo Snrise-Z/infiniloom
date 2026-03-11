@@ -994,7 +994,7 @@ if (isGitRepo('./my-project')) {
 - **xml** - XML format optimized for Claude
 - **markdown** - Markdown format for GPT models
 - **json** - JSON format for programmatic access
-- **yaml** - YAML format optimized for Gemini
+- **yaml** - YAML format (compatible with Gemini and other models)
 - **toon** - Token-efficient format (~40% smaller than JSON)
 - **plain** - Simple plain text format
 

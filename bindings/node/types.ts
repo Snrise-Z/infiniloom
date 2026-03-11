@@ -94,7 +94,7 @@ export type {
  * - xml: Optimized for Claude (CDATA sections, structured XML)
  * - markdown: Optimized for GPT models (fenced code blocks)
  * - json: Machine-readable JSON format
- * - yaml: Optimized for Gemini (query at end)
+ * - yaml: YAML format compatible with Gemini and other models (query at end)
  * - toon: Token-efficient format (30-40% fewer tokens)
  * - plain: Plain text format
  */

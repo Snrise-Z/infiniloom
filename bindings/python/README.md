@@ -800,7 +800,7 @@ Generic JSON format for programmatic processing.
 context = infiniloom.pack("/path/to/repo", format="json")
 ```
 
-### YAML (Gemini-optimized)
+### YAML (compatible with Gemini and other models)
 
 Best for Gemini. Query should be placed at the end.
 

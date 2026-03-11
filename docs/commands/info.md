@@ -37,7 +37,7 @@ Infiniloom - Repository Context Generator
     xml       - Claude-optimized (with cache hints)
     markdown  - GPT-optimized (with code blocks)
     json      - Generic structured format
-    yaml      - Gemini-optimized (query at end)
+    yaml      - YAML format (compatible with Gemini and other models)
     toon      - Most token-efficient (~40% smaller)
     plain     - Simple plain text (no markup)
 
@@ -105,7 +105,7 @@ Infiniloom - Repository Context Generator
 | XML | Baseline | Claude | Cache control hints |
 | Markdown | ~10% more | GPT models | Natural code blocks |
 | JSON | ~15% more | Tooling | Structured parsing |
-| YAML | ~12% more | Gemini | Query placement |
+| YAML | ~12% more | Gemini and others | Query placement |
 | TOON | ~40% less | Any | Maximum efficiency |
 | Plain | ~5% less | Simple use | No overhead |
 

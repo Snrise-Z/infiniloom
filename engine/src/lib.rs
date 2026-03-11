@@ -8,7 +8,7 @@
 //!
 //! - **AST-based symbol extraction** via Tree-sitter (21 programming languages)
 //! - **PageRank-based importance ranking** for intelligent code prioritization
-//! - **Model-specific output formats** (XML for Claude, Markdown for GPT, YAML for Gemini)
+//! - **Model-specific output formats** (XML for Claude, Markdown for GPT, YAML compatible with Gemini and other models)
 //! - **Automatic secret detection** and redaction (API keys, credentials, tokens)
 //! - **Accurate token counting** using tiktoken-rs for OpenAI models (~95% accuracy)
 //! - **Full dependency resolution** with transitive dependency analysis
@@ -41,7 +41,7 @@
 //! |--------|----------|-------|
 //! | XML | Claude | Optimized structure, CDATA sections |
 //! | Markdown | GPT-4 | Fenced code blocks with syntax highlighting |
-//! | YAML | Gemini | Query at end (Gemini best practice) |
+//! | YAML | Gemini and others | Hierarchical structure, query at end |
 //! | TOON | All | Token-efficient, 30-40% fewer tokens |
 //! | JSON | APIs | Machine-readable, fully structured |
 //!

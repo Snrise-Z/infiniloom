@@ -748,7 +748,7 @@ git:
     # ... many more commits ...
 
 ---
-# TASK AT END (Gemini optimization)
+# TASK AT END (YAML convention)
 task:
   type: code_review
   focus: src/auth/service.py

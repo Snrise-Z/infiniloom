@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Key capabilities:
 - AST-based symbol extraction using Tree-sitter (21 languages with full support)
 - PageRank-based symbol importance ranking
-- Model-specific output formats (XML for Claude, Markdown for GPT, YAML for Gemini)
+- Model-specific output formats (XML for Claude, Markdown for GPT, YAML (compatible with Gemini and other models))
 - Automatic secret detection and redaction with configurable patterns
 - Accurate token counting via tiktoken-rs for OpenAI models
 - Native language bindings (Python, Node.js)
