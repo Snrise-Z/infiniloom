@@ -195,9 +195,9 @@ impl MarkdownFormatter {
             for (i, part) in parts.iter().enumerate().skip(common) {
                 let indent = "  ".repeat(i);
                 let prefix = if i == parts.len() - 1 {
-                    "📄 "
+                    "\u{1f4c4} "
                 } else {
-                    "📁 "
+                    "\u{1f4c1} "
                 };
                 writeln!(w, "{}{}{}", indent, prefix, part)?;
             }
@@ -225,7 +225,8 @@ impl MarkdownFormatter {
                 writeln!(w)?;
 
                 let lang = file.language.as_deref().unwrap_or("");
-                writeln!(w, "```{}", lang)?;
+                let fence = code_fence(content);
+                writeln!(w, "{}{}", fence, lang)?;
                 if self.include_line_numbers {
                     // Check if content has embedded line numbers (format: "N:content")
                     // This preserves original line numbers when content has been compressed
@@ -259,7 +260,7 @@ impl MarkdownFormatter {
                 } else {
                     writeln!(w, "{}", content)?;
                 }
-                writeln!(w, "```")?;
+                writeln!(w, "{}", fence)?;
                 writeln!(w)?;
             }
         }
@@ -320,6 +321,25 @@ impl StreamingFormatter for MarkdownFormatter {
         self.stream_files(writer, repo)?;
         Ok(())
     }
+}
+
+/// Returns the minimum number of backticks needed for a code fence
+/// that won't be broken by the content. Per CommonMark spec, the fence
+/// must use more backticks than any run of backticks in the content.
+fn code_fence(content: &str) -> String {
+    let min_backticks = 3;
+    let max_run = content
+        .as_bytes()
+        .split(|&b| b != b'`')
+        .map(|run| run.len())
+        .max()
+        .unwrap_or(0);
+    let count = if max_run >= min_backticks {
+        max_run + 1
+    } else {
+        min_backticks
+    };
+    "`".repeat(count)
 }
 
 fn escape_markdown_cell(text: &str) -> String {
@@ -935,5 +955,38 @@ mod tests {
     fn test_name_method() {
         let formatter = MarkdownFormatter::new();
         assert_eq!(formatter.name(), "markdown");
+    }
+
+    #[test]
+    fn test_code_fence_no_backticks() {
+        assert_eq!(code_fence("hello world"), "```");
+    }
+
+    #[test]
+    fn test_code_fence_with_triple_backticks() {
+        // Content has ``` so fence must use 4 backticks
+        assert_eq!(code_fence("some ```code``` here"), "````");
+    }
+
+    #[test]
+    fn test_code_fence_with_longer_backtick_run() {
+        // Content has ````` (5 backticks) so fence must use 6
+        assert_eq!(code_fence("a`````b"), "``````");
+    }
+
+    #[test]
+    fn test_stream_files_content_with_triple_backticks() {
+        let mut repo = create_test_repo();
+        repo.files[0].content = Some("# Example\n```python\nprint('hi')\n```\n".to_string());
+        repo.files[0].language = Some("markdown".to_string());
+        let formatter = MarkdownFormatter::new().with_line_numbers(false);
+        let mut buf = Vec::new();
+        formatter.stream_files(&mut buf, &repo).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // The outer fence must use 4+ backticks to avoid breaking
+        assert!(output.contains("````markdown"));
+        assert!(output.contains("\n````\n"));
+        // The inner triple backticks in the content must appear intact
+        assert!(output.contains("```python"));
     }
 }
