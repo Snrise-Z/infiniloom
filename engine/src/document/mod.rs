@@ -3,7 +3,7 @@
 //!
 //! This module provides:
 //! - **Type system**: `Document`, `Section`, `ContentBlock` for representing document structure
-//! - **Parsers**: Format-specific parsers (Markdown, HTML, plain text, CSV, DOCX)
+//! - **Parsers**: Format-specific parsers (Markdown, HTML, plain text, CSV, DOCX, PDF)
 //! - **Distillation**: Content compression pipeline that removes filler and optimizes for LLM attention
 //! - **Output**: Document-specific formatters for Claude (XML), GPT (Markdown), agents (JSON)
 
@@ -45,12 +45,28 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
         InfiniloomError::not_supported(format!("Unsupported document format: .{ext}"))
     })?;
 
-    // DOCX and XLSX are binary formats — read as bytes, not as a UTF-8 string.
+    // DOCX, PDF, and XLSX are binary formats — read as bytes, not as a UTF-8 string.
     let mut doc = if format == DocumentFormat::Docx {
         let bytes = std::fs::read(path).map_err(|e| {
             InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
         })?;
         parsers::docx::parse(&bytes, options)?
+    } else if format == DocumentFormat::Pdf {
+        #[cfg(feature = "document-pdf")]
+        {
+            let bytes = std::fs::read(path).map_err(|e| {
+                InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
+            })?;
+            parsers::pdf::parse(&bytes, options)?
+        }
+        #[cfg(not(feature = "document-pdf"))]
+        {
+            return Err(InfiniloomError::not_supported(
+                "PDF parsing requires the 'document-pdf' feature. \
+                 Rebuild with: cargo build --features document-pdf"
+                    .to_string(),
+            ));
+        }
     } else if format == DocumentFormat::Xlsx {
         #[cfg(feature = "document-xlsx")]
         {

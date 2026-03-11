@@ -123,6 +123,9 @@ quick-xml = { version = "0.37", optional = true }
 # XLSX/XLS spreadsheet parsing
 calamine = { version = "0.26", optional = true }
 
+# PDF text extraction
+pdf-extract = { version = "0.7", optional = true }
+
 # Optional: Local embeddings
 # Note: candle 0.9+ is required for compatibility with rand 0.9
 [dependencies.candle-core]
@@ -142,6 +145,9 @@ document = ["zip", "quick-xml"]
 # XLSX/XLS spreadsheet parsing via calamine (requires document feature)
 document-xlsx = ["document", "calamine"]
 
+# PDF text extraction via pdf-extract (requires document feature)
+document-pdf = ["document", "pdf-extract"]
+
 # Neural embeddings for semantic code analysis
 # Currently uses character-frequency based similarity (see semantic.rs)
 # Future: Will enable transformer-based embeddings via candle
@@ -155,7 +161,7 @@ watch = ["notify"]
 # Note: "git" feature removed - git operations use CLI via std::process::Command
 
 # Enable all optional features
-full = ["embeddings", "watch", "document", "document-xlsx"]
+full = ["embeddings", "watch", "document", "document-xlsx", "document-pdf"]
 
 [dev-dependencies]
 criterion = "0.8"

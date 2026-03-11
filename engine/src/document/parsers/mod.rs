@@ -8,3 +8,6 @@ pub mod plaintext;
 
 #[cfg(feature = "document-xlsx")]
 pub mod xlsx;
+
+#[cfg(feature = "document-pdf")]
+pub mod pdf;

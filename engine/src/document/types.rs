@@ -89,6 +89,7 @@ pub enum DocumentFormat {
     PlainText,
     Csv,
     Xlsx,
+    Pdf,
 }
 
 impl DocumentFormat {
@@ -101,6 +102,7 @@ impl DocumentFormat {
             "txt" | "text" | "log" | "rst" => Some(Self::PlainText),
             "csv" | "tsv" => Some(Self::Csv),
             "xlsx" | "xls" => Some(Self::Xlsx),
+            "pdf" => Some(Self::Pdf),
             _ => None,
         }
     }
@@ -114,6 +116,7 @@ impl DocumentFormat {
             Self::PlainText => "Plain Text",
             Self::Csv => "CSV",
             Self::Xlsx => "XLSX",
+            Self::Pdf => "PDF",
         }
     }
 }
