@@ -105,7 +105,7 @@ impl OutputFormatter {
 
     /// Create GPT-optimized Markdown formatter
     pub fn gpt() -> MarkdownFormatter {
-        MarkdownFormatter::new().with_model(TokenizerModel::Claude)
+        MarkdownFormatter::new().with_model(TokenizerModel::Gpt4o)
     }
 
     /// Create JSON formatter
