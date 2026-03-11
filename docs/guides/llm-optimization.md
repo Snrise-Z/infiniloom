@@ -104,6 +104,27 @@ YAML format includes:
 infiniloom pack . --max-tokens 150000 --model gemini
 ```
 
+## TOON Format for Budget-Constrained Scenarios
+
+When token budget is your primary constraint, use the TOON (Token-Optimized Object Notation) format. It achieves ~40% fewer tokens than JSON and works with any LLM regardless of provider.
+
+```bash
+# TOON format alone saves ~40% tokens
+infiniloom pack . --format toon
+
+# Combine with compression for maximum reduction
+infiniloom pack . --format toon --compression aggressive
+
+# TOON + budget cap for strict limits
+infiniloom pack . --format toon --max-tokens 50000
+```
+
+TOON is especially useful for:
+- Models with small context windows (e.g., GPT-4 8K)
+- CI/CD pipelines where token costs matter
+- Large codebases that need to fit within tight budgets
+- Any scenario where you want maximum context in minimum tokens
+
 ## Compression Strategies
 
 ### When to Use Compression

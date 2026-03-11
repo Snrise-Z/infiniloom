@@ -78,6 +78,21 @@ infiniloom pack . --top-files 50
 infiniloom pack . --format toon
 ```
 
+### What is the best format for budget-constrained scenarios?
+
+Use the TOON (Token-Optimized Object Notation) format. It achieves approximately 40% token reduction compared to JSON, making it the most token-efficient output format available. TOON works well with any LLM and is especially useful when you need to fit a large codebase into a limited context window.
+
+```bash
+# Maximum token savings with TOON format
+infiniloom pack . --format toon
+
+# Combine with compression for even greater reduction
+infiniloom pack . --format toon --compression aggressive
+
+# Combine with a token budget for strict limits
+infiniloom pack . --format toon --max-tokens 50000
+```
+
 ### How accurate is token counting?
 
 - **OpenAI models**: Exact counting via tiktoken

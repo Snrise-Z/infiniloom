@@ -27,6 +27,9 @@ npm install -g infiniloom
 infiniloom pack . --output context.xml
 # → Paste into Claude, GPT, or any LLM
 
+# Most token-efficient format (~40% smaller than JSON)
+infiniloom pack . --format toon
+
 # Generate chunks for your vector database
 infiniloom embed . -o chunks.jsonl
 # → Import into Pinecone, Weaviate, Qdrant, etc.
@@ -183,7 +186,7 @@ This produces an XML file containing your codebase's structure, key symbols, and
 | **Importance ranking** | Highlights central code, deprioritizes utilities and boilerplate |
 | **Noise reduction** | Excludes generated files, dependencies, and artifacts by default |
 | **Security filtering** | Detects and redacts API keys, tokens, and credentials before they reach AI |
-| **Multiple output formats** | XML, Markdown, YAML, JSON — optimized for different AI models |
+| **Multiple output formats** | XML, Markdown, YAML, JSON, and TOON (~40% token savings) — optimized for different AI models |
 | **Token-aware packaging** | Respects context limits so you can fit within model constraints |
 | **Git integration** | Understands diffs, branches, and commit history for change-aware context |
 | **21 language support** | Full parsing for Python, JavaScript, TypeScript, Rust, Go, Java, C/C++, HCL/Terraform, and more |
@@ -305,7 +308,7 @@ Infiniloom is **stable and actively maintained**.
 - Core packing workflow across 21 languages (including HCL/Terraform)
 - `embed` command for vector database chunking (v0.6.0+)
 - `ingest` command for document ingestion — Markdown, HTML, CSV, DOCX, XLSX (v0.6.3+)
-- All output formats (XML, Markdown, YAML, JSON)
+- All output formats (XML, Markdown, YAML, JSON, TOON)
 - Security scanning and secret redaction
 - PII detection and redaction for documents
 - Git-aware diff context
