@@ -89,9 +89,6 @@ pub enum DocumentFormat {
     PlainText,
     Csv,
     Xlsx,
-    Rtf,
-    Epub,
-    Odt,
 }
 
 impl DocumentFormat {
@@ -104,9 +101,6 @@ impl DocumentFormat {
             "txt" | "text" | "log" | "rst" => Some(Self::PlainText),
             "csv" | "tsv" => Some(Self::Csv),
             "xlsx" | "xls" => Some(Self::Xlsx),
-            "rtf" => Some(Self::Rtf),
-            "epub" => Some(Self::Epub),
-            "odt" => Some(Self::Odt),
             _ => None,
         }
     }
@@ -120,9 +114,6 @@ impl DocumentFormat {
             Self::PlainText => "Plain Text",
             Self::Csv => "CSV",
             Self::Xlsx => "XLSX",
-            Self::Rtf => "RTF",
-            Self::Epub => "EPUB",
-            Self::Odt => "ODT",
         }
     }
 }
