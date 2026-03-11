@@ -152,6 +152,19 @@ infiniloom pack . --security-check
 infiniloom pack . --redact-secrets
 ```
 
+### Document Ingestion
+
+```bash
+# Convert a DOCX to LLM-ready XML
+infiniloom ingest report.docx -o report.xml
+
+# Process with PII redaction
+infiniloom ingest contract.docx --redact-pii -o safe.xml
+
+# Chunk a large document for multi-turn conversation
+infiniloom ingest whitepaper.md --chunk --max-chunk-tokens 6000
+```
+
 ## 7. Create a Config File
 
 For repeatable settings:

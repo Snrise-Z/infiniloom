@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Infiniloom** is a high-performance repository context generator for Large Language Models. It transforms codebases into optimized formats for Claude, GPT-4o/GPT-5, Gemini, and other LLMs. Built in pure Rust for maximum performance and portability.
 
 Key capabilities:
-- AST-based symbol extraction using Tree-sitter (22 languages with full support)
+- AST-based symbol extraction using Tree-sitter (21 languages with full support)
 - PageRank-based symbol importance ranking
 - Model-specific output formats (XML for Claude, Markdown for GPT, YAML for Gemini)
 - Automatic secret detection and redaction with configurable patterns
@@ -144,6 +144,18 @@ infiniloom embed . -i "src/**" -e "tests/*"     # Include/exclude patterns
 infiniloom embed . --include-tests              # Include test files
 infiniloom embed . -v                           # Verbose output with stats
 infiniloom embed . --json-stats                 # JSON statistics output
+
+# Ingest documents into LLM-optimized format
+infiniloom ingest report.md                     # Markdown → XML (default)
+infiniloom ingest page.html -f markdown         # HTML → Markdown
+infiniloom ingest data.csv -f json              # CSV → JSON
+infiniloom ingest report.docx -o output.xml     # DOCX → XML file
+infiniloom ingest doc.md -d aggressive          # Heavy distillation
+infiniloom ingest doc.md --pii-scan             # Scan for PII
+infiniloom ingest doc.md --redact-pii           # Redact PII in output
+infiniloom ingest doc.md --chunk                # Split into chunks
+infiniloom ingest doc.md --chunk --max-chunk-tokens 8000
+infiniloom ingest doc.md -v                     # Verbose output
 ```
 
 ## Code Architecture
@@ -167,6 +179,7 @@ infiniloom/
 │           ├── index.rs        # Index command (build symbol index)
 │           ├── impact.rs       # Impact command (change analysis)
 │           ├── embed.rs        # Embed command (vector DB chunks)
+│           ├── ingest.rs       # Ingest command (document ingestion)
 │           ├── init.rs         # Init command (config file creation)
 │           └── info.rs         # Info command (version/config display)
 ├── engine/                     # Core Rust engine library
@@ -176,7 +189,7 @@ infiniloom/
 │       ├── constants.rs        # Shared constants and magic numbers
 │       ├── newtypes.rs         # Type-safe wrappers (SymbolId, FileId, etc.)
 │       ├── error.rs            # Error types
-│       ├── parser/             # Tree-sitter AST parsing (22 languages)
+│       ├── parser/             # Tree-sitter AST parsing (21 languages)
 │       │   ├── mod.rs          # Parser module exports
 │       │   ├── core.rs         # Core Parser struct and methods
 │       │   ├── language.rs     # Language enum and detection
@@ -211,6 +224,19 @@ infiniloom/
 │       │   ├── limits.rs       # Resource limits (DoS protection)
 │       │   ├── progress.rs     # Progress reporting
 │       │   └── error.rs        # Embedding-specific errors
+│       ├── document/           # Document ingestion (feature-gated)
+│       │   ├── mod.rs          # parse_document() entry point
+│       │   ├── types.rs        # Document, Section, ContentBlock types
+│       │   ├── parsers/        # Format-specific parsers
+│       │   │   ├── markdown.rs # CommonMark + GFM tables
+│       │   │   ├── html.rs     # HTML tag stripping
+│       │   │   ├── csv.rs      # CSV/TSV with auto-delimiter
+│       │   │   ├── docx.rs     # DOCX via ZIP + XML
+│       │   │   └── xlsx.rs     # XLSX via calamine (optional)
+│       │   ├── distillation/   # Content compression pipeline
+│       │   ├── pii.rs          # PII detection and redaction
+│       │   ├── chunking.rs     # Document chunking
+│       │   └── output.rs       # XML, Markdown, JSON formatters
 │       ├── index/              # Symbol index for fast diff context
 │       │   ├── mod.rs          # Module exports
 │       │   ├── builder/        # Index building
@@ -367,11 +393,13 @@ let output = formatter.format(&repo, &map);
 
 ```toml
 # engine/Cargo.toml features
-default = []
+default = ["document"]
+document = ["zip", "quick-xml"]      # Document ingestion (MD, HTML, CSV, DOCX)
+document-xlsx = ["document", "calamine"]  # XLSX spreadsheet support
 async = ["tokio", "async-trait"]     # Async operations (placeholder - not yet implemented)
 embeddings = ["candle-core", "candle-transformers"]  # Local embeddings (heuristic-based)
 watch = ["notify"]                   # File watching (implemented for pack --watch)
-full = ["async", "embeddings", "watch"]
+full = ["async", "embeddings", "watch", "document", "document-xlsx"]
 ```
 
 **Note**: Git operations use the CLI (`git` command) via `std::process::Command` rather than Rust crates.

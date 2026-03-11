@@ -5,6 +5,88 @@ All notable changes to Infiniloom will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Markdown Parser Formatting** - Fix formatting in markdown parser (PR #53)
+- **Critical Bug Fixes** - Address critical bugs, security issues and correctness problems across engine (PR #53)
+  - Constant-time comparison for embedding manifest checksums
+  - BLAKE3 hashing for cache change detection (replacing SipHash)
+  - Atomic file writes for cache and index storage (write-to-temp then rename)
+  - ZIP bomb protection in DOCX parser (bounded reads)
+  - HTML parser iteration limits to prevent DoS
+  - Improved PII detection (SSN area code validation, Luhn-validated credit cards)
+  - CSV delimiter detection priority fix
+  - Distillation filler-phrase iteration caps
+- **Post-v0.6.3 Review Fixes** - Address correctness, security and robustness issues (PRs #51, #52)
+  - bincode 2.0 safe deserialization with 1GB size limits
+  - Version-checked cache/index/manifest loading with graceful fallback
+  - Adjacency map rebuilding after index deserialization
+
+## [0.6.3] - 2026-02-15
+
+### Added
+
+- **Document Ingestion Module** - New `ingest` command for converting documents to LLM-optimized formats
+  - Parsers for Markdown, HTML, CSV, DOCX, and XLSX (feature-gated)
+  - Distillation pipeline with content compression levels (minimal, balanced, aggressive)
+  - PII detection and redaction (SSN, credit cards, emails, phone numbers, IP addresses)
+  - Document chunking for multi-turn conversations
+  - Output formats: XML, Markdown, JSON
+  - Feature flags: `document` (default), `document-xlsx` (optional, requires `calamine`)
+
+- **HCL/Terraform Language Support** - Full Tree-sitter AST parsing for `.tf` and `.hcl` files
+  - Resource, data source, variable, output, module, provider, and locals extraction
+  - Language #23 in enum, #21 with full parser support
+
+### Changed
+
+- **Tree-sitter 0.25 → 0.26** - Major parser framework upgrade
+  - All 21 grammar crates updated to tree-sitter 0.26 compatible versions
+  - Clojure parser removed (tree-sitter-clojure incompatible with 0.26; graceful degradation)
+  - FSharp remains without parser support
+
+- **bincode 1.3 → 2.0** - Serialization framework upgrade
+  - New wire format (incompatible with v0.6.2 cached files)
+  - Existing index/cache/manifest files are automatically rebuilt on version mismatch
+  - Safe deserialization with 1GB size limits via `bincode_safe` module
+
+- **PyO3 0.20 → 0.28** - Python binding framework upgrade
+- **thiserror 1.0 → 2.0** - Error derive macro upgrade
+- **tiktoken-rs 0.5 → 0.9** - OpenAI tokenizer library upgrade
+- **notify 6.1 → 8.2** - File watcher library upgrade
+- **criterion 0.5 → 0.8** - Benchmark framework upgrade
+- **@napi-rs/cli 2.x → 3.5** - Node.js binding toolchain upgrade
+
+### Breaking Changes
+
+- **Cache/Index File Format** - bincode 2.0 uses a different wire format. All cached files (`.infiniloom/`) will be automatically rebuilt on first use. Run `infiniloom index --force` if needed.
+- **Clojure Parser** - Clojure files are still detected but no longer receive AST-based symbol extraction. Files are still included in output with content but without parsed symbols.
+
+## [0.6.2] - 2026-01-20
+
+### Added
+
+- **Circular Dependency Detection** - `find_circular_dependencies()` detects import cycles in the dependency graph
+- **Exported Symbols Query** - `get_exported_symbols()` returns all public/exported symbols per file
+- **Comprehensive Type Safety** - Added validation across all Python and Node.js bindings
+
+## [0.6.0] - 2026-01-10
+
+### Added
+
+- **`embed` Command** - Generate content-addressable chunks for vector databases and RAG systems
+  - AST-aware chunking preserves semantic boundaries (functions, classes, methods)
+  - BLAKE3 content-addressable IDs for cross-repo deduplication
+  - Incremental updates via manifest-based diffing
+  - Auto-generated semantic tags (async, security, database, http, etc.)
+  - Call graph context (`calls`, `called_by` fields)
+  - Hierarchical chunks with parent-child relationships
+  - JSONL and JSON output formats
+  - Resource limits for DoS protection
+  - Cross-platform deterministic output
+
 ## [0.6.1] - 2026-01-04
 
 ### Added
@@ -651,7 +733,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.5.4...v0.6.0
+[0.5.4]: https://github.com/Topos-Labs/infiniloom/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.9...v0.5.1
 [0.4.9]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/Topos-Labs/infiniloom/compare/v0.4.6...v0.4.7

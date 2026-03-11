@@ -94,7 +94,7 @@ engine/src/
 │
 ├── parser/                    # AST-based symbol extraction
 │   ├── core.rs                # Parser struct and methods
-│   ├── language.rs            # Language enum and detection (22 languages)
+│   ├── language.rs            # Language enum and detection (23 detected, 21 with full AST support)
 │   ├── extraction.rs          # Symbol extraction from AST
 │   ├── queries.rs             # Tree-sitter query definitions
 │   ├── query_builder.rs       # Dynamic query construction
@@ -286,7 +286,7 @@ The core pipeline has 5 stages:
 **Key Components**:
 - **`WalkBuilder`** (from `ignore` crate): Gitignore-respecting directory traversal
 - **Pattern filtering**: Include/exclude patterns with glob support
-- **Language detection**: File extension-based, 22 languages supported
+- **Language detection**: File extension-based, 23 languages detected (21 with full AST support)
 - **Binary detection**: First 8KB checked for binary content
 
 **Parallel Strategy**:

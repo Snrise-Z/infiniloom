@@ -23,13 +23,15 @@ Yes! Infiniloom is open source under the MIT license. Use it freely for personal
 
 ### What languages does Infiniloom support?
 
-Infiniloom extracts symbols from 22 languages using Tree-sitter:
+Infiniloom detects 23 languages and provides full AST-based symbol extraction for 21 using Tree-sitter:
 
 - **Systems**: Rust, C, C++, Go
 - **Web**: JavaScript, TypeScript
 - **Backend**: Python, Java, Kotlin, C#, Ruby, PHP, Swift
-- **Functional**: Haskell, Elixir, Clojure, OCaml, Scala
+- **Functional**: Haskell, Elixir, OCaml, Scala
 - **Scripting**: Lua, R, Bash
+- **Infrastructure**: HCL/Terraform
+- **Detected Only (no AST support)**: Clojure, F#
 
 All text files are included regardless of language; symbol extraction is language-dependent.
 
