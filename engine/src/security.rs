@@ -329,6 +329,33 @@ static RE_OPENAI: Lazy<Regex> =
 static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").expect("RE_ANTHROPIC: invalid regex pattern")
 });
+// Google Cloud API keys
+static RE_GCP_API_KEY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"AIza[0-9A-Za-z_-]{35}").expect("RE_GCP_API_KEY: invalid regex pattern")
+});
+// Hugging Face tokens
+static RE_HUGGINGFACE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"hf_[A-Za-z0-9]{34,}").expect("RE_HUGGINGFACE: invalid regex pattern")
+});
+// Azure connection strings
+static RE_AZURE_CONN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{44,}",
+    )
+    .expect("RE_AZURE_CONN: invalid regex pattern")
+});
+// DigitalOcean tokens
+static RE_DIGITALOCEAN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"dop_v1_[a-f0-9]{64}").expect("RE_DIGITALOCEAN: invalid regex pattern")
+});
+// SendGrid API keys
+static RE_SENDGRID: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}")
+        .expect("RE_SENDGRID: invalid regex pattern")
+});
+// Twilio API keys
+static RE_TWILIO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"SK[a-f0-9]{32}").expect("RE_TWILIO: invalid regex pattern"));
 
 /// Error type for security scanning operations
 #[derive(Debug, Clone)]
@@ -503,6 +530,19 @@ impl SecurityScanner {
                 regex: &RE_STRIPE,
                 severity: Severity::Critical,
             },
+            // === Critical: Additional cloud credentials ===
+            // Google Cloud API keys
+            SecretPattern {
+                kind: SecretKind::ApiKey,
+                regex: &RE_GCP_API_KEY,
+                severity: Severity::Critical,
+            },
+            // Azure connection strings
+            SecretPattern {
+                kind: SecretKind::ConnectionString,
+                regex: &RE_AZURE_CONN,
+                severity: Severity::Critical,
+            },
             // === High: Specific service tokens (must come before generic patterns) ===
             // Slack tokens (specific pattern: xoxb-, xoxa-, etc.)
             SecretPattern {
@@ -522,6 +562,26 @@ impl SecurityScanner {
                 regex: &RE_CONN_STRING,
                 severity: Severity::High,
             },
+            // Hugging Face tokens
+            SecretPattern {
+                kind: SecretKind::AccessToken,
+                regex: &RE_HUGGINGFACE,
+                severity: Severity::High,
+            },
+            // DigitalOcean tokens
+            SecretPattern {
+                kind: SecretKind::AccessToken,
+                regex: &RE_DIGITALOCEAN,
+                severity: Severity::High,
+            },
+            // SendGrid API keys
+            SecretPattern {
+                kind: SecretKind::ApiKey,
+                regex: &RE_SENDGRID,
+                severity: Severity::High,
+            },
+            // Twilio API keys
+            SecretPattern { kind: SecretKind::ApiKey, regex: &RE_TWILIO, severity: Severity::High },
             // === High: Generic patterns (must come LAST to avoid masking specific patterns) ===
             // Generic API keys (matches api_key=xxx, apikey:xxx, etc.)
             SecretPattern {
@@ -1071,5 +1131,59 @@ mod tests {
         assert_eq!(lines.len(), 3, "Should preserve line count");
         assert_eq!(lines[0], "line1");
         assert_eq!(lines[2], "line3");
+    }
+
+    #[test]
+    fn test_gcp_api_key_detection() {
+        let scanner = SecurityScanner::new();
+        let content = r#"GCP_API_KEY = "AIzaSyA1234567890abcdefghijklmnopqrstuv""#;
+        let findings = scanner.scan(content, "config.py");
+        assert!(!findings.is_empty());
+        assert!(findings.iter().any(|f| f.severity == Severity::Critical));
+    }
+
+    #[test]
+    fn test_huggingface_token_detection() {
+        let scanner = SecurityScanner::new();
+        let content = r#"HF_TOKEN = "hf_abcdefghijklmnopqrstuvwxyz12345678""#;
+        let findings = scanner.scan(content, ".env");
+        assert!(!findings.is_empty());
+    }
+
+    #[test]
+    fn test_azure_connection_string_detection() {
+        let scanner = SecurityScanner::new();
+        let content = r#"AZURE_STORAGE = "DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=abc123def456ghi789jkl012mno345pqr678stu901vw==""#;
+        let findings = scanner.scan(content, ".env");
+        assert!(!findings.is_empty());
+        assert!(findings.iter().any(|f| f.severity == Severity::Critical));
+    }
+
+    #[test]
+    fn test_digitalocean_token_detection() {
+        let scanner = SecurityScanner::new();
+        // Build the token dynamically to avoid GitHub push protection
+        let token = format!("dop_v1_{}", "a1b2c3d4".repeat(8));
+        let content = format!(r#"DO_TOKEN = "{}""#, token);
+        let findings = scanner.scan(&content, ".env");
+        assert!(!findings.is_empty());
+    }
+
+    #[test]
+    fn test_sendgrid_api_key_detection() {
+        let scanner = SecurityScanner::new();
+        let content = r#"SENDGRID_KEY = "SG.abcdefghijklmnopqrstuv.abcdefghijklmnopqrstuvwxyz01234567890123456""#;
+        let findings = scanner.scan(content, ".env");
+        assert!(!findings.is_empty());
+    }
+
+    #[test]
+    fn test_twilio_api_key_detection() {
+        let scanner = SecurityScanner::new();
+        // Build the key dynamically to avoid GitHub push protection
+        let key = format!("SK{}", "ab12cd34".repeat(4));
+        let content = format!(r#"TWILIO_KEY = "{}""#, key);
+        let findings = scanner.scan(&content, ".env");
+        assert!(!findings.is_empty());
     }
 }
