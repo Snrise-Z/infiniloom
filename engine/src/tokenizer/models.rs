@@ -55,7 +55,7 @@ pub enum TokenModel {
     // =========================================================================
     // Anthropic Claude - Estimation (~3.5 chars/token)
     // =========================================================================
-    /// Claude (all versions) - uses estimation based on ~3.5 chars/token
+    /// Claude (all versions including 4.6) - uses estimation based on ~3.5 chars/token
     Claude,
 
     // =========================================================================
@@ -321,10 +321,12 @@ impl TokenModel {
             // =================================================================
             // Anthropic Claude (all versions map to Claude)
             // =================================================================
-            "claude" | "claude-3" | "claude-3.5" | "claude-4" | "claude-4.5" | "claude-opus"
-            | "claude-opus-4" | "claude-opus-4.5" | "claude-sonnet" | "claude-sonnet-4"
-            | "claude-sonnet-4.5" | "claude-haiku" | "claude-haiku-4" | "claude-haiku-4.5"
-            | "claude-instant" => Some(Self::Claude),
+            "claude" | "claude-3" | "claude-3.5" | "claude-4" | "claude-4.5" | "claude-4.6"
+            | "claude-opus" | "claude-opus-4" | "claude-opus-4.5" | "claude-opus-4.6"
+            | "claude-sonnet" | "claude-sonnet-4" | "claude-sonnet-4.5" | "claude-sonnet-4.6"
+            | "claude-haiku" | "claude-haiku-4" | "claude-haiku-4.5" | "claude-instant" => {
+                Some(Self::Claude)
+            },
             s if s.starts_with("claude") => Some(Self::Claude),
 
             // =================================================================
