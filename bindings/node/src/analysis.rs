@@ -754,7 +754,7 @@ pub fn check_complexity(
 
     let mut violations = Vec::new();
 
-    if metrics.cyclomatic >= max_cyclomatic {
+    if metrics.cyclomatic > max_cyclomatic {
         violations.push(JsComplexityViolation {
             metric: "cyclomatic".to_string(),
             value: metrics.cyclomatic as f64,
@@ -762,7 +762,7 @@ pub fn check_complexity(
         });
     }
 
-    if metrics.cognitive >= max_cognitive {
+    if metrics.cognitive > max_cognitive {
         violations.push(JsComplexityViolation {
             metric: "cognitive".to_string(),
             value: metrics.cognitive as f64,
@@ -770,7 +770,7 @@ pub fn check_complexity(
         });
     }
 
-    if metrics.max_nesting_depth >= max_nesting {
+    if metrics.max_nesting_depth > max_nesting {
         violations.push(JsComplexityViolation {
             metric: "max_nesting_depth".to_string(),
             value: metrics.max_nesting_depth as f64,
@@ -778,7 +778,7 @@ pub fn check_complexity(
         });
     }
 
-    if metrics.parameter_count >= max_params {
+    if metrics.parameter_count > max_params {
         violations.push(JsComplexityViolation {
             metric: "parameter_count".to_string(),
             value: metrics.parameter_count as f64,
@@ -787,7 +787,7 @@ pub fn check_complexity(
     }
 
     if let Some(mi) = metrics.maintainability_index {
-        if (mi as f64) <= min_maintainability {
+        if (mi as f64) < min_maintainability {
             violations.push(JsComplexityViolation {
                 metric: "maintainability_index".to_string(),
                 value: mi as f64,
@@ -845,6 +845,8 @@ fn parse_language(lang: &str) -> Result<infiniloom_engine::parser::Language> {
         "ocaml" | "ml" => Ok(Language::OCaml),
         "lua" => Ok(Language::Lua),
         "r" => Ok(Language::R),
+        "hcl" | "terraform" | "tf" => Ok(Language::Hcl),
+        "fsharp" | "f#" | "fs" => Ok(Language::FSharp),
         _ => Err(Error::new(
             Status::InvalidArg,
             format!("Unsupported language: {}", lang),
@@ -1093,7 +1095,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_complexity_boundary_gte_semantics() {
+    fn test_check_complexity_boundary_gt_semantics() {
         // First calculate actual cyclomatic complexity of the source
         let calc = calculate_complexity(
             js_source().to_string(),
@@ -1102,8 +1104,8 @@ mod tests {
         let actual_cyclomatic = calc.cyclomatic;
         assert!(actual_cyclomatic > 0, "need non-zero complexity for boundary test");
 
-        // Set threshold exactly equal to value -- should be a violation (>= semantics)
-        let result = check_complexity(
+        // Set threshold exactly equal to value -- should PASS (> semantics: max means "allowed up to")
+        let at_threshold = check_complexity(
             js_source().to_string(),
             CheckComplexityOptions {
                 language: "javascript".to_string(),
@@ -1113,17 +1115,33 @@ mod tests {
                 max_params: Some(100),
                 min_maintainability: Some(0.0),
             },
-        );
-        assert!(result.is_ok());
-        let check = result.unwrap();
-        let cyclomatic_violation = check.violations.iter().find(|v| v.metric == "cyclomatic");
+        ).unwrap();
         assert!(
-            cyclomatic_violation.is_some(),
-            "value {} at threshold {} should be a violation with >= semantics",
+            at_threshold.passed,
+            "value {} at threshold {} should pass with > semantics (max means 'allowed up to')",
             actual_cyclomatic, actual_cyclomatic
         );
-        assert_eq!(cyclomatic_violation.unwrap().value, actual_cyclomatic as f64);
-        assert_eq!(cyclomatic_violation.unwrap().threshold, actual_cyclomatic as f64);
+
+        // Set threshold one below value -- should FAIL
+        let below_threshold = check_complexity(
+            js_source().to_string(),
+            CheckComplexityOptions {
+                language: "javascript".to_string(),
+                max_cyclomatic: Some(actual_cyclomatic - 1),
+                max_cognitive: Some(100),
+                max_nesting: Some(100),
+                max_params: Some(100),
+                min_maintainability: Some(0.0),
+            },
+        ).unwrap();
+        assert!(
+            !below_threshold.passed,
+            "value {} at threshold {} should fail",
+            actual_cyclomatic, actual_cyclomatic - 1
+        );
+        let violation = below_threshold.violations.iter().find(|v| v.metric == "cyclomatic").unwrap();
+        assert_eq!(violation.value, actual_cyclomatic as f64);
+        assert_eq!(violation.threshold, (actual_cyclomatic - 1) as f64);
     }
 
     // ---- conversion helper tests ----
