@@ -8,6 +8,10 @@ use super::queries;
 use tree_sitter::{Language as TSLanguage, Parser as TSParser, Query};
 
 /// Supported programming languages
+///
+/// Note: [`Language::Clojure`] and [`Language::FSharp`] are detection-only
+/// (file extension recognition and display names). They have no working
+/// tree-sitter parser and cannot perform AST-based symbol extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Python,
@@ -27,14 +31,21 @@ pub enum Language {
     Scala,
     Haskell,
     Elixir,
+    /// Deprecated: No compatible tree-sitter grammar available (requires tree-sitter ^0.25).
+    /// Detection-only -- file extension recognition works, but no AST parsing.
+    #[deprecated(note = "No compatible tree-sitter grammar available")]
     Clojure,
     OCaml,
+    /// Deprecated: No tree-sitter grammar crate exists for F#.
+    /// Detection-only -- file extension recognition works, but no AST parsing.
+    #[deprecated(note = "No compatible tree-sitter grammar available")]
     FSharp,
     Lua,
     R,
     Hcl,
 }
 
+#[allow(deprecated)]
 impl Language {
     /// Detect language from file extension
     #[must_use]
@@ -293,6 +304,7 @@ impl Language {
     }
 }
 
+#[allow(deprecated)]
 impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.display_name())
@@ -443,6 +455,7 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
     Some(lang.to_owned())
 }
 
+#[allow(deprecated)]
 impl std::str::FromStr for Language {
     type Err = ParserError;
 
@@ -477,6 +490,7 @@ impl std::str::FromStr for Language {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 
