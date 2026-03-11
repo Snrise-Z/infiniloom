@@ -56,7 +56,8 @@ pub use embed::{
 };
 pub use analysis::{
     extract_documentation, extract_documentation_async, detect_dead_code, detect_dead_code_async,
-    detect_breaking_changes, detect_breaking_changes_async,
+    detect_breaking_changes, detect_breaking_changes_async, calculate_complexity,
+    calculate_complexity_async, check_complexity, check_complexity_async,
 };
 
 use infiniloom_bindings_common::{

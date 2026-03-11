@@ -80,6 +80,9 @@ export type {
   JsCrossRepoLink,
   JsUnifiedSymbolRef,
   JsMultiRepoStats,
+  CheckComplexityOptions,
+  JsComplexityViolation,
+  JsComplexityCheckResult,
 } from './index';
 
 // ============================================================================
