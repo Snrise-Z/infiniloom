@@ -65,7 +65,7 @@ Here's how it works:
 
 4. **Filters noise** — Generated files, build artifacts, vendored dependencies, and other distractions are automatically excluded.
 
-5. **Formats for AI** — The output is structured in ways that different AI models understand best — XML for Claude, Markdown for GPT-4o/GPT-5, YAML for Gemini.
+5. **Formats for AI** — The output is structured in ways that different AI models understand best — XML for Claude, Markdown for GPT-4o/GPT-5, YAML (compatible with Gemini and other models).
 
 The result is a context package that helps AI give you accurate, relevant answers about your actual code.
 
@@ -228,13 +228,15 @@ See the [Command Reference](docs/commands/) for detailed documentation.
 
 ### Feature Comparison Matrix
 
+> *Comparison as of March 2026. Tool capabilities evolve rapidly — see notes below.*
+
 | Feature | Infiniloom | Repomix | Aider | Continue | Cursor |
 |---------|:----------:|:-------:|:-----:|:--------:|:------:|
-| **AST Parsing (Tree-sitter)** | ✅ 21 languages | ❌ | ❌ | ❌ | ✅ |
+| **AST Parsing (Tree-sitter)** | ✅ 21 languages | Limited | Limited | Limited | ✅ |
 | **PageRank Symbol Ranking** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Content-Addressable Chunks** | ✅ BLAKE3 | ❌ | ❌ | ❌ | ❌ |
 | **Incremental Updates (Diffing)** | ✅ Manifest-based | ❌ | ✅ Git-based | ❌ | ✅ |
-| **Secret Detection/Redaction** | ✅ 15+ patterns | ❌ | ❌ | ❌ | ❌ |
+| **Secret Detection/Redaction** | ✅ 15+ patterns | Limited | ❌ | ❌ | ❌ |
 | **Multi-Model Token Counting** | ✅ 27 models | ❌ | ✅ Few models | ❌ | ❌ |
 | **Call Graph Extraction** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Vector DB Integration** | ✅ Native JSONL | ❌ | ❌ | ❌ | ❌ |
@@ -243,6 +245,8 @@ See the [Command Reference](docs/commands/) for detailed documentation.
 | **Library (Rust/Python/Node)** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **IDE Integration** | 🔜 Coming | ❌ | ❌ | ✅ Native | ✅ Native |
 | **Price** | Free/OSS | Free/OSS | Free/OSS | Free tier | $20/mo |
+
+> **Note:** Competitor features may have changed since this comparison was last updated. Check their official documentation for the latest capabilities. "Limited" indicates partial or recently added support that may not match the depth of a full implementation.
 
 ### When to Use What
 
