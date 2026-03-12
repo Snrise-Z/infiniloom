@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **GPT Formatter Token Model** - The GPT output formatter (`OutputFormatter::gpt()`) now uses `Gpt4o` (o200k_base) for token counting instead of `Claude` estimation. This produces exact token counts but may report different numbers than previous versions. (PR #75)
+
 ### Fixed
 
 - **Markdown Parser Formatting** - Fix formatting in markdown parser (PR #53)

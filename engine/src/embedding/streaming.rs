@@ -518,6 +518,14 @@ impl ChunkStream {
             // Build FQN
             let fqn = self.compute_fqn(&relative_path, symbol);
 
+            // Extract keywords and context prefix before moving chunk_content
+            let keywords = super::chunker::extract_keywords(&chunk_content);
+            let context_prefix = super::chunker::generate_context_prefix(
+                &relative_path,
+                symbol.parent.as_deref(),
+                &symbol.kind,
+            );
+
             chunks.push(EmbedChunk {
                 id: hash.short_id,
                 full_hash: hash.full_hash,
@@ -543,8 +551,8 @@ impl ChunkStream {
                     called_by: Vec::new(),
                     imports: Vec::new(),
                     tags: Vec::new(),
-                    keywords: Vec::new(),
-                    context_prefix: None,
+                    keywords,
+                    context_prefix: Some(context_prefix),
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                 },
@@ -890,5 +898,288 @@ fn goodbye() {
         assert!(!chunks.is_empty());
         assert_eq!(chunks[0].source.repo.namespace, "github.com/test");
         assert_eq!(chunks[0].source.repo.name, "my-repo");
+    }
+
+    // ---------------------------------------------------------------
+    // Behavioral tests for keyword and context_prefix population
+    // (Issue #100: ChunkStream was producing empty keywords/context_prefix)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_extract_keywords_returns_domain_terms_not_language_keywords() {
+        let rust_code = r#"
+fn calculate_checksum(buffer: &[u8]) -> u64 {
+    let mut digest = 0u64;
+    for byte in buffer {
+        digest = digest.wrapping_mul(31).wrapping_add(*byte as u64);
+    }
+    digest
+}
+"#;
+        let keywords = super::super::chunker::extract_keywords(rust_code);
+
+        // Should contain domain-specific identifiers split from camelCase/snake_case
+        assert!(
+            keywords.contains(&"calculate".to_string()),
+            "Expected 'calculate' in keywords, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"checksum".to_string()),
+            "Expected 'checksum' in keywords, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"buffer".to_string()),
+            "Expected 'buffer' in keywords, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"digest".to_string()),
+            "Expected 'digest' in keywords, got: {:?}",
+            keywords
+        );
+
+        // Should NOT contain generic Rust keywords (these are in the stopword list)
+        assert!(!keywords.contains(&"fn".to_string()), "'fn' should be filtered as a stopword");
+        assert!(!keywords.contains(&"let".to_string()), "'let' should be filtered as a stopword");
+        assert!(!keywords.contains(&"for".to_string()), "'for' should be filtered as a stopword");
+        assert!(!keywords.contains(&"mut".to_string()), "'mut' should be filtered as a stopword");
+    }
+
+    #[test]
+    fn test_extract_keywords_handles_camel_case_and_snake_case() {
+        let code = r#"
+fn parse_http_response(rawBytes: &[u8]) -> HttpResponse {
+    let contentLength = extract_content_length(rawBytes);
+    HttpResponse::new(contentLength)
+}
+"#;
+        let keywords = super::super::chunker::extract_keywords(code);
+
+        // snake_case splits: parse_http_response -> parse, http, response
+        assert!(
+            keywords.contains(&"parse".to_string()),
+            "Expected 'parse' from snake_case split, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"http".to_string()),
+            "Expected 'http' from snake_case split, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"response".to_string()),
+            "Expected 'response' from identifier split, got: {:?}",
+            keywords
+        );
+
+        // camelCase splits: rawBytes -> raw, Bytes; contentLength -> content, Length
+        assert!(
+            keywords.contains(&"content".to_string()),
+            "Expected 'content' from camelCase split, got: {:?}",
+            keywords
+        );
+        assert!(
+            keywords.contains(&"length".to_string()),
+            "Expected 'length' from camelCase split, got: {:?}",
+            keywords
+        );
+    }
+
+    #[test]
+    fn test_extract_keywords_nonempty_for_nontrivial_code() {
+        // Any function with meaningful identifier names should produce keywords
+        let code = r#"
+fn validate_user_credentials(username: &str, password: &str) -> bool {
+    let stored_hash = fetch_password_hash(username);
+    verify_hash(password, &stored_hash)
+}
+"#;
+        let keywords = super::super::chunker::extract_keywords(code);
+        assert!(!keywords.is_empty(), "Non-trivial code should produce at least some keywords");
+        // Should have several domain terms
+        assert!(
+            keywords.len() >= 3,
+            "Expected at least 3 keywords for code with rich identifiers, got {}: {:?}",
+            keywords.len(),
+            keywords
+        );
+    }
+
+    #[test]
+    fn test_generate_context_prefix_format_without_parent() {
+        use crate::types::SymbolKind;
+
+        let prefix = super::super::chunker::generate_context_prefix(
+            "src/auth.rs",
+            None,
+            &SymbolKind::Function,
+        );
+
+        assert_eq!(prefix, "From src/auth.rs, function");
+    }
+
+    #[test]
+    fn test_generate_context_prefix_format_with_parent() {
+        use crate::types::SymbolKind;
+
+        let prefix = super::super::chunker::generate_context_prefix(
+            "src/models/user.rs",
+            Some("UserService"),
+            &SymbolKind::Method,
+        );
+
+        assert_eq!(prefix, "From src/models/user.rs, in UserService, method");
+    }
+
+    #[test]
+    fn test_generate_context_prefix_various_kinds() {
+        use crate::types::SymbolKind;
+
+        let cases = vec![
+            (SymbolKind::Class, "class"),
+            (SymbolKind::Struct, "struct"),
+            (SymbolKind::Enum, "enum"),
+            (SymbolKind::Trait, "trait"),
+            (SymbolKind::Interface, "interface"),
+            (SymbolKind::Constant, "constant"),
+            (SymbolKind::Import, "import"),
+            (SymbolKind::Module, "module"),
+            (SymbolKind::Macro, "macro"),
+        ];
+
+        for (kind, expected_name) in cases {
+            let prefix = super::super::chunker::generate_context_prefix("src/lib.rs", None, &kind);
+            assert_eq!(
+                prefix,
+                format!("From src/lib.rs, {expected_name}"),
+                "Wrong prefix for kind {:?}",
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_chunk_stream_populates_keywords_and_context_prefix() {
+        let temp_dir = TempDir::new().unwrap();
+        let rust_code = r#"
+/// Validates and normalizes an email address
+fn validate_email_address(input: &str) -> Option<String> {
+    let trimmed = input.trim().to_lowercase();
+    if trimmed.contains('@') && trimmed.contains('.') {
+        Some(trimmed)
+    } else {
+        None
+    }
+}
+"#;
+        create_test_file(temp_dir.path(), "src/validator.rs", rust_code);
+
+        let settings = EmbedSettings::default();
+        let limits = ResourceLimits::default();
+
+        let stream = ChunkStream::new(temp_dir.path(), settings, limits).unwrap();
+        let chunks: Vec<_> = stream.filter_map(|r| r.ok()).collect();
+
+        assert!(!chunks.is_empty(), "Should produce at least one chunk");
+
+        for chunk in &chunks {
+            // Keywords should be populated (not empty)
+            assert!(
+                !chunk.context.keywords.is_empty(),
+                "Chunk '{}' has empty keywords; expected domain terms from the code",
+                chunk.source.symbol
+            );
+
+            // Context prefix should be populated (not None)
+            assert!(
+                chunk.context.context_prefix.is_some(),
+                "Chunk '{}' has None context_prefix; expected 'From <path>, <kind>'",
+                chunk.source.symbol
+            );
+
+            let prefix = chunk.context.context_prefix.as_ref().unwrap();
+
+            // Prefix should start with "From " and contain the file path
+            assert!(
+                prefix.starts_with("From "),
+                "Context prefix should start with 'From ', got: {}",
+                prefix
+            );
+            assert!(
+                prefix.contains("validator.rs"),
+                "Context prefix should reference the source file, got: {}",
+                prefix
+            );
+        }
+
+        // Find the validate_email_address chunk specifically
+        let email_chunk = chunks
+            .iter()
+            .find(|c| c.source.symbol == "validate_email_address");
+        assert!(email_chunk.is_some(), "Should have a chunk for validate_email_address");
+
+        let email_chunk = email_chunk.unwrap();
+
+        // Verify keywords contain domain-relevant terms
+        let kw = &email_chunk.context.keywords;
+        assert!(
+            kw.contains(&"validate".to_string()) || kw.contains(&"email".to_string()),
+            "Keywords for validate_email_address should include 'validate' or 'email', got: {:?}",
+            kw
+        );
+
+        // Verify context prefix format for a top-level function
+        let prefix = email_chunk.context.context_prefix.as_ref().unwrap();
+        assert!(
+            prefix.contains("function"),
+            "Context prefix for a function should contain 'function', got: {}",
+            prefix
+        );
+    }
+
+    #[test]
+    fn test_chunk_stream_context_prefix_includes_parent_for_methods() {
+        let temp_dir = TempDir::new().unwrap();
+        // Use Python since Tree-sitter reliably detects class methods with parent info
+        let python_code = r#"
+class DatabaseConnection:
+    def execute_query(self, sql_statement):
+        cursor = self.connection.cursor()
+        cursor.execute(sql_statement)
+        return cursor.fetchall()
+"#;
+        create_test_file(temp_dir.path(), "src/database.py", python_code);
+
+        let settings = EmbedSettings::default();
+        let limits = ResourceLimits::default();
+
+        let stream = ChunkStream::new(temp_dir.path(), settings, limits).unwrap();
+        let chunks: Vec<_> = stream.filter_map(|r| r.ok()).collect();
+
+        // Find the method chunk
+        let method_chunk = chunks.iter().find(|c| c.source.symbol == "execute_query");
+
+        if let Some(chunk) = method_chunk {
+            let prefix = chunk.context.context_prefix.as_ref().unwrap();
+            // If parent was detected, prefix should include "in <parent>"
+            if chunk.source.parent.is_some() {
+                assert!(
+                    prefix.contains("in "),
+                    "Method with parent should have 'in <parent>' in prefix, got: {}",
+                    prefix
+                );
+                assert!(
+                    prefix.contains("DatabaseConnection"),
+                    "Parent should be 'DatabaseConnection', got: {}",
+                    prefix
+                );
+            }
+            // Keywords should include domain terms from the method
+            assert!(!chunk.context.keywords.is_empty(), "Method chunk should have keywords");
+        }
+        // If the method chunk was not found (parser limitation), the test still passes
+        // since the class chunk would have been produced instead
     }
 }

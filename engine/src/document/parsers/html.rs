@@ -357,23 +357,127 @@ fn strip_tags(html: &str) -> String {
 
 fn decode_entities(text: &str) -> String {
     let result = text
+        // XML predefined entities
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&apos;", "'")
+        // Whitespace / formatting
         .replace("&nbsp;", "\u{00A0}")
+        .replace("&ensp;", "\u{2002}")
+        .replace("&emsp;", "\u{2003}")
+        .replace("&thinsp;", "\u{2009}")
+        .replace("&shy;", "\u{00AD}")
+        .replace("&zwj;", "\u{200D}")
+        .replace("&zwnj;", "\u{200C}")
+        .replace("&lrm;", "\u{200E}")
+        .replace("&rlm;", "\u{200F}")
+        // Dashes and hyphens
         .replace("&mdash;", "\u{2014}")
         .replace("&ndash;", "\u{2013}")
+        .replace("&minus;", "\u{2212}")
+        // Quotation marks
+        .replace("&lsquo;", "\u{2018}")
+        .replace("&rsquo;", "\u{2019}")
+        .replace("&sbquo;", "\u{201A}")
+        .replace("&ldquo;", "\u{201C}")
+        .replace("&rdquo;", "\u{201D}")
+        .replace("&bdquo;", "\u{201E}")
+        .replace("&laquo;", "\u{00AB}")
+        .replace("&raquo;", "\u{00BB}")
+        .replace("&lsaquo;", "\u{2039}")
+        .replace("&rsaquo;", "\u{203A}")
+        .replace("&prime;", "\u{2032}")
+        .replace("&Prime;", "\u{2033}")
+        // Punctuation and symbols
         .replace("&hellip;", "\u{2026}")
+        .replace("&bull;", "\u{2022}")
+        .replace("&middot;", "\u{00B7}")
+        .replace("&iexcl;", "\u{00A1}")
+        .replace("&iquest;", "\u{00BF}")
+        .replace("&sect;", "\u{00A7}")
+        .replace("&para;", "\u{00B6}")
+        .replace("&dagger;", "\u{2020}")
+        .replace("&Dagger;", "\u{2021}")
+        // Intellectual property
         .replace("&copy;", "\u{00A9}")
         .replace("&reg;", "\u{00AE}")
         .replace("&trade;", "\u{2122}")
-        .replace("&laquo;", "\u{00AB}")
-        .replace("&raquo;", "\u{00BB}")
-        .replace("&bull;", "\u{2022}")
-        .replace("&middot;", "\u{00B7}");
+        // Currency
+        .replace("&cent;", "\u{00A2}")
+        .replace("&pound;", "\u{00A3}")
+        .replace("&yen;", "\u{00A5}")
+        .replace("&euro;", "\u{20AC}")
+        .replace("&curren;", "\u{00A4}")
+        // Math and technical
+        .replace("&times;", "\u{00D7}")
+        .replace("&divide;", "\u{00F7}")
+        .replace("&plusmn;", "\u{00B1}")
+        .replace("&deg;", "\u{00B0}")
+        .replace("&micro;", "\u{00B5}")
+        .replace("&frac12;", "\u{00BD}")
+        .replace("&frac14;", "\u{00BC}")
+        .replace("&frac34;", "\u{00BE}")
+        .replace("&sup1;", "\u{00B9}")
+        .replace("&sup2;", "\u{00B2}")
+        .replace("&sup3;", "\u{00B3}")
+        .replace("&not;", "\u{00AC}")
+        .replace("&macr;", "\u{00AF}")
+        // Arrows
+        .replace("&larr;", "\u{2190}")
+        .replace("&uarr;", "\u{2191}")
+        .replace("&rarr;", "\u{2192}")
+        .replace("&darr;", "\u{2193}")
+        .replace("&harr;", "\u{2194}")
+        // Common Latin characters
+        .replace("&Agrave;", "\u{00C0}")
+        .replace("&Aacute;", "\u{00C1}")
+        .replace("&Acirc;", "\u{00C2}")
+        .replace("&Atilde;", "\u{00C3}")
+        .replace("&Auml;", "\u{00C4}")
+        .replace("&Aring;", "\u{00C5}")
+        .replace("&AElig;", "\u{00C6}")
+        .replace("&Ccedil;", "\u{00C7}")
+        .replace("&Egrave;", "\u{00C8}")
+        .replace("&Eacute;", "\u{00C9}")
+        .replace("&Euml;", "\u{00CB}")
+        .replace("&Igrave;", "\u{00CC}")
+        .replace("&Iacute;", "\u{00CD}")
+        .replace("&Iuml;", "\u{00CF}")
+        .replace("&Ntilde;", "\u{00D1}")
+        .replace("&Ograve;", "\u{00D2}")
+        .replace("&Oacute;", "\u{00D3}")
+        .replace("&Ouml;", "\u{00D6}")
+        .replace("&Oslash;", "\u{00D8}")
+        .replace("&Ugrave;", "\u{00D9}")
+        .replace("&Uacute;", "\u{00DA}")
+        .replace("&Uuml;", "\u{00DC}")
+        .replace("&szlig;", "\u{00DF}")
+        .replace("&agrave;", "\u{00E0}")
+        .replace("&aacute;", "\u{00E1}")
+        .replace("&acirc;", "\u{00E2}")
+        .replace("&atilde;", "\u{00E3}")
+        .replace("&auml;", "\u{00E4}")
+        .replace("&aring;", "\u{00E5}")
+        .replace("&aelig;", "\u{00E6}")
+        .replace("&ccedil;", "\u{00E7}")
+        .replace("&egrave;", "\u{00E8}")
+        .replace("&eacute;", "\u{00E9}")
+        .replace("&euml;", "\u{00EB}")
+        .replace("&igrave;", "\u{00EC}")
+        .replace("&iacute;", "\u{00ED}")
+        .replace("&iuml;", "\u{00EF}")
+        .replace("&ntilde;", "\u{00F1}")
+        .replace("&ograve;", "\u{00F2}")
+        .replace("&oacute;", "\u{00F3}")
+        .replace("&ouml;", "\u{00F6}")
+        .replace("&oslash;", "\u{00F8}")
+        .replace("&ugrave;", "\u{00F9}")
+        .replace("&uacute;", "\u{00FA}")
+        .replace("&uuml;", "\u{00FC}")
+        .replace("&yuml;", "\u{00FF}");
 
     // Decode numeric character references: &#NNN; and &#xHHHH;
     // Build result in a single pass to avoid quadratic string concatenation.
@@ -609,5 +713,70 @@ mod tests {
         let text = doc.full_text();
         assert!(text.contains("A"));
         assert!(text.contains("C"));
+    }
+
+    #[test]
+    fn test_decode_entities_currency_in_price_text() {
+        let input = "Price: &pound;99.99 or &euro;115 or &yen;15000";
+        let result = decode_entities(input);
+        assert_eq!(result, "Price: \u{00A3}99.99 or \u{20AC}115 or \u{00A5}15000");
+    }
+
+    #[test]
+    fn test_decode_entities_smart_quotes_in_prose() {
+        let input = "&ldquo;Hello,&rdquo; she said, &lsquo;goodbye.&rsquo;";
+        let result = decode_entities(input);
+        assert_eq!(result, "\u{201C}Hello,\u{201D} she said, \u{2018}goodbye.\u{2019}");
+    }
+
+    #[test]
+    fn test_decode_entities_math_notation() {
+        let input = "2 &times; 3 &plusmn; 1 = 6 &plusmn; 1";
+        let result = decode_entities(input);
+        assert_eq!(result, "2 \u{00D7} 3 \u{00B1} 1 = 6 \u{00B1} 1");
+    }
+
+    #[test]
+    fn test_decode_entities_navigation_arrows() {
+        let input = "&larr; Back | Next &rarr;";
+        let result = decode_entities(input);
+        assert_eq!(result, "\u{2190} Back | Next \u{2192}");
+    }
+
+    #[test]
+    fn test_decode_entities_accented_multilingual_text() {
+        let input = "Caf&eacute; na&iuml;vet&eacute; in Espa&ntilde;a";
+        let result = decode_entities(input);
+        assert_eq!(result, "Caf\u{00E9} na\u{00EF}vet\u{00E9} in Espa\u{00F1}a");
+    }
+
+    #[test]
+    fn test_decode_entities_mixed_entities_and_plain_text() {
+        // A realistic HTML snippet mixing named entities, numeric entities, and plain text
+        let input = "Copyright &copy; 2026 &mdash; Built with &hearts; by Caf&eacute; Co&period; \
+                      Price: &pound;5 &amp; &euro;6. Rating: 4&frac12; stars &#x2605;";
+        let result = decode_entities(input);
+        // &hearts; and &period; are not in the entity table, so they pass through
+        assert!(result.contains("Copyright \u{00A9} 2026 \u{2014}"));
+        assert!(result.contains("&hearts;"));
+        assert!(result.contains("Caf\u{00E9}"));
+        assert!(result.contains("&period;"));
+        assert!(result.contains("\u{00A3}5 & \u{20AC}6"));
+        assert!(result.contains("4\u{00BD} stars \u{2605}"));
+    }
+
+    #[test]
+    fn test_decode_entities_unknown_entities_pass_through() {
+        let input = "&foobar; stays and &unknown; stays too";
+        let result = decode_entities(input);
+        assert_eq!(result, "&foobar; stays and &unknown; stays too");
+    }
+
+    #[test]
+    fn test_decode_entities_numeric_alongside_named() {
+        // &#8364; is euro (decimal), &#x20AC; is euro (hex) — same as &euro;
+        let input = "&euro; and &#8364; and &#x20AC; are all euro";
+        let result = decode_entities(input);
+        assert_eq!(result, "\u{20AC} and \u{20AC} and \u{20AC} are all euro");
     }
 }

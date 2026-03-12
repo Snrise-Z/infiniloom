@@ -910,6 +910,69 @@ fn collect_calls_recursive_with_depth(
                 None
             }
         },
+        Language::Zig => {
+            if kind == "call_expression" {
+                node.child_by_field_name("function").and_then(|f| {
+                    if f.kind() == "identifier" {
+                        f.utf8_text(source_code.as_bytes()).ok().map(String::from)
+                    } else if f.kind() == "field_expression" {
+                        // e.g., std.debug.print → extract "print"
+                        f.child_by_field_name("member")
+                            .and_then(|m| m.utf8_text(source_code.as_bytes()).ok())
+                            .map(String::from)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        },
+        Language::Dart => {
+            // Dart AST: calls are identifier + selector(argument_part) at expression_statement level.
+            // e.g., print('hello') → expression_statement(identifier, selector(argument_part))
+            // e.g., obj.method() → expression_statement(identifier, selector(unconditional_assignable_selector), selector(argument_part))
+            if kind == "expression_statement" {
+                let children: Vec<_> = node.children(&mut node.walk()).collect();
+                if children.len() >= 2 && children[0].kind() == "identifier" {
+                    let has_call = children.iter().any(|c| {
+                        c.kind() == "selector"
+                            && c.child(0).map_or(false, |gc| gc.kind() == "argument_part")
+                    });
+                    if has_call {
+                        // Find the last identifier before the argument_part selector
+                        // For obj.method() → "doSomething"; for print() → "print"
+                        let mut name = children[0]
+                            .utf8_text(source_code.as_bytes())
+                            .ok()
+                            .map(String::from);
+                        for child in &children[1..] {
+                            if child.kind() == "selector" {
+                                if let Some(gc) = child.child(0) {
+                                    if gc.kind() == "unconditional_assignable_selector" {
+                                        // Member access: extract the identifier
+                                        name = gc
+                                            .children(&mut gc.walk())
+                                            .find(|c| c.kind() == "identifier")
+                                            .and_then(|id| {
+                                                id.utf8_text(source_code.as_bytes()).ok()
+                                            })
+                                            .map(String::from);
+                                    }
+                                }
+                            }
+                        }
+                        name
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        },
         Language::Haskell
         | Language::Elixir
         | Language::Clojure
@@ -917,9 +980,7 @@ fn collect_calls_recursive_with_depth(
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl
-        | Language::Zig
-        | Language::Dart => {
+        | Language::Hcl => {
             if kind == "function_call" || kind == "call" || kind == "application" {
                 node.children(&mut node.walk())
                     .find(|child| child.kind() == "identifier" || child.kind() == "variable")
@@ -2687,5 +2748,112 @@ mod tests {
         let doc = docstring.unwrap();
         assert!(doc.contains("Line 1"));
         assert!(doc.contains("Line 2"));
+    }
+
+    // ==========================================================================
+    // Zig call extraction tests
+    // ==========================================================================
+
+    /// Helper: parse Zig code and collect all calls from the root node.
+    fn collect_zig_calls(code: &str) -> HashSet<String> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_zig::LANGUAGE.into())
+            .expect("Error loading Zig grammar");
+        let tree = parser.parse(code, None).expect("Failed to parse Zig code");
+        let mut calls = HashSet::new();
+        collect_calls_recursive(tree.root_node(), code, Language::Zig, &mut calls);
+        calls
+    }
+
+    #[test]
+    fn test_zig_simple_call_extracted() {
+        let code = r#"
+fn main() void {
+    const r = add(1, 2);
+}
+"#;
+        let calls = collect_zig_calls(code);
+        assert!(calls.contains("add"), "Expected 'add' in calls, got: {:?}", calls);
+    }
+
+    #[test]
+    fn test_zig_member_call_extracted() {
+        let code = r#"
+const std = @import("std");
+fn main() void {
+    std.debug.print("hi", .{});
+}
+"#;
+        let calls = collect_zig_calls(code);
+        assert!(calls.contains("print"), "Expected 'print' in calls, got: {:?}", calls);
+    }
+
+    #[test]
+    fn test_zig_no_false_positives_on_variable_declaration() {
+        let code = r#"
+fn main() void {
+    const x = 42;
+}
+"#;
+        let calls = collect_zig_calls(code);
+        assert!(
+            calls.is_empty(),
+            "Expected no calls from a simple variable declaration, got: {:?}",
+            calls
+        );
+    }
+
+    // ==========================================================================
+    // Dart call extraction tests
+    // ==========================================================================
+
+    /// Helper: parse Dart code and collect all calls from the root node.
+    fn collect_dart_calls(code: &str) -> HashSet<String> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_dart_orchard::LANGUAGE.into())
+            .expect("Error loading Dart grammar");
+        let tree = parser.parse(code, None).expect("Failed to parse Dart code");
+        let mut calls = HashSet::new();
+        collect_calls_recursive(tree.root_node(), code, Language::Dart, &mut calls);
+        calls
+    }
+
+    #[test]
+    fn test_dart_simple_call_extracted() {
+        let code = r#"
+void main() {
+  print('hello');
+}
+"#;
+        let calls = collect_dart_calls(code);
+        assert!(calls.contains("print"), "Expected 'print' in calls, got: {:?}", calls);
+    }
+
+    #[test]
+    fn test_dart_method_call_extracted() {
+        let code = r#"
+void main() {
+  myObj.doSomething();
+}
+"#;
+        let calls = collect_dart_calls(code);
+        assert!(calls.contains("doSomething"), "Expected 'doSomething' in calls, got: {:?}", calls);
+    }
+
+    #[test]
+    fn test_dart_no_false_positives_on_variable_declaration() {
+        let code = r#"
+void main() {
+  var x = 42;
+}
+"#;
+        let calls = collect_dart_calls(code);
+        assert!(
+            calls.is_empty(),
+            "Expected no calls from a simple variable declaration, got: {:?}",
+            calls
+        );
     }
 }

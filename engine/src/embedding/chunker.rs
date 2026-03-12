@@ -1338,7 +1338,7 @@ impl EmbedChunker {
 /// Splits content on non-alphanumeric boundaries, splits identifiers by
 /// camelCase/snake_case, filters stopwords and short tokens, then returns
 /// the top 10 by frequency.
-fn extract_keywords(content: &str) -> Vec<String> {
+pub(crate) fn extract_keywords(content: &str) -> Vec<String> {
     use std::collections::BTreeMap;
 
     const STOPWORDS: &[&str] = &[
@@ -1373,7 +1373,7 @@ fn extract_keywords(content: &str) -> Vec<String> {
 /// Examples:
 /// - "From src/auth.rs, function"
 /// - "From src/models/user.rs, in UserService, method"
-fn generate_context_prefix(
+pub(crate) fn generate_context_prefix(
     file_path: &str,
     parent: Option<&str>,
     kind: &crate::types::SymbolKind,
