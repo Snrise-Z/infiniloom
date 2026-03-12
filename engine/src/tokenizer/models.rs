@@ -334,9 +334,8 @@ impl TokenModel {
             // =================================================================
             "gemini" | "gemini-pro" | "gemini-flash" | "gemini-ultra" | "gemini-1.5"
             | "gemini-1.5-pro" | "gemini-1.5-flash" | "gemini-2" | "gemini-2.5"
-            | "gemini-2.5-pro" | "gemini-2.5-flash" | "gemini-3" | "gemini-3-pro" => {
-                Some(Self::Gemini)
-            },
+            | "gemini-2.5-pro" | "gemini-2.5-flash" | "gemini-3" | "gemini-3-pro"
+            | "gemini-3.1" | "gemini-3.1-pro" | "gemini-3.1-flash" => Some(Self::Gemini),
             s if s.starts_with("gemini") => Some(Self::Gemini),
 
             // =================================================================
@@ -435,10 +434,10 @@ impl TokenModel {
             | Self::Gpt5
             | Self::Gpt5Mini
             | Self::Gpt5Nano => 128_000,
-            // OpenAI O-series - 200K context
-            Self::O4Mini | Self::O3 | Self::O3Mini | Self::O1 | Self::O1Mini | Self::O1Preview => {
-                200_000
-            },
+            // OpenAI O-series - O3/O4 have 200K context
+            Self::O4Mini | Self::O3 | Self::O3Mini => 200_000,
+            // OpenAI O1 series - 128K context
+            Self::O1 | Self::O1Mini | Self::O1Preview => 128_000,
             // OpenAI GPT-4o - 128K
             Self::Gpt4o | Self::Gpt4oMini => 128_000,
             // Legacy OpenAI
@@ -502,5 +501,35 @@ impl TokenModel {
             Self::Cohere => "Cohere",
             Self::Grok => "xAI",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_window_values() {
+        assert_eq!(TokenModel::Gpt35Turbo.context_window(), 16_000);
+        assert_eq!(TokenModel::Gpt4.context_window(), 128_000);
+        assert_eq!(TokenModel::Claude.context_window(), 200_000);
+        assert_eq!(TokenModel::Gemini.context_window(), 1_000_000);
+        assert_eq!(TokenModel::Grok.context_window(), 2_000_000);
+    }
+
+    #[test]
+    fn test_default_budget_cap() {
+        // Gemini: 1M * 0.75 = 750K → capped to 500K
+        assert_eq!(TokenModel::Gemini.default_budget(), 500_000);
+        // Grok: 2M * 0.75 = 1.5M → capped to 500K
+        assert_eq!(TokenModel::Grok.default_budget(), 500_000);
+    }
+
+    #[test]
+    fn test_default_budget_no_cap() {
+        // Gpt35Turbo: 16K * 0.75 = 12K (no cap)
+        assert_eq!(TokenModel::Gpt35Turbo.default_budget(), 12_000);
+        // Claude: 200K * 0.75 = 150K (no cap)
+        assert_eq!(TokenModel::Claude.default_budget(), 150_000);
     }
 }

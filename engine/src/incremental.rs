@@ -100,7 +100,7 @@ pub struct RepoCache {
 
 impl RepoCache {
     /// Current cache version
-    pub const VERSION: u32 = 3;
+    pub const VERSION: u32 = 4;
 
     /// Create a new empty cache
     pub fn new(root_path: &str) -> Self {
@@ -252,7 +252,7 @@ pub enum CacheError {
     IoError(String),
     #[error("Serialization error: {0}")]
     SerializeError(String),
-    #[error("Deserialization error: {0}")]
+    #[error("Deserialization error: {0}. Try clearing the cache by deleting `.infiniloom/cache/` and re-running.")]
     DeserializeError(String),
     #[error("Cache version mismatch: expected {expected}, found {found}")]
     VersionMismatch { expected: u32, found: u32 },

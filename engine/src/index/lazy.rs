@@ -261,6 +261,10 @@ impl LazyContextBuilder {
             Language::OCaml => Some(ParserLanguage::OCaml),
             Language::Lua => Some(ParserLanguage::Lua),
             Language::R => Some(ParserLanguage::R),
+            Language::Zig => Some(ParserLanguage::Zig),
+            Language::Dart => Some(ParserLanguage::Dart),
+            Language::Hcl => Some(ParserLanguage::Hcl),
+            Language::FSharp => None,
             Language::Unknown => None,
         };
 

@@ -242,6 +242,10 @@ pub enum Language {
     OCaml,
     Lua,
     R,
+    Zig,
+    Dart,
+    Hcl,
+    FSharp,
     #[default]
     Unknown,
 }
@@ -271,6 +275,10 @@ impl Language {
             "ml" | "mli" => Self::OCaml,
             "lua" => Self::Lua,
             "r" | "rmd" => Self::R,
+            "zig" | "zon" => Self::Zig,
+            "dart" => Self::Dart,
+            "tf" | "hcl" | "tfvars" => Self::Hcl,
+            "fs" | "fsi" | "fsx" | "fsscript" => Self::FSharp,
             _ => Self::Unknown,
         }
     }
@@ -298,6 +306,10 @@ impl Language {
             Self::OCaml => "ocaml",
             Self::Lua => "lua",
             Self::R => "r",
+            Self::Zig => "zig",
+            Self::Dart => "dart",
+            Self::Hcl => "hcl",
+            Self::FSharp => "fsharp",
             Self::Unknown => "unknown",
         }
     }

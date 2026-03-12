@@ -12,6 +12,10 @@ use crate::document::types::*;
 use crate::document::ParseOptions;
 use crate::error::InfiniloomError;
 
+/// Maximum number of rows to parse from an XLSX sheet.
+/// Prevents unbounded memory allocation from extremely large spreadsheets.
+const MAX_XLSX_ROWS: usize = 1_000_000;
+
 /// Parse an XLSX/XLS file from raw bytes into a [`Document`].
 pub fn parse(content: &[u8], _options: &ParseOptions) -> Result<Document, InfiniloomError> {
     let cursor = Cursor::new(content);
@@ -32,6 +36,7 @@ pub fn parse(content: &[u8], _options: &ParseOptions) -> Result<Document, Infini
 
         let all_rows: Vec<Vec<String>> = range
             .rows()
+            .take(MAX_XLSX_ROWS + 1) // +1 to account for potential header row
             .map(|row| row.iter().map(cell_to_string).collect())
             .collect();
 
@@ -51,6 +56,13 @@ pub fn parse(content: &[u8], _options: &ParseOptions) -> Result<Document, Infini
                 .map(|i| format!("Column {}", i + 1))
                 .collect();
             (generated, all_rows)
+        };
+
+        // Truncate data rows to the limit
+        let data_rows = if data_rows.len() > MAX_XLSX_ROWS {
+            data_rows[..MAX_XLSX_ROWS].to_vec()
+        } else {
+            data_rows
         };
 
         // Pad ragged rows to match header width

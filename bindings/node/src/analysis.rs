@@ -841,7 +841,10 @@ fn parse_language(lang: &str) -> Result<infiniloom_engine::parser::Language> {
         "scala" => Ok(Language::Scala),
         "haskell" | "hs" => Ok(Language::Haskell),
         "elixir" | "ex" => Ok(Language::Elixir),
-        "clojure" | "clj" => Ok(Language::Clojure),
+        "clojure" | "clj" => Err(Error::new(
+            Status::InvalidArg,
+            "Clojure parsing is not available in this version",
+        )),
         "ocaml" | "ml" => Ok(Language::OCaml),
         "lua" => Ok(Language::Lua),
         "r" => Ok(Language::R),

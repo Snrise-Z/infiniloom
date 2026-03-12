@@ -323,8 +323,9 @@ static RE_STRIPE: Lazy<Regex> = Lazy::new(|| {
 // Note: Anthropic keys (sk-ant-...) are detected first in pattern order,
 // so this pattern won't match them due to the scan loop's first-match behavior.
 // Pattern allows letters, numbers, underscores, and hyphens after 'sk-'
-static RE_OPENAI: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"sk-[A-Za-z0-9_-]{32,}").expect("RE_OPENAI: invalid regex pattern"));
+static RE_OPENAI: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{31,}").expect("RE_OPENAI: invalid regex pattern")
+});
 // Anthropic API keys (sk-ant-...)
 static RE_ANTHROPIC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"sk-ant-[A-Za-z0-9-]{40,}").expect("RE_ANTHROPIC: invalid regex pattern")
@@ -355,7 +356,7 @@ static RE_SENDGRID: Lazy<Regex> = Lazy::new(|| {
 });
 // Twilio API keys
 static RE_TWILIO: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"SK[a-f0-9]{32}").expect("RE_TWILIO: invalid regex pattern"));
+    Lazy::new(|| Regex::new(r"\bSK[a-f0-9]{32}\b").expect("RE_TWILIO: invalid regex pattern"));
 
 /// Error type for security scanning operations
 #[derive(Debug, Clone)]
@@ -828,8 +829,11 @@ impl SecurityScanner {
                 }
             }
 
-            // Move to next line (+1 for newline character)
-            current_byte_offset += line.len() + 1;
+            // Move to next line (+1 for newline character, if present)
+            current_byte_offset += line.len();
+            if current_byte_offset < content.len() {
+                current_byte_offset += 1; // account for '\n'
+            }
         }
 
         // Sort replacements by length first (shorter = more specific), then by position

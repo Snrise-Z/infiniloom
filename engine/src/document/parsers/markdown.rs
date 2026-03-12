@@ -172,7 +172,10 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
 
         // Setext heading (underline with === or ---)
         if let Some(next_line) = lines.peek() {
-            if next_line.starts_with("===") && !line.trim().is_empty() {
+            if next_line.starts_with("===")
+                && next_line.trim().chars().all(|c| c == '=')
+                && !line.trim().is_empty()
+            {
                 flush_paragraph(&mut para_buf, &mut current_section);
                 flush_list(&mut in_list, &mut list_items, list_ordered, &mut current_section);
                 if current_section.title.is_some() || !current_section.content.is_empty() {
@@ -182,7 +185,10 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
                 lines.next(); // consume underline
                 continue;
             }
-            if next_line.starts_with("---") && !next_line.contains('|') && !line.trim().is_empty() {
+            if next_line.starts_with("---")
+                && next_line.trim().chars().all(|c| c == '-')
+                && !line.trim().is_empty()
+            {
                 flush_paragraph(&mut para_buf, &mut current_section);
                 flush_list(&mut in_list, &mut list_items, list_ordered, &mut current_section);
                 if current_section.title.is_some() || !current_section.content.is_empty() {

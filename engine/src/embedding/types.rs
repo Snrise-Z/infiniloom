@@ -211,7 +211,7 @@ pub struct ChunkContext {
 
     /// Brief description of where the chunk fits in the codebase.
     /// Generated from file path + parent context, e.g. "From src/auth.rs, in class AuthService:"
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub context_prefix: Option<String>,
 
     // === Complexity Metrics ===

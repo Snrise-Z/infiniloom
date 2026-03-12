@@ -218,8 +218,8 @@ fn push_section(sections: &mut Vec<Section>, current: &mut Section) {
 
 fn strip_non_content(html: &str) -> String {
     let mut result = html.to_owned();
+    let mut lower = result.to_ascii_lowercase();
     // Remove script, style, nav, footer, header tags and their content.
-    // Compute lowercased string once per tag and reuse for all iterations.
     for tag in &["script", "style", "nav", "footer", "noscript", "svg", "iframe"] {
         let open = format!("<{}", tag);
         let close = format!("</{}>", tag);
@@ -229,14 +229,18 @@ fn strip_non_content(html: &str) -> String {
                 break;
             }
             iterations += 1;
-            let lower = result.to_ascii_lowercase();
             if let Some(start) = lower.find(&open) {
                 if let Some(end) = lower[start..].find(&close) {
+                    let remove_end = start + end + close.len();
                     let new_len = result.len() - (end + close.len());
                     let mut new_result = String::with_capacity(start + new_len);
                     new_result.push_str(&result[..start]);
-                    new_result.push_str(&result[start + end + close.len()..]);
+                    new_result.push_str(&result[remove_end..]);
+                    let mut new_lower = String::with_capacity(start + new_len);
+                    new_lower.push_str(&lower[..start]);
+                    new_lower.push_str(&lower[remove_end..]);
                     result = new_result;
+                    lower = new_lower;
                     continue;
                 }
             }

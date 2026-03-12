@@ -1177,7 +1177,8 @@ pub fn zig_query() -> Result<Query, ParserError> {
         (function_declaration
           name: (identifier) @name) @function
 
-        (test_declaration) @function
+        (test_declaration
+          (string) @name) @function
     "#;
 
     Query::new(&tree_sitter_zig::LANGUAGE.into(), query_string)
@@ -1191,7 +1192,8 @@ pub fn zig_super_query() -> Result<Query, ParserError> {
           name: (identifier) @name) @function
 
         ; Test declarations
-        (test_declaration) @function
+        (test_declaration
+          (string) @name) @function
 
         ; Imports (const x = @import("..."))
         (variable_declaration

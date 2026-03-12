@@ -107,14 +107,37 @@ fn split_csv_line(line: &str, delimiter: char) -> Vec<String> {
                 in_quotes = true;
             }
         } else if ch == delimiter && !in_quotes {
-            fields.push(current.trim().to_owned());
+            fields.push(sanitize_cell(&current));
             current = String::new();
         } else {
             current.push(ch);
         }
     }
-    fields.push(current.trim().to_owned());
+    fields.push(sanitize_cell(&current));
     fields
+}
+
+/// Sanitize a cell value to prevent CSV formula injection.
+///
+/// When a cell value starts with `=`, `+`, `-`, `@`, `|`, or a tab character
+/// (before or after whitespace trimming), it is prefixed with a single quote
+/// to neutralize potential formula execution when the output is opened in a
+/// spreadsheet application.
+fn sanitize_cell(value: &str) -> String {
+    let trimmed = value.trim();
+    // Check the raw value first (catches leading tabs that trim() would remove),
+    // then also check the trimmed value.
+    if let Some(first) = value.chars().next() {
+        if matches!(first, '=' | '+' | '-' | '@' | '|' | '\t') {
+            return format!("'{trimmed}");
+        }
+    }
+    if let Some(first) = trimmed.chars().next() {
+        if matches!(first, '=' | '+' | '-' | '@' | '|' | '\t') {
+            return format!("'{trimmed}");
+        }
+    }
+    trimmed.to_owned()
 }
 
 #[cfg(test)]
@@ -215,5 +238,21 @@ mod tests {
         let csv = "# comment 1\n# comment 2\n";
         let doc = parse(csv, &ParseOptions::default()).unwrap();
         assert!(doc.sections.is_empty());
+    }
+
+    #[test]
+    fn test_formula_injection_sanitized() {
+        let csv = "Name,Value\n=CMD('calc'),normal\n+1-1,ok\n-1+1,ok\n@SUM(A1),ok\n|cmd,ok\n\tindented,ok\nplain,safe\n";
+        let doc = parse(csv, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert_eq!(t.rows[0][0], "'=CMD('calc')", "= prefix should be sanitized");
+        assert_eq!(t.rows[0][1], "normal", "normal cell should be unchanged");
+        assert_eq!(t.rows[1][0], "'+1-1", "+ prefix should be sanitized");
+        assert_eq!(t.rows[2][0], "'-1+1", "- prefix should be sanitized");
+        assert_eq!(t.rows[3][0], "'@SUM(A1)", "@ prefix should be sanitized");
+        assert_eq!(t.rows[4][0], "'|cmd", "| prefix should be sanitized");
+        assert_eq!(t.rows[5][0], "'indented", "tab prefix should be sanitized");
+        assert_eq!(t.rows[6][0], "plain", "plain text should be unchanged");
+        assert_eq!(t.rows[6][1], "safe", "safe cell should be unchanged");
     }
 }

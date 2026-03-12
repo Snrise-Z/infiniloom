@@ -1459,12 +1459,15 @@ fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> Bound<
 }
 
 /// Convert an engine CallGraph to a Python dict
-fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> Bound<'py, PyDict> {
+fn call_graph_to_py<'py>(
+    py: Python<'py>,
+    g: &EngineCallGraph,
+) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
 
     // Convert nodes
-    let nodes = PyList::new(py, g.nodes.iter().map(|n| symbol_info_to_py(py, n))).unwrap();
-    dict.set_item("nodes", nodes).unwrap();
+    let nodes = PyList::new(py, g.nodes.iter().map(|n| symbol_info_to_py(py, n)))?;
+    dict.set_item("nodes", nodes)?;
 
     // Convert edges
     let edges = PyList::new(
@@ -1479,21 +1482,18 @@ fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> Bound<'py, PyD
             edge_dict.set_item("line", e.line).unwrap();
             edge_dict
         }),
-    )
-    .unwrap();
-    dict.set_item("edges", edges).unwrap();
+    )?;
+    dict.set_item("edges", edges)?;
 
     // Convert stats
     let stats = PyDict::new(py);
-    stats
-        .set_item("total_symbols", g.stats.total_symbols)
-        .unwrap();
-    stats.set_item("total_calls", g.stats.total_calls).unwrap();
-    stats.set_item("functions", g.stats.functions).unwrap();
-    stats.set_item("classes", g.stats.classes).unwrap();
-    dict.set_item("stats", stats).unwrap();
+    stats.set_item("total_symbols", g.stats.total_symbols)?;
+    stats.set_item("total_calls", g.stats.total_calls)?;
+    stats.set_item("functions", g.stats.functions)?;
+    stats.set_item("classes", g.stats.classes)?;
+    dict.set_item("stats", stats)?;
 
-    dict
+    Ok(dict)
 }
 
 /// Find a symbol by name
@@ -1685,7 +1685,7 @@ fn get_call_graph(
                 classes: 0,
             },
         };
-        return Ok(call_graph_to_py(py, &empty_result).into());
+        return Ok(call_graph_to_py(py, &empty_result)?.into());
     }
 
     let path_buf = PathBuf::from(path);
@@ -1704,7 +1704,7 @@ fn get_call_graph(
         engine_get_call_graph(&index, &graph)
     };
 
-    Ok(call_graph_to_py(py, &result).into())
+    Ok(call_graph_to_py(py, &result)?.into())
 }
 
 /// Find circular dependencies in the codebase

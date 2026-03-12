@@ -400,7 +400,8 @@ pub const ZIG: &str = r#"
     (function_declaration
       name: (identifier) @name) @function
 
-    (test_declaration) @function
+    (test_declaration
+      (string) @name) @function
 "#;
 
 /// Dart symbol extraction query

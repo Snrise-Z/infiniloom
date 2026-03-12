@@ -1339,7 +1339,7 @@ impl EmbedChunker {
 /// camelCase/snake_case, filters stopwords and short tokens, then returns
 /// the top 10 by frequency.
 fn extract_keywords(content: &str) -> Vec<String> {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     const STOPWORDS: &[&str] = &[
         "the", "a", "an", "and", "or", "not", "is", "are", "was", "were", "be", "been", "being",
@@ -1351,7 +1351,7 @@ fn extract_keywords(content: &str) -> Vec<String> {
         "void", "int", "str", "string", "bool", "float", "double", "char", "byte",
     ];
 
-    let mut freq: HashMap<String, usize> = HashMap::new();
+    let mut freq: BTreeMap<String, usize> = BTreeMap::new();
 
     for token in content.split(|c: char| !c.is_alphanumeric() && c != '_') {
         let sub_tokens = split_identifier(token);

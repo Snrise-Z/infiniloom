@@ -37,6 +37,10 @@ pub fn count_output_tokens(output_text: &str) -> TokenCounts {
     tokenizer.count_all(output_text)
 }
 
+/// Maximum document file size in bytes (100 MB).
+/// Prevents unbounded memory allocation from extremely large files.
+const MAX_DOCUMENT_SIZE: u64 = 100 * 1024 * 1024;
+
 /// Parse a document from a file path, auto-detecting the format.
 pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, InfiniloomError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -44,6 +48,21 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
     let format = DocumentFormat::from_extension(ext).ok_or_else(|| {
         InfiniloomError::not_supported(format!("Unsupported document format: .{ext}"))
     })?;
+
+    // Check file size before reading to prevent unbounded memory allocation.
+    let file_size = std::fs::metadata(path)
+        .map_err(|e| {
+            InfiniloomError::invalid_input(format!("Failed to read {}: {e}", path.display()))
+        })?
+        .len();
+    if file_size > MAX_DOCUMENT_SIZE {
+        return Err(InfiniloomError::invalid_input(format!(
+            "Document {} exceeds maximum size of {} bytes ({} bytes)",
+            path.display(),
+            MAX_DOCUMENT_SIZE,
+            file_size,
+        )));
+    }
 
     // DOCX, PDF, and XLSX are binary formats — read as bytes, not as a UTF-8 string.
     let mut doc = if format == DocumentFormat::Docx {

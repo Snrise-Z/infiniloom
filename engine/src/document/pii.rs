@@ -82,7 +82,6 @@ static RE_IPV6: Lazy<Regex> = Lazy::new(|| {
         r"|(?i)\b(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}\b",
         r"|(?i)\b[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}\b",
         r"|(?i)(?:^|\s)::(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}\b",
-        r"|(?i)(?:^|\s)::\b",
     ))
     .expect("RE_IPV6: invalid regex")
 });
@@ -251,6 +250,49 @@ fn is_valid_intl_phone(phone: &str) -> bool {
     (7..=15).contains(&digit_count)
 }
 
+/// Validate an EU VAT number using country-specific format rules.
+/// The input must start with a 2-letter EU country code followed by the body.
+fn is_valid_vat(s: &str) -> bool {
+    if s.len() < 4 {
+        return false;
+    }
+    let country = &s[..2];
+    let body = &s[2..];
+
+    // Body must contain at least one digit (redundant with regex, but defensive).
+    if !body.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+
+    match country {
+        // DE: exactly 9 digits
+        "DE" => body.len() == 9 && body.chars().all(|c| c.is_ascii_digit()),
+        // FR: 2 chars (digit or letter) + 9 digits = 11 chars total
+        "FR" => {
+            body.len() == 11
+                && body[..2].chars().all(|c| c.is_ascii_alphanumeric())
+                && body[2..].chars().all(|c| c.is_ascii_digit())
+        },
+        // IT: exactly 11 digits
+        "IT" => body.len() == 11 && body.chars().all(|c| c.is_ascii_digit()),
+        // ES: 1 letter + 7 digits + 1 alphanumeric = 9 chars total
+        "ES" => {
+            body.len() == 9
+                && body
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_ascii_alphabetic())
+                && body[1..8].chars().all(|c| c.is_ascii_digit())
+                && body
+                    .chars()
+                    .last()
+                    .map_or(false, |c| c.is_ascii_alphanumeric())
+        },
+        // All other EU countries: require at least 2 digits in the body
+        _ => body.chars().filter(|c| c.is_ascii_digit()).count() >= 2,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Scanning
 // ---------------------------------------------------------------------------
@@ -277,6 +319,13 @@ fn scan_sections(sections: &[Section], path: &[String], findings: &mut Vec<PiiFi
         };
 
         for block in &section.content {
+            // Skip code blocks to match the redaction behavior in redact_block(),
+            // which intentionally leaves CodeBlock content untouched. Code blocks
+            // frequently contain example patterns (IPs, tokens, etc.) that are not
+            // real PII and would produce noisy false positives.
+            if matches!(block, ContentBlock::CodeBlock(_)) {
+                continue;
+            }
             let text = block.text();
             scan_text(&text, &location, findings);
         }
@@ -285,123 +334,182 @@ fn scan_sections(sections: &[Section], path: &[String], findings: &mut Vec<PiiFi
     }
 }
 
+/// Specificity rank for PII kinds. Higher = more specific.
+/// When two findings overlap in byte range, we keep the more specific one.
+fn specificity_rank(kind: PiiKind) -> u8 {
+    match kind {
+        PiiKind::Ssn => 10,
+        PiiKind::CreditCard => 10,
+        PiiKind::Phone => 9, // US phone is more specific than intl phone
+        PiiKind::Email => 10,
+        PiiKind::IpAddress => 10,
+        PiiKind::Iban => 10,
+        PiiKind::UkNino => 10,
+        PiiKind::IntlPhone => 5, // Broad pattern, lower specificity
+        PiiKind::Ipv6Address => 10,
+        PiiKind::EuVat => 10,
+    }
+}
+
 fn scan_text(text: &str, location: &str, findings: &mut Vec<PiiFinding>) {
+    // Collect findings with byte ranges so we can deduplicate overlapping matches
+    // (e.g. "+1-555-123-4567" matches both US phone and intl phone regexes).
+    // Each entry: (start_byte, end_byte, kind, matched_text, line_number)
+    let mut raw: Vec<(usize, usize, PiiKind, String, usize)> = Vec::new();
+
     for (line_idx, line) in text.lines().enumerate() {
-        // SSN (validated)
+        let line_offset = line.as_ptr() as usize - text.as_ptr() as usize;
+
         for m in RE_SSN.find_iter(line) {
             let matched = m.as_str();
             if is_valid_ssn(matched) {
-                findings.push(PiiFinding {
-                    kind: PiiKind::Ssn,
-                    text: matched.to_owned(),
-                    location: location.to_owned(),
-                    line_approx: line_idx + 1,
-                });
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::Ssn,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
             }
         }
 
-        // Credit card (Luhn validated)
         for m in RE_CREDIT_CARD.find_iter(line) {
             let matched = m.as_str();
             if luhn_check(matched) {
-                findings.push(PiiFinding {
-                    kind: PiiKind::CreditCard,
-                    text: matched.to_owned(),
-                    location: location.to_owned(),
-                    line_approx: line_idx + 1,
-                });
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::CreditCard,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
             }
         }
 
-        // Email
         for m in RE_EMAIL.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::Email,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            raw.push((
+                line_offset + m.start(),
+                line_offset + m.end(),
+                PiiKind::Email,
+                m.as_str().to_owned(),
+                line_idx + 1,
+            ));
         }
 
-        // Phone (US formats)
         for m in RE_PHONE.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::Phone,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            raw.push((
+                line_offset + m.start(),
+                line_offset + m.end(),
+                PiiKind::Phone,
+                m.as_str().to_owned(),
+                line_idx + 1,
+            ));
         }
 
-        // IP address (validated)
         for m in RE_IP_ADDRESS.find_iter(line) {
             let matched = m.as_str();
             if is_valid_ipv4(matched) {
-                findings.push(PiiFinding {
-                    kind: PiiKind::IpAddress,
-                    text: matched.to_owned(),
-                    location: location.to_owned(),
-                    line_approx: line_idx + 1,
-                });
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::IpAddress,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
             }
         }
 
-        // IBAN (MOD-97 validated)
         for m in RE_IBAN.find_iter(line) {
             let matched = m.as_str();
             if is_valid_iban(matched) {
-                findings.push(PiiFinding {
-                    kind: PiiKind::Iban,
-                    text: matched.to_owned(),
-                    location: location.to_owned(),
-                    line_approx: line_idx + 1,
-                });
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::Iban,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
             }
         }
 
-        // UK National Insurance Number
         for m in RE_UK_NINO.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::UkNino,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            raw.push((
+                line_offset + m.start(),
+                line_offset + m.end(),
+                PiiKind::UkNino,
+                m.as_str().to_owned(),
+                line_idx + 1,
+            ));
         }
 
-        // International phone (E.164, validated digit count)
         for m in RE_INTL_PHONE.find_iter(line) {
             let matched = m.as_str();
             if is_valid_intl_phone(matched) {
-                findings.push(PiiFinding {
-                    kind: PiiKind::IntlPhone,
-                    text: matched.to_owned(),
-                    location: location.to_owned(),
-                    line_approx: line_idx + 1,
-                });
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::IntlPhone,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
             }
         }
 
-        // IPv6 address
         for m in RE_IPV6.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::Ipv6Address,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            raw.push((
+                line_offset + m.start(),
+                line_offset + m.end(),
+                PiiKind::Ipv6Address,
+                m.as_str().to_owned(),
+                line_idx + 1,
+            ));
         }
 
-        // EU VAT number
         for m in RE_EU_VAT.find_iter(line) {
-            findings.push(PiiFinding {
-                kind: PiiKind::EuVat,
-                text: m.as_str().to_owned(),
-                location: location.to_owned(),
-                line_approx: line_idx + 1,
-            });
+            let matched = m.as_str();
+            if is_valid_vat(matched) {
+                raw.push((
+                    line_offset + m.start(),
+                    line_offset + m.end(),
+                    PiiKind::EuVat,
+                    matched.to_owned(),
+                    line_idx + 1,
+                ));
+            }
         }
     }
+
+    // Deduplicate overlapping findings. When two findings overlap in byte range,
+    // keep the more specific one (higher specificity_rank). This prevents e.g.
+    // "+1-555-123-4567" from producing both a US Phone and an IntlPhone finding.
+    raw.sort_by_key(|r| (r.0, r.1));
+    let mut deduped: Vec<(usize, usize, PiiKind, String, usize)> = Vec::with_capacity(raw.len());
+    for entry in raw {
+        let dominated = deduped.iter().any(|kept| {
+            let overlaps = kept.0 < entry.1 && entry.0 < kept.1;
+            overlaps && specificity_rank(kept.2) >= specificity_rank(entry.2)
+        });
+        if dominated {
+            continue;
+        }
+        // Remove any previously-kept entries that this new (more specific) entry dominates
+        deduped.retain(|kept| {
+            let overlaps = kept.0 < entry.1 && entry.0 < kept.1;
+            !(overlaps && specificity_rank(entry.2) > specificity_rank(kept.2))
+        });
+        deduped.push(entry);
+    }
+
+    findings.extend(
+        deduped
+            .into_iter()
+            .map(|(_, _, kind, text, line_approx)| PiiFinding {
+                kind,
+                text,
+                location: location.to_owned(),
+                line_approx,
+            }),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -448,10 +556,8 @@ pub fn redact_text(text: &str) -> String {
         .replace_all(&result, "[REDACTED-IPV6-ADDRESS]")
         .into_owned();
 
-    // EU VAT
-    result = RE_EU_VAT
-        .replace_all(&result, "[REDACTED-EU-VAT]")
-        .into_owned();
+    // EU VAT (validated per-country format)
+    result = redact_vat_numbers(&result);
 
     result
 }
@@ -527,6 +633,22 @@ fn redact_intl_phones(text: &str) -> String {
         if is_valid_intl_phone(m.as_str()) {
             result.push_str(&text[last_end..m.start()]);
             result.push_str("[REDACTED-INTL-PHONE]");
+        } else {
+            result.push_str(&text[last_end..m.end()]);
+        }
+        last_end = m.end();
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
+fn redact_vat_numbers(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+    for m in RE_EU_VAT.find_iter(text) {
+        if is_valid_vat(m.as_str()) {
+            result.push_str(&text[last_end..m.start()]);
+            result.push_str("[REDACTED-EU-VAT]");
         } else {
             result.push_str(&text[last_end..m.end()]);
         }
@@ -1320,5 +1442,185 @@ mod tests {
         assert!(summary.contains("1 IBAN"));
         assert!(summary.contains("1 UK NINO"));
         assert!(summary.contains("1 IPv6 address"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 1: EU VAT validation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_eu_vat_false_positive_english_words() {
+        for word in &["DESIGN", "FRONT", "BELOW", "DEFEAT", "BESIDE", "BEFORE"] {
+            let mut findings = Vec::new();
+            scan_text(word, "test", &mut findings);
+            let vats: Vec<_> = findings
+                .iter()
+                .filter(|f| f.kind == PiiKind::EuVat)
+                .collect();
+            assert!(vats.is_empty(), "{word} should NOT be detected as EU VAT");
+        }
+    }
+
+    #[test]
+    fn test_eu_vat_fr2024_not_matched() {
+        let mut findings = Vec::new();
+        scan_text("Published in FR2024", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert!(vats.is_empty(), "FR2024 should NOT match as EU VAT");
+    }
+
+    #[test]
+    fn test_eu_vat_valid_de() {
+        let mut findings = Vec::new();
+        scan_text("VAT: DE123456789", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "DE123456789");
+    }
+
+    #[test]
+    fn test_eu_vat_valid_fr_scan() {
+        let mut findings = Vec::new();
+        scan_text("VAT: FR12345678901", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "FR12345678901");
+    }
+
+    #[test]
+    fn test_eu_vat_valid_it_scan() {
+        let mut findings = Vec::new();
+        scan_text("VAT: IT12345678901", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "IT12345678901");
+    }
+
+    #[test]
+    fn test_eu_vat_valid_es_scan() {
+        let mut findings = Vec::new();
+        scan_text("VAT: ESA12345678", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert_eq!(vats.len(), 1);
+        assert_eq!(vats[0].text, "ESA12345678");
+    }
+
+    #[test]
+    fn test_eu_vat_de_wrong_length() {
+        let mut findings = Vec::new();
+        scan_text("VAT: DE12345678", "test", &mut findings);
+        let vats: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::EuVat)
+            .collect();
+        assert!(vats.is_empty(), "DE with 8 digits should not match");
+    }
+
+    #[test]
+    fn test_eu_vat_redact_validates() {
+        let result = redact_text("The DESIGN is ready");
+        assert!(result.contains("DESIGN"), "DESIGN should not be redacted as VAT");
+
+        let result = redact_text("VAT: DE123456789");
+        assert!(result.contains("[REDACTED-EU-VAT]"));
+        assert!(!result.contains("DE123456789"));
+    }
+
+    #[test]
+    fn test_is_valid_vat() {
+        assert!(is_valid_vat("DE123456789"));
+        assert!(is_valid_vat("FR12345678901"));
+        assert!(is_valid_vat("IT12345678901"));
+        assert!(is_valid_vat("ESA1234567B"));
+        assert!(is_valid_vat("NL123456789B01"));
+
+        assert!(!is_valid_vat("DE12345678"));
+        assert!(!is_valid_vat("DE1234567890"));
+        assert!(!is_valid_vat("FR2024"));
+        assert!(!is_valid_vat("AB"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2: Code block scan/redact asymmetry test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_scan_skips_code_blocks() {
+        use crate::document::types::CodeBlock as CB;
+        let mut doc = Document::new("/tmp/test.md", super::super::types::DocumentFormat::Markdown);
+        let mut section = Section::root();
+
+        section.content.push(ContentBlock::CodeBlock(CB {
+            language: Some("text".into()),
+            content: "SSN: 123-45-6789\nIP: 192.168.1.1".into(),
+        }));
+        section
+            .content
+            .push(ContentBlock::Paragraph("Email: alice@corp.com".into()));
+
+        doc.sections.push(section);
+
+        let findings = scan_document(&doc);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind, PiiKind::Email);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 3: US/intl phone deduplication test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_us_intl_phone_no_duplicate() {
+        let mut findings = Vec::new();
+        scan_text("Phone: +1-555-123-4567", "test", &mut findings);
+        let phone_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::Phone || f.kind == PiiKind::IntlPhone)
+            .collect();
+        assert_eq!(
+            phone_findings.len(),
+            1,
+            "Should have exactly one phone finding, got: {phone_findings:?}"
+        );
+        assert_eq!(
+            phone_findings[0].kind,
+            PiiKind::Phone,
+            "Should keep the more specific US phone"
+        );
+    }
+
+    #[test]
+    fn test_intl_phone_kept_when_no_us_overlap() {
+        let mut findings = Vec::new();
+        scan_text("Phone: +442071234567", "test", &mut findings);
+        let intl: Vec<_> = findings
+            .iter()
+            .filter(|f| f.kind == PiiKind::IntlPhone)
+            .collect();
+        assert_eq!(intl.len(), 1);
+        assert_eq!(intl[0].text, "+442071234567");
+    }
+
+    #[test]
+    fn test_dedup_preserves_non_overlapping() {
+        let mut findings = Vec::new();
+        scan_text("SSN: 123-45-6789 email: user@test.com", "test", &mut findings);
+        assert!(findings.iter().any(|f| f.kind == PiiKind::Ssn));
+        assert!(findings.iter().any(|f| f.kind == PiiKind::Email));
     }
 }
