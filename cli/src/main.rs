@@ -604,6 +604,10 @@ enum Commands {
         #[arg(long, default_value = "2")]
         hierarchy_min_children: usize,
 
+        /// Enrich chunks with git metadata (change frequency, authors, last modified)
+        #[arg(long)]
+        git_metadata: bool,
+
         /// Verbose output (show progress and detailed stats)
         #[arg(short, long)]
         verbose: bool,
@@ -1237,6 +1241,7 @@ fn run_command(cli: Cli) -> Result<()> {
             include_tests,
             hierarchy,
             hierarchy_min_children,
+            git_metadata,
             verbose,
             quiet,
             json_stats,
@@ -1259,6 +1264,7 @@ fn run_command(cli: Cli) -> Result<()> {
                 include_tests,
                 enable_hierarchy: hierarchy,
                 hierarchy_min_children,
+                git_metadata,
                 verbose,
                 quiet,
                 json_stats,

@@ -84,6 +84,7 @@ mod batch;
 mod checkpoint;
 mod chunker;
 mod error;
+pub mod git_enrichment;
 mod hasher;
 mod hierarchy;
 mod limits;
@@ -119,6 +120,6 @@ pub use streaming::{
     BatchIterator, Batches, CancellationHandle, ChunkStream, StreamConfig, StreamStats,
 };
 pub use types::{
-    ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
-    Visibility,
+    ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, GitMetadata,
+    RepoIdentifier, Visibility,
 };

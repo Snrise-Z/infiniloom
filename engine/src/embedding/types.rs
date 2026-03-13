@@ -168,6 +168,34 @@ fn is_default_repo(repo: &RepoIdentifier) -> bool {
     repo.namespace.is_empty() && repo.name.is_empty()
 }
 
+/// Git metadata for a chunk's source file
+///
+/// Enriches chunks with version control history for temporal-aware retrieval.
+/// All fields are optional to gracefully handle non-git repos, shallow clones,
+/// and untracked files.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct GitMetadata {
+    /// ISO 8601 date of last modification
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+
+    /// Number of commits touching this file in the lookback period (90 days)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_frequency: Option<u32>,
+
+    /// Total commits ever touching this file
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_commits: Option<u32>,
+
+    /// Unique authors (sorted, deduplicated for determinism)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
+
+    /// Age in days since first commit touching this file
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_days: Option<u32>,
+}
+
 /// Context information extracted from the chunk for better retrieval
 ///
 /// This metadata improves RAG recall by providing natural language descriptions,
@@ -225,6 +253,12 @@ pub struct ChunkContext {
     /// Higher values indicate more complex logic; useful for prioritizing review
     #[serde(skip_serializing_if = "is_zero", default)]
     pub max_nesting_depth: u32,
+
+    // === Git Metadata ===
+    /// Git version control metadata (change frequency, authors, last modified)
+    /// Only populated when `EmbedSettings::git_metadata` is enabled
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitMetadata>,
 }
 
 /// Helper for serde skip_serializing_if
@@ -397,6 +431,11 @@ pub struct EmbedSettings {
     /// (default: 2, only relevant when enable_hierarchy is true)
     #[serde(default = "default_hierarchy_min_children")]
     pub hierarchy_min_children: usize,
+
+    /// Enrich chunks with git metadata (change frequency, authors, last modified)
+    /// Requires the repository to be a git repository. Disabled by default.
+    #[serde(default)]
+    pub git_metadata: bool,
 }
 
 impl Default for EmbedSettings {
@@ -418,6 +457,7 @@ impl Default for EmbedSettings {
             include_tests: false,
             enable_hierarchy: false, // Off by default for backward compatibility
             hierarchy_min_children: 2, // Minimum children for summary generation
+            git_metadata: false,     // Off by default (requires git repo)
         }
     }
 }

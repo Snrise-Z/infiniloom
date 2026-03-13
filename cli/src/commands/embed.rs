@@ -60,6 +60,8 @@ pub(crate) struct EmbedConfig {
     pub enable_hierarchy: bool,
     /// Minimum children for hierarchy summary
     pub hierarchy_min_children: usize,
+    /// Enrich chunks with git metadata
+    pub git_metadata: bool,
     /// Verbose output
     pub verbose: bool,
     /// Quiet mode (suppress non-error output)
@@ -89,6 +91,7 @@ impl Default for EmbedConfig {
             include_tests: false,
             enable_hierarchy: false,
             hierarchy_min_children: 2,
+            git_metadata: false,
             verbose: false,
             quiet: false,
             json_stats: false,
@@ -116,6 +119,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         include_tests: config.include_tests,
         enable_hierarchy: config.enable_hierarchy,
         hierarchy_min_children: config.hierarchy_min_children,
+        git_metadata: config.git_metadata,
         ..Default::default()
     };
 

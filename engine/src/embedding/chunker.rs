@@ -28,6 +28,7 @@ use crate::tokenizer::{TokenModel, Tokenizer};
 use crate::types::Symbol;
 
 use super::error::EmbedError;
+use super::git_enrichment::GitMetadataCollector;
 use super::hasher::hash_content;
 use super::hierarchy::{HierarchyBuilder, HierarchyConfig};
 use super::limits::ResourceLimits;
@@ -274,8 +275,29 @@ impl EmbedChunker {
                 .then_with(|| a.id.cmp(&b.id)) // Content-addressable ID as final tiebreaker
         });
 
+        // Phase 6: Enrich with git metadata (if enabled)
+        if self.settings.git_metadata {
+            progress.set_phase("Collecting git metadata...");
+            self.enrich_with_git_metadata(&mut all_chunks, &repo_root);
+        }
+
         progress.set_phase("Complete");
         Ok(all_chunks)
+    }
+
+    /// Enrich chunks with git metadata (change frequency, authors, last modified).
+    ///
+    /// Uses a per-file cache so each file is only queried once via git commands.
+    fn enrich_with_git_metadata(&self, chunks: &mut [EmbedChunk], repo_root: &Path) {
+        let mut collector = match GitMetadataCollector::new(repo_root) {
+            Some(c) => c,
+            None => return, // Not a git repo, skip silently
+        };
+
+        for chunk in chunks.iter_mut() {
+            let metadata = collector.get_metadata(&chunk.source.file);
+            chunk.context.git = Some(metadata);
+        }
     }
 
     /// Populate the called_by field for all chunks by building a reverse call graph
@@ -718,6 +740,7 @@ impl EmbedChunker {
             )),
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
+            git: None, // Populated later by enrich_with_git_metadata if enabled
         }
     }
 
