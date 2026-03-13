@@ -63,6 +63,10 @@ pub(crate) struct EmbedConfig {
     pub since: Option<String>,
     /// Use the commit hash stored in the manifest for --since
     pub since_manifest: bool,
+    /// Repository namespace for cross-repo identity
+    pub repo_namespace: Option<String>,
+    /// Repository name override
+    pub repo_name: Option<String>,
     /// Enable hierarchical chunking
     pub enable_hierarchy: bool,
     /// Minimum children for hierarchy summary
@@ -107,6 +111,8 @@ impl Default for EmbedConfig {
             include_tests: false,
             since: None,
             since_manifest: false,
+            repo_namespace: None,
+            repo_name: None,
             enable_hierarchy: false,
             hierarchy_min_children: 2,
             git_metadata: false,
@@ -186,6 +192,8 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         include_patterns: config.include_patterns.clone(),
         exclude_patterns: config.exclude_patterns.clone(),
         include_tests: config.include_tests,
+        repo_namespace: config.repo_namespace.clone(),
+        repo_name: config.repo_name.clone(),
         enable_hierarchy: config.enable_hierarchy,
         hierarchy_min_children: config.hierarchy_min_children,
         git_metadata: config.git_metadata,
@@ -197,7 +205,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
     // Create chunker
     let limits = ResourceLimits::default();
-    let chunker = EmbedChunker::new(settings.clone(), limits);
+    let mut chunker = EmbedChunker::new(settings.clone(), limits);
 
     // Create progress reporter
     // verbose: show progress, quiet: suppress all, default: show minimal

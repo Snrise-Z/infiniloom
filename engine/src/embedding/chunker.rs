@@ -138,6 +138,43 @@ impl EmbedChunker {
         self.chunk_files_impl(files, &repo_root, progress)
     }
 
+    /// Populate repo identity from settings and git info.
+    ///
+    /// Uses `repo_namespace` and `repo_name` from settings if provided,
+    /// falling back to the directory name for `name`. Queries git for
+    /// branch and commit if the path is inside a git repository.
+    fn populate_repo_identity(&mut self, repo_path: &Path) {
+        // Only populate if the repo_id hasn't been explicitly set via with_repo_id
+        if !self.repo_id.name.is_empty() {
+            return;
+        }
+
+        let namespace = self.settings.repo_namespace.clone();
+        let name = self
+            .settings
+            .repo_name
+            .clone()
+            .or_else(|| {
+                repo_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(String::from)
+            })
+            .unwrap_or_else(|| "unknown".to_owned());
+
+        // Try to get git branch and commit (best-effort, ignore errors)
+        let (branch, commit) = match crate::git::GitRepo::open(repo_path) {
+            Ok(git) => {
+                let branch = git.current_branch().ok();
+                let commit = git.current_commit().ok();
+                (branch, commit)
+            },
+            Err(_) => (None, None),
+        };
+
+        self.repo_id = RepoIdentifier { namespace, name, version: None, branch, commit };
+    }
+
     /// Generate all chunks for a repository
     ///
     /// # Guarantees
@@ -147,12 +184,15 @@ impl EmbedChunker {
     /// 3. Resource limits enforced
     /// 4. Errors collected, not swallowed
     pub fn chunk_repository(
-        &self,
+        &mut self,
         repo_path: &Path,
         progress: &dyn ProgressReporter,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Validate repo path
         let repo_root = self.validate_repo_path(repo_path)?;
+
+        // Build repo identity from settings and git info if not already set
+        self.populate_repo_identity(&repo_root);
 
         // Phase 1: Discover files (deterministic order)
         progress.set_phase("Scanning repository...");
@@ -1250,10 +1290,19 @@ impl EmbedChunker {
             .unwrap_or(file)
             .replace(['\\', '/'], "::"); // Normalize path separators
 
-        if let Some(ref parent) = symbol.parent {
+        // Build the symbol portion
+        let symbol_part = if let Some(ref parent) = symbol.parent {
             format!("{}::{}::{}", module_path, parent, symbol.name)
         } else {
             format!("{}::{}", module_path, symbol.name)
+        };
+
+        // Prepend repo identity: "{namespace}/{name}::{symbol_part}" or "{name}::{symbol_part}"
+        let repo_prefix = self.repo_id.qualified_name();
+        if repo_prefix.is_empty() {
+            symbol_part
+        } else {
+            format!("{}::{}", repo_prefix, symbol_part)
         }
     }
 
@@ -1815,7 +1864,7 @@ fn goodbye() {
         create_test_file(temp_dir.path(), "test.rs", rust_code);
 
         let settings = EmbedSettings::default();
-        let chunker = EmbedChunker::with_defaults(settings);
+        let mut chunker = EmbedChunker::with_defaults(settings);
         let progress = QuietProgress;
 
         let chunks = chunker
@@ -1842,7 +1891,7 @@ fn goodbye() {
 
         let results: Vec<Vec<EmbedChunk>> = (0..3)
             .map(|_| {
-                let chunker = EmbedChunker::with_defaults(settings.clone());
+                let mut chunker = EmbedChunker::with_defaults(settings.clone());
                 chunker
                     .chunk_repository(temp_dir.path(), &progress)
                     .unwrap()
@@ -1867,7 +1916,7 @@ fn goodbye() {
 
         let settings = EmbedSettings::default();
         let limits = ResourceLimits::default().with_max_file_size(100);
-        let chunker = EmbedChunker::new(settings, limits);
+        let mut chunker = EmbedChunker::new(settings, limits);
         let progress = QuietProgress;
 
         // Should skip the file (warning) and return empty
@@ -1883,7 +1932,7 @@ fn goodbye() {
         let temp_dir = TempDir::new().unwrap();
 
         let settings = EmbedSettings::default();
-        let chunker = EmbedChunker::with_defaults(settings);
+        let mut chunker = EmbedChunker::with_defaults(settings);
         let progress = QuietProgress;
 
         let result = chunker.chunk_repository(temp_dir.path(), &progress);
@@ -2089,7 +2138,7 @@ fn foo() {
         let settings = EmbedSettings::default();
         // Use strict line length limit
         let limits = ResourceLimits::default().with_max_line_length(10_000);
-        let chunker = EmbedChunker::new(settings, limits);
+        let mut chunker = EmbedChunker::new(settings, limits);
         let progress = QuietProgress;
 
         let result = chunker.chunk_repository(temp_dir.path(), &progress);
@@ -2131,7 +2180,7 @@ impl User {
 
         // Test WITHOUT hierarchy
         let settings_no_hierarchy = EmbedSettings { enable_hierarchy: false, ..Default::default() };
-        let chunker_no_hierarchy = EmbedChunker::with_defaults(settings_no_hierarchy);
+        let mut chunker_no_hierarchy = EmbedChunker::with_defaults(settings_no_hierarchy);
         let progress = QuietProgress;
         let chunks_no_hierarchy = chunker_no_hierarchy
             .chunk_repository(temp_dir.path(), &progress)
@@ -2143,7 +2192,7 @@ impl User {
             hierarchy_min_children: 2,
             ..Default::default()
         };
-        let chunker_with_hierarchy = EmbedChunker::with_defaults(settings_with_hierarchy);
+        let mut chunker_with_hierarchy = EmbedChunker::with_defaults(settings_with_hierarchy);
         let chunks_with_hierarchy = chunker_with_hierarchy
             .chunk_repository(temp_dir.path(), &progress)
             .unwrap();

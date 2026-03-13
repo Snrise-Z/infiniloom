@@ -605,6 +605,14 @@ enum Commands {
         #[arg(long, conflicts_with = "since")]
         since_manifest: bool,
 
+        /// Repository namespace for cross-repo identity (e.g., "github.com/myorg")
+        #[arg(long)]
+        repo_namespace: Option<String>,
+
+        /// Repository name override (default: directory name)
+        #[arg(long)]
+        repo_name: Option<String>,
+
         /// Enable hierarchical chunking for improved RAG recall
         /// Generates summary chunks for classes/structs with member listings
         #[arg(long)]
@@ -1272,6 +1280,8 @@ fn run_command(cli: Cli) -> Result<()> {
             include_tests,
             since,
             since_manifest,
+            repo_namespace,
+            repo_name,
             hierarchy,
             hierarchy_min_children,
             git_metadata,
@@ -1302,6 +1312,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 include_tests,
                 since,
                 since_manifest,
+                repo_namespace,
+                repo_name,
                 enable_hierarchy: hierarchy,
                 hierarchy_min_children,
                 git_metadata,

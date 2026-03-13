@@ -129,7 +129,7 @@ pub fn embed(path: Option<String>, options: Option<EmbedOptions>) -> Result<Embe
 
     // Create chunker
     let limits = ResourceLimits::default();
-    let chunker = EmbedChunker::new(settings.clone(), limits);
+    let mut chunker = EmbedChunker::new(settings.clone(), limits);
 
     // Generate chunks
     let progress = QuietProgress;

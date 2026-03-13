@@ -68,7 +68,7 @@ pub struct CheckpointRepoId {
 impl From<&RepoIdentifier> for CheckpointRepoId {
     fn from(repo: &RepoIdentifier) -> Self {
         Self {
-            namespace: repo.namespace.clone(),
+            namespace: repo.namespace.clone().unwrap_or_default(),
             name: repo.name.clone(),
             version: repo.version.clone().unwrap_or_default(),
             branch: repo.branch.clone().unwrap_or_default(),
@@ -86,7 +86,11 @@ impl From<RepoIdentifier> for CheckpointRepoId {
 impl From<&CheckpointRepoId> for RepoIdentifier {
     fn from(cp: &CheckpointRepoId) -> Self {
         Self {
-            namespace: cp.namespace.clone(),
+            namespace: if cp.namespace.is_empty() {
+                None
+            } else {
+                Some(cp.namespace.clone())
+            },
             name: cp.name.clone(),
             version: if cp.version.is_empty() {
                 None

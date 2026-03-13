@@ -131,7 +131,7 @@ impl BatchRepoConfig {
             .unwrap_or_else(|| "unknown".to_owned());
 
         RepoIdentifier {
-            namespace: self.namespace.clone().unwrap_or_default(),
+            namespace: self.namespace.clone(),
             name,
             version: self.version.clone(),
             branch: self.branch.clone(),
@@ -331,7 +331,7 @@ impl BatchEmbedder {
         }
 
         // Create chunker for this repo
-        let chunker =
+        let mut chunker =
             EmbedChunker::new(settings, self.limits.clone()).with_repo_id(repo_id.clone());
 
         // Process the repository
@@ -390,7 +390,7 @@ mod tests {
             .with_name("custom-name");
 
         let repo_id = config.to_repo_id();
-        assert_eq!(repo_id.namespace, "github.com/org");
+        assert_eq!(repo_id.namespace.as_deref(), Some("github.com/org"));
         assert_eq!(repo_id.name, "custom-name");
     }
 

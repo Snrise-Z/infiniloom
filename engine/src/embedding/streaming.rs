@@ -610,10 +610,19 @@ impl ChunkStream {
             .unwrap_or(file)
             .replace(['\\', '/'], "::"); // Normalize path separators
 
-        if let Some(ref parent) = symbol.parent {
+        // Build the symbol portion
+        let symbol_part = if let Some(ref parent) = symbol.parent {
             format!("{}::{}::{}", module_path, parent, symbol.name)
         } else {
             format!("{}::{}", module_path, symbol.name)
+        };
+
+        // Prepend repo identity: "{namespace}/{name}::{symbol_part}" or "{name}::{symbol_part}"
+        let repo_prefix = self.repo_id.qualified_name();
+        if repo_prefix.is_empty() {
+            symbol_part
+        } else {
+            format!("{}::{}", repo_prefix, symbol_part)
         }
     }
 
@@ -902,7 +911,7 @@ fn goodbye() {
         let chunks: Vec<_> = stream.filter_map(|r| r.ok()).collect();
 
         assert!(!chunks.is_empty());
-        assert_eq!(chunks[0].source.repo.namespace, "github.com/test");
+        assert_eq!(chunks[0].source.repo.namespace.as_deref(), Some("github.com/test"));
         assert_eq!(chunks[0].source.repo.name, "my-repo");
     }
 

@@ -3191,7 +3191,7 @@ fn embed(
 
     // Create chunker
     let limits = ResourceLimits::default();
-    let chunker = EmbedChunker::new(settings.clone(), limits);
+    let mut chunker = EmbedChunker::new(settings.clone(), limits);
 
     // Generate chunks using quiet progress reporter
     let progress = QuietProgress;

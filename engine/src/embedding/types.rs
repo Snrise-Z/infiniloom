@@ -22,7 +22,7 @@ use super::error::EmbedError;
 /// use infiniloom_engine::embedding::RepoIdentifier;
 ///
 /// let repo = RepoIdentifier {
-///     namespace: "github.com/myorg".to_string(),
+///     namespace: Some("github.com/myorg".to_string()),
 ///     name: "auth-service".to_string(),
 ///     version: Some("v2.1.0".to_string()),
 ///     branch: Some("main".to_string()),
@@ -33,7 +33,7 @@ use super::error::EmbedError;
 pub struct RepoIdentifier {
     /// Namespace/organization (e.g., "github.com/myorg", "gitlab.com/team")
     /// Used for grouping and access control
-    pub namespace: String,
+    pub namespace: Option<String>,
 
     /// Repository name (e.g., "auth-service", "frontend")
     pub name: String,
@@ -54,8 +54,9 @@ pub struct RepoIdentifier {
 impl RepoIdentifier {
     /// Create a new repository identifier
     pub fn new(namespace: impl Into<String>, name: impl Into<String>) -> Self {
+        let ns: String = namespace.into();
         Self {
-            namespace: namespace.into(),
+            namespace: if ns.is_empty() { None } else { Some(ns) },
             name: name.into(),
             version: None,
             branch: None,
@@ -65,21 +66,20 @@ impl RepoIdentifier {
 
     /// Create with full details including version and commit
     pub fn full(
-        namespace: impl Into<String>,
+        namespace: Option<String>,
         name: impl Into<String>,
         version: Option<String>,
         branch: Option<String>,
         commit: Option<String>,
     ) -> Self {
-        Self { namespace: namespace.into(), name: name.into(), version, branch, commit }
+        Self { namespace, name: name.into(), version, branch, commit }
     }
 
     /// Get fully qualified repository name (namespace/name)
     pub fn qualified_name(&self) -> String {
-        if self.namespace.is_empty() {
-            self.name.clone()
-        } else {
-            format!("{}/{}", self.namespace, self.name)
+        match &self.namespace {
+            Some(ns) if !ns.is_empty() => format!("{}/{}", ns, self.name),
+            _ => self.name.clone(),
         }
     }
 
@@ -165,7 +165,7 @@ pub struct ChunkSource {
 
 /// Helper for skip_serializing_if - skip if repo is default (empty)
 fn is_default_repo(repo: &RepoIdentifier) -> bool {
-    repo.namespace.is_empty() && repo.name.is_empty()
+    repo.namespace.is_none() && repo.name.is_empty()
 }
 
 /// Git metadata for a chunk's source file
@@ -462,6 +462,16 @@ pub struct EmbedSettings {
     /// Requires the repository to be a git repository. Disabled by default.
     #[serde(default)]
     pub git_metadata: bool,
+
+    /// Repository namespace for cross-repository identity (e.g., "github.com/myorg")
+    /// Used to prefix FQNs and populate RepoIdentifier on generated chunks.
+    #[serde(default)]
+    pub repo_namespace: Option<String>,
+
+    /// Repository name override (e.g., "auth-service")
+    /// If not set, defaults to the directory name of the repository root.
+    #[serde(default)]
+    pub repo_name: Option<String>,
 }
 
 impl Default for EmbedSettings {
@@ -484,6 +494,8 @@ impl Default for EmbedSettings {
             enable_hierarchy: false, // Off by default for backward compatibility
             hierarchy_min_children: 2, // Minimum children for summary generation
             git_metadata: false,     // Off by default (requires git repo)
+            repo_namespace: None,
+            repo_name: None,
         }
     }
 }
