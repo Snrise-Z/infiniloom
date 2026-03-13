@@ -447,28 +447,34 @@ impl EmbedChunker {
                 let hash = hash_content(&chunk_content);
 
                 // Extract context (with complexity metrics)
-                let context = self.extract_context(symbol, &chunk_content, &relative_path);
+                let mut context = self.extract_context(symbol, &chunk_content, &relative_path);
 
                 // Compute fully qualified name for symbol disambiguation
                 let fqn = self.compute_fqn(&relative_path, symbol);
+
+                let chunk_kind: ChunkKind = symbol.kind.into();
+                let source = ChunkSource {
+                    repo: self.repo_id.clone(),
+                    file: relative_path.clone(),
+                    lines: (start_line, end_line),
+                    symbol: symbol.name.clone(),
+                    fqn: Some(fqn),
+                    language: language.clone(),
+                    parent: symbol.parent.clone(),
+                    visibility: symbol.visibility.into(),
+                    is_test: self.is_test_code(path, symbol),
+                };
+
+                // Generate natural language summary
+                context.summary = generate_summary(chunk_kind, &source, &context);
 
                 chunks.push(EmbedChunk {
                     id: hash.short_id,
                     full_hash: hash.full_hash,
                     content: chunk_content,
                     tokens,
-                    kind: symbol.kind.into(),
-                    source: ChunkSource {
-                        repo: self.repo_id.clone(),
-                        file: relative_path.clone(),
-                        lines: (start_line, end_line),
-                        symbol: symbol.name.clone(),
-                        fqn: Some(fqn),
-                        language: language.clone(),
-                        parent: symbol.parent.clone(),
-                        visibility: symbol.visibility.into(),
-                        is_test: self.is_test_code(path, symbol),
-                    },
+                    kind: chunk_kind,
+                    source,
                     context,
                     part: None,
                 });
@@ -594,35 +600,37 @@ impl EmbedChunker {
                     0
                 };
 
+                let part_source = ChunkSource {
+                    repo: self.repo_id.clone(),
+                    file: file.to_owned(),
+                    lines: (base_line + content_start as u32, base_line + content_end as u32 - 1),
+                    symbol: format!("{}_part{}", symbol.name, part_num),
+                    fqn: None,
+                    language: language.to_owned(),
+                    parent: Some(symbol.name.clone()),
+                    visibility: symbol.visibility.into(),
+                    is_test: false,
+                };
+                let mut part_context = ChunkContext {
+                    signature: symbol.signature.clone(), // Include in every part for context
+                    // Propagate docstring to ALL parts for better RAG retrieval
+                    // Each part should be self-contained for semantic search
+                    docstring: symbol.docstring.clone(),
+                    keywords: part_keywords,
+                    context_prefix: part_prefix,
+                    ..Default::default()
+                };
+                part_context.summary =
+                    generate_summary(ChunkKind::FunctionPart, &part_source, &part_context);
+
                 chunks.push(EmbedChunk {
                     id: hash.short_id,
                     full_hash: hash.full_hash,
                     content: part_content,
                     tokens,
                     kind: ChunkKind::FunctionPart, // or ClassPart based on symbol.kind
-                    source: ChunkSource {
-                        repo: self.repo_id.clone(),
-                        file: file.to_owned(),
-                        lines: (
-                            base_line + content_start as u32,
-                            base_line + content_end as u32 - 1,
-                        ),
-                        symbol: format!("{}_part{}", symbol.name, part_num),
-                        fqn: None,
-                        language: language.to_owned(),
-                        parent: Some(symbol.name.clone()),
-                        visibility: symbol.visibility.into(),
-                        is_test: false,
-                    },
-                    context: ChunkContext {
-                        signature: symbol.signature.clone(), // Include in every part for context
-                        // Propagate docstring to ALL parts for better RAG retrieval
-                        // Each part should be self-contained for semantic search
-                        docstring: symbol.docstring.clone(),
-                        keywords: part_keywords,
-                        context_prefix: part_prefix,
-                        ..Default::default()
-                    },
+                    source: part_source,
+                    context: part_context,
                     part: Some(ChunkPart {
                         part: part_num,
                         of: 0, // Updated after all parts
@@ -700,24 +708,28 @@ impl EmbedChunker {
         let context_prefix =
             Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
 
+        let top_source = ChunkSource {
+            repo: self.repo_id.clone(),
+            file: file.to_owned(),
+            lines: (1, lines.len() as u32),
+            symbol: "<top_level>".to_owned(),
+            fqn: None,
+            language: language.to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let mut top_context = ChunkContext { keywords, context_prefix, ..Default::default() };
+        top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
+
         Some(EmbedChunk {
             id: hash.short_id,
             full_hash: hash.full_hash,
             content,
             tokens,
             kind: ChunkKind::TopLevel,
-            source: ChunkSource {
-                repo: self.repo_id.clone(),
-                file: file.to_owned(),
-                lines: (1, lines.len() as u32),
-                symbol: "<top_level>".to_owned(),
-                fqn: None,
-                language: language.to_owned(),
-                parent: None,
-                visibility: Visibility::Public,
-                is_test: false,
-            },
-            context: ChunkContext { keywords, context_prefix, ..Default::default() },
+            source: top_source,
+            context: top_context,
             part: None,
         })
     }
@@ -738,6 +750,7 @@ impl EmbedChunker {
                 symbol.parent.as_deref(),
                 &symbol.kind,
             )),
+            summary: None, // Populated after source is built
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled
@@ -1424,6 +1437,209 @@ pub(crate) fn generate_context_prefix(
     }
 }
 
+/// Generate a natural language summary for a chunk.
+///
+/// Priority:
+/// 1. First line of docstring (if available and under ~400 chars)
+/// 2. Heuristic template based on kind, visibility, symbol name, file path, and signature
+/// 3. `None` for import chunks
+///
+/// The summary is designed for semantic search — it includes key information
+/// about what the symbol is and where it lives.
+pub(crate) fn generate_summary(
+    kind: ChunkKind,
+    source: &ChunkSource,
+    context: &ChunkContext,
+) -> Option<String> {
+    // Imports: no summary
+    if kind == ChunkKind::Imports {
+        return None;
+    }
+
+    // Priority 1: Use first line of docstring if available
+    if let Some(ref docstring) = context.docstring {
+        let cleaned = strip_doc_markers(docstring);
+        if !cleaned.is_empty() && cleaned.len() <= 400 {
+            return Some(cleaned);
+        }
+        // If docstring is too long, extract just the first sentence/line
+        if !cleaned.is_empty() {
+            let first_line = extract_first_sentence(&cleaned);
+            if !first_line.is_empty() {
+                return Some(first_line);
+            }
+        }
+    }
+
+    // Priority 2: Heuristic template
+    let file_module = file_path_to_module(&source.file);
+
+    match kind {
+        ChunkKind::TopLevel => {
+            return Some(format!("Top-level code in {}", source.file));
+        },
+        ChunkKind::Imports => return None,
+        _ => {},
+    }
+
+    let visibility_prefix = format_visibility(source.visibility);
+    let kind_label = kind.name();
+    let symbol = &source.symbol;
+
+    match kind {
+        ChunkKind::Function | ChunkKind::Method | ChunkKind::FunctionPart => {
+            let sig_part = context
+                .signature
+                .as_deref()
+                .map(|s| format!(" -- {}", truncate_signature(s, 200)))
+                .unwrap_or_default();
+            Some(format!(
+                "{}{} '{}' in {}{}",
+                visibility_prefix, kind_label, symbol, file_module, sig_part
+            ))
+        },
+        ChunkKind::Class | ChunkKind::Struct | ChunkKind::ClassPart => {
+            Some(format!("{}{} '{}' in {}", visibility_prefix, kind_label, symbol, file_module))
+        },
+        ChunkKind::Enum => {
+            Some(format!("{}enum '{}' in {}", visibility_prefix, symbol, file_module))
+        },
+        ChunkKind::Interface | ChunkKind::Trait => {
+            Some(format!("{}{} '{}' in {}", visibility_prefix, kind_label, symbol, file_module))
+        },
+        ChunkKind::Constant | ChunkKind::Variable => {
+            Some(format!("{}{} '{}' in {}", visibility_prefix, kind_label, symbol, file_module))
+        },
+        ChunkKind::Module => {
+            Some(format!("{}module '{}' in {}", visibility_prefix, symbol, file_module))
+        },
+        _ => None,
+    }
+}
+
+/// Strip common doc-comment markers from a docstring.
+///
+/// Handles: `///`, `//!`, `/**`, `*/`, `*`, `#`, `"""`, `'''`, leading whitespace.
+fn strip_doc_markers(docstring: &str) -> String {
+    let first_line = docstring.lines().next().unwrap_or("");
+    let trimmed = first_line.trim();
+
+    // Strip leading markers
+    let stripped = trimmed
+        .strip_prefix("///")
+        .or_else(|| trimmed.strip_prefix("//!"))
+        .or_else(|| trimmed.strip_prefix("/**"))
+        .or_else(|| trimmed.strip_prefix("/*"))
+        .or_else(|| trimmed.strip_prefix("*/"))
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix('*'))
+        .or_else(|| trimmed.strip_prefix("\"\"\""))
+        .or_else(|| trimmed.strip_prefix("'''"))
+        .or_else(|| trimmed.strip_prefix("# "))
+        .or_else(|| trimmed.strip_prefix('#'))
+        .unwrap_or(trimmed);
+
+    // Strip trailing markers
+    let stripped = stripped.trim();
+    let stripped = stripped
+        .strip_suffix("\"\"\"")
+        .or_else(|| stripped.strip_suffix("'''"))
+        .or_else(|| stripped.strip_suffix("*/"))
+        .unwrap_or(stripped);
+
+    stripped.trim().to_owned()
+}
+
+/// Extract the first sentence from text.
+///
+/// A sentence ends at the first `.`, `!`, or `?` followed by whitespace or end-of-string,
+/// or at the first newline.
+fn extract_first_sentence(text: &str) -> String {
+    // Take first line
+    let first_line = text.lines().next().unwrap_or(text);
+
+    // Find sentence boundary
+    let mut end = first_line.len();
+    for (i, ch) in first_line.char_indices() {
+        if matches!(ch, '.' | '!' | '?') {
+            // Check if next char is whitespace or end of string
+            let next_idx = i + ch.len_utf8();
+            if next_idx >= first_line.len()
+                || first_line[next_idx..].starts_with(char::is_whitespace)
+            {
+                end = next_idx;
+                break;
+            }
+        }
+    }
+
+    let result = first_line[..end].trim();
+    if result.len() > 400 {
+        format!("{}...", &result[..397])
+    } else {
+        result.to_owned()
+    }
+}
+
+/// Convert a file path to a module-like notation.
+///
+/// Strips common prefixes (`src/`, `lib/`, `main/`), drops file extension,
+/// and replaces `/` with `::`.
+///
+/// Example: `src/auth/jwt.rs` -> `auth::jwt`
+fn file_path_to_module(file_path: &str) -> String {
+    let path = file_path.replace('\\', "/");
+
+    // Strip common prefixes
+    let stripped = path
+        .strip_prefix("src/")
+        .or_else(|| path.strip_prefix("lib/"))
+        .or_else(|| path.strip_prefix("main/"))
+        .unwrap_or(&path);
+
+    // Drop file extension
+    let without_ext = stripped
+        .rsplit_once('.')
+        .map(|(base, _)| base)
+        .unwrap_or(stripped);
+
+    // Replace / with ::
+    without_ext.replace('/', "::")
+}
+
+/// Format visibility for summary output.
+///
+/// Returns "Public ", "Private ", etc. for known visibilities,
+/// or "" for the default (Public, which is omitted for brevity).
+fn format_visibility(vis: Visibility) -> &'static str {
+    match vis {
+        Visibility::Public => "Public ",
+        Visibility::Private => "Private ",
+        Visibility::Protected => "Protected ",
+        Visibility::Internal => "Internal ",
+    }
+}
+
+/// Truncate a signature to at most `max_len` characters.
+///
+/// If truncated, appends "..." to indicate continuation.
+/// Also collapses to a single line.
+fn truncate_signature(sig: &str, max_len: usize) -> String {
+    // Collapse to single line
+    let oneliner: String = sig
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if oneliner.len() <= max_len {
+        oneliner
+    } else {
+        format!("{}...", &oneliner[..max_len.saturating_sub(3)])
+    }
+}
+
 /// Split an identifier into sub-tokens by camelCase, PascalCase, and snake_case boundaries.
 ///
 /// Examples:
@@ -1875,5 +2091,183 @@ impl User {
         {
             assert_eq!(c1.id, c2.id, "Chunk IDs should be identical across runs");
         }
+    }
+
+    #[test]
+    fn test_summary_from_docstring() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/auth/jwt.rs".to_owned(),
+            lines: (10, 20),
+            symbol: "verify_token".to_owned(),
+            fqn: None,
+            language: "Rust".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext {
+            docstring: Some("/// Verify a JWT token and return the claims.".to_owned()),
+            signature: Some("pub fn verify_token(token: &str) -> Result<Claims>".to_owned()),
+            ..Default::default()
+        };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context);
+        assert_eq!(summary, Some("Verify a JWT token and return the claims.".to_owned()));
+    }
+
+    #[test]
+    fn test_summary_heuristic_for_function() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/auth/jwt.rs".to_owned(),
+            lines: (10, 20),
+            symbol: "verify_token".to_owned(),
+            fqn: None,
+            language: "Rust".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext {
+            signature: Some("pub fn verify_token(token: &str) -> Result<Claims>".to_owned()),
+            ..Default::default()
+        };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context);
+        assert_eq!(
+            summary,
+            Some(
+                "Public function 'verify_token' in auth::jwt -- pub fn verify_token(token: &str) -> Result<Claims>"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn test_summary_heuristic_for_struct() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "lib/models/user.py".to_owned(),
+            lines: (1, 30),
+            symbol: "User".to_owned(),
+            fqn: None,
+            language: "Python".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext::default();
+
+        let summary = generate_summary(ChunkKind::Class, &source, &context);
+        assert_eq!(summary, Some("Public class 'User' in models::user".to_owned()));
+    }
+
+    #[test]
+    fn test_summary_none_for_imports() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/lib.rs".to_owned(),
+            lines: (1, 5),
+            symbol: "<imports>".to_owned(),
+            fqn: None,
+            language: "Rust".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext::default();
+
+        let summary = generate_summary(ChunkKind::Imports, &source, &context);
+        assert!(summary.is_none(), "Import chunks should not have a summary");
+    }
+
+    #[test]
+    fn test_summary_long_signature_truncated() {
+        let long_sig = format!(
+            "pub fn process({})",
+            (0..50)
+                .map(|i| format!("arg{}: SomeVeryLongTypeName", i))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/processor.rs".to_owned(),
+            lines: (1, 100),
+            symbol: "process".to_owned(),
+            fqn: None,
+            language: "Rust".to_owned(),
+            parent: None,
+            visibility: Visibility::Private,
+            is_test: false,
+        };
+        let context = ChunkContext { signature: Some(long_sig), ..Default::default() };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context).unwrap();
+        // The signature part should be truncated to ~200 chars
+        assert!(summary.contains("..."), "Long signature should be truncated with ellipsis");
+        // The total summary should still be reasonable length
+        assert!(summary.len() < 350, "Summary should be concise, got len={}", summary.len());
+    }
+
+    #[test]
+    fn test_summary_top_level() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/main.rs".to_owned(),
+            lines: (1, 50),
+            symbol: "<top_level>".to_owned(),
+            fqn: None,
+            language: "Rust".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext::default();
+
+        let summary = generate_summary(ChunkKind::TopLevel, &source, &context);
+        assert_eq!(summary, Some("Top-level code in src/main.rs".to_owned()));
+    }
+
+    #[test]
+    fn test_file_path_to_module() {
+        assert_eq!(file_path_to_module("src/auth/jwt.rs"), "auth::jwt");
+        assert_eq!(file_path_to_module("lib/models/user.py"), "models::user");
+        assert_eq!(file_path_to_module("main/app.ts"), "app");
+        assert_eq!(file_path_to_module("other/deep/path.go"), "other::deep::path");
+    }
+
+    #[test]
+    fn test_strip_doc_markers() {
+        assert_eq!(strip_doc_markers("/// Hello world"), "Hello world");
+        assert_eq!(strip_doc_markers("//! Module doc"), "Module doc");
+        assert_eq!(strip_doc_markers("/** Java doc */"), "Java doc");
+        assert_eq!(strip_doc_markers("# Python doc"), "Python doc");
+        assert_eq!(strip_doc_markers("\"\"\"Triple quoted\"\"\""), "Triple quoted");
+        assert_eq!(strip_doc_markers("  * Javadoc line"), "Javadoc line");
+        assert_eq!(strip_doc_markers("Plain text"), "Plain text");
+    }
+
+    #[test]
+    fn test_summary_with_python_docstring() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/utils.py".to_owned(),
+            lines: (1, 10),
+            symbol: "parse_config".to_owned(),
+            fqn: None,
+            language: "Python".to_owned(),
+            parent: None,
+            visibility: Visibility::Public,
+            is_test: false,
+        };
+        let context = ChunkContext {
+            docstring: Some("\"\"\"Parse configuration from a YAML file.\"\"\"".to_owned()),
+            ..Default::default()
+        };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context);
+        assert_eq!(summary, Some("Parse configuration from a YAML file.".to_owned()));
     }
 }

@@ -242,6 +242,11 @@ pub struct ChunkContext {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub context_prefix: Option<String>,
 
+    /// Natural language summary for improved semantic search.
+    /// Generated from docstring (first line) or heuristic template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
     /// Lines of code in this chunk (excluding blank lines and comments)

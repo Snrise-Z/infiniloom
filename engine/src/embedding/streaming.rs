@@ -553,6 +553,7 @@ impl ChunkStream {
                     tags: Vec::new(),
                     keywords,
                     context_prefix: Some(context_prefix),
+                    summary: None,
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                     git: None,
