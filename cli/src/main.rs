@@ -595,6 +595,16 @@ enum Commands {
         #[arg(long)]
         include_tests: bool,
 
+        /// Only process files changed since this commit (git diff-driven incremental update)
+        /// Example: --since HEAD~5, --since abc123, --since main
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Use the commit hash stored in the manifest for --since (automatic incremental updates)
+        /// Falls back to full re-index if no manifest exists
+        #[arg(long, conflicts_with = "since")]
+        since_manifest: bool,
+
         /// Enable hierarchical chunking for improved RAG recall
         /// Generates summary chunks for classes/structs with member listings
         #[arg(long)]
@@ -1239,6 +1249,8 @@ fn run_command(cli: Cli) -> Result<()> {
             include_patterns,
             exclude_patterns,
             include_tests,
+            since,
+            since_manifest,
             hierarchy,
             hierarchy_min_children,
             git_metadata,
@@ -1262,6 +1274,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 include_patterns,
                 exclude_patterns,
                 include_tests,
+                since,
+                since_manifest,
                 enable_hierarchy: hierarchy,
                 hierarchy_min_children,
                 git_metadata,

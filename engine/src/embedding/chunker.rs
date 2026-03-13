@@ -100,6 +100,43 @@ impl EmbedChunker {
         &self.repo_id
     }
 
+    /// Generate chunks only for specific files in a repository
+    ///
+    /// This is used for git-diff-driven incremental updates where only changed
+    /// files need to be re-chunked. The `only_files` set contains relative paths
+    /// (from repo root) of files to process.
+    ///
+    /// # Guarantees
+    ///
+    /// Same as `chunk_repository`: deterministic, thread-safe, resource-limited.
+    pub fn chunk_repository_filtered(
+        &self,
+        repo_path: &Path,
+        only_files: &std::collections::HashSet<PathBuf>,
+        progress: &dyn ProgressReporter,
+    ) -> Result<Vec<EmbedChunk>, EmbedError> {
+        // Validate repo path
+        let repo_root = self.validate_repo_path(repo_path)?;
+
+        // Discover all files, then filter to only the specified ones
+        progress.set_phase("Scanning repository (filtered)...");
+        let mut files = self.discover_files(&repo_root)?;
+
+        // Filter to only files in the changed set (match by relative path)
+        files.retain(|f| {
+            if let Ok(rel) = f.strip_prefix(&repo_root) {
+                only_files.contains(rel)
+            } else {
+                false
+            }
+        });
+
+        files.sort(); // Critical for determinism
+
+        // Delegate to the shared chunking pipeline
+        self.chunk_files_impl(files, &repo_root, progress)
+    }
+
     /// Generate all chunks for a repository
     ///
     /// # Guarantees
@@ -120,6 +157,17 @@ impl EmbedChunker {
         progress.set_phase("Scanning repository...");
         let mut files = self.discover_files(&repo_root)?;
         files.sort(); // Critical for determinism
+
+        self.chunk_files_impl(files, &repo_root, progress)
+    }
+
+    /// Shared implementation for chunking a list of files
+    fn chunk_files_impl(
+        &self,
+        files: Vec<PathBuf>,
+        repo_root: &Path,
+        progress: &dyn ProgressReporter,
+    ) -> Result<Vec<EmbedChunk>, EmbedError> {
         progress.set_total(files.len());
 
         if files.is_empty() {

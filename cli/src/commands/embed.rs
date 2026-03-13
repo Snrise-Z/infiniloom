@@ -1,18 +1,20 @@
 //! Embed command handler
 //!
 //! Generates deterministic, content-addressable code chunks for vector databases.
-//! Supports incremental updates via manifest diffing.
+//! Supports incremental updates via manifest diffing and git-diff-driven file filtering.
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use std::collections::HashSet;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use infiniloom_engine::embedding::{
-    EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings, QuietProgress,
-    ResourceLimits, TerminalProgress,
+    DiffSummary, EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings, ManifestEntry,
+    ModifiedChunk, QuietProgress, RemovedChunk, ResourceLimits, TerminalProgress,
 };
+use infiniloom_engine::git::GitRepo;
 
 /// Output format for embed command
 #[derive(Debug, Clone, Copy, Default)]
@@ -56,6 +58,10 @@ pub(crate) struct EmbedConfig {
     pub exclude_patterns: Vec<String>,
     /// Include test files
     pub include_tests: bool,
+    /// Only process files changed since this commit
+    pub since: Option<String>,
+    /// Use the commit hash stored in the manifest for --since
+    pub since_manifest: bool,
     /// Enable hierarchical chunking
     pub enable_hierarchy: bool,
     /// Minimum children for hierarchy summary
@@ -89,6 +95,8 @@ impl Default for EmbedConfig {
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
             include_tests: false,
+            since: None,
+            since_manifest: false,
             enable_hierarchy: false,
             hierarchy_min_children: 2,
             git_metadata: false,
@@ -97,6 +105,47 @@ impl Default for EmbedConfig {
             json_stats: false,
         }
     }
+}
+
+/// Get files changed between a commit and HEAD using git diff.
+///
+/// Returns (changed_files, deleted_files) as relative paths from the repo root.
+/// - changed_files: files that were added, modified, copied, or renamed (need re-chunking)
+/// - deleted_files: files that were deleted (chunks should be removed)
+fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let git_repo = GitRepo::open(repo_path)
+        .map_err(|e| anyhow::anyhow!("Not a git repository (required for --since): {}", e))?;
+
+    // Get changed/added/modified/renamed files
+    let changed_files = git_repo.diff_files(since, "HEAD").map_err(|e| {
+        anyhow::anyhow!("Failed to get git diff (commit '{}' may not exist): {}", since, e)
+    })?;
+
+    let mut modified = Vec::new();
+    let mut deleted = Vec::new();
+
+    for file in &changed_files {
+        match file.status {
+            infiniloom_engine::git::FileStatus::Deleted => {
+                deleted.push(PathBuf::from(&file.path));
+            },
+            _ => {
+                // Added, Modified, Renamed, Copied, Unknown - all need re-chunking
+                modified.push(PathBuf::from(&file.path));
+            },
+        }
+    }
+
+    Ok((modified, deleted))
+}
+
+/// Get current HEAD commit hash
+fn get_head_commit(repo_path: &Path) -> Result<String> {
+    let git_repo =
+        GitRepo::open(repo_path).map_err(|e| anyhow::anyhow!("Not a git repository: {}", e))?;
+    git_repo
+        .current_commit()
+        .map_err(|e| anyhow::anyhow!("Failed to get HEAD commit: {}", e))
 }
 
 /// Run the embed command
@@ -140,14 +189,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         Box::new(QuietProgress) // Default to quiet for clean stdout piping
     };
 
-    // Generate chunks
-    let chunks = chunker
-        .chunk_repository(&config.path, progress.as_ref())
-        .context("Failed to generate chunks")?;
-
-    let elapsed = start.elapsed();
-
-    // Load existing manifest for diff
+    // Load existing manifest for diff (needed for both --since-manifest and standard diff)
     let manifest_path = if config.manifest_path.is_absolute() {
         config.manifest_path.clone()
     } else {
@@ -157,33 +199,356 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     let existing_manifest =
         EmbedManifest::load_if_exists(&manifest_path).context("Failed to load manifest")?;
 
-    // Compute diff if we have an existing manifest
-    let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
+    // Resolve the --since commit ref
+    let since_ref = resolve_since_ref(&config, existing_manifest.as_ref());
+
+    // Generate chunks (full or filtered by git diff)
+    let (chunks, deleted_files) = if let Some(ref since) = since_ref {
+        if !config.quiet {
+            eprintln!(
+                "  {} Incremental mode: processing files changed since {}",
+                "->".cyan(),
+                since
+            );
+        }
+
+        match get_changed_files_since(&config.path, since) {
+            Ok((changed, deleted)) => {
+                if !config.quiet {
+                    eprintln!(
+                        "  {} {} changed file(s), {} deleted file(s)",
+                        "->".cyan(),
+                        changed.len(),
+                        deleted.len()
+                    );
+                }
+
+                if changed.is_empty() && deleted.is_empty() {
+                    if !config.quiet {
+                        eprintln!("  {} No changes detected, nothing to do.", "->".cyan());
+                    }
+                    // Return existing chunks from manifest if available
+                    let chunks = Vec::new();
+                    let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
+                    output_and_save(
+                        &config,
+                        &chunks,
+                        diff.as_ref(),
+                        &settings,
+                        start.elapsed(),
+                        &manifest_path,
+                        existing_manifest,
+                    )?;
+                    return Ok(());
+                }
+
+                let only_files: HashSet<PathBuf> = changed.into_iter().collect();
+
+                // Use filtered chunking - only process changed files
+                let new_chunks = if only_files.is_empty() {
+                    Vec::new()
+                } else {
+                    chunker
+                        .chunk_repository_filtered(&config.path, &only_files, progress.as_ref())
+                        .unwrap_or_else(|e| {
+                            // NoChunksGenerated is expected when changed files have no symbols
+                            if matches!(
+                                e,
+                                infiniloom_engine::embedding::EmbedError::NoChunksGenerated { .. }
+                            ) {
+                                Vec::new()
+                            } else {
+                                eprintln!("Warning: chunk generation failed: {}", e);
+                                Vec::new()
+                            }
+                        })
+                };
+
+                (new_chunks, deleted)
+            },
+            Err(e) => {
+                // Commit not found or other git error - fall back to full re-index
+                eprintln!(
+                    "  {} Git diff failed ({}), falling back to full re-index",
+                    "Warning:".yellow(),
+                    e
+                );
+                let chunks = chunker
+                    .chunk_repository(&config.path, progress.as_ref())
+                    .context("Failed to generate chunks")?;
+                (chunks, Vec::new())
+            },
+        }
+    } else {
+        // Standard full chunking
+        let chunks = chunker
+            .chunk_repository(&config.path, progress.as_ref())
+            .context("Failed to generate chunks")?;
+        (chunks, Vec::new())
+    };
+
+    let elapsed = start.elapsed();
+
+    // For incremental mode with --since: merge new chunks with unchanged chunks from manifest
+    let (final_chunks, diff) = if since_ref.is_some() {
+        if let Some(ref manifest) = existing_manifest {
+            // Build a set of files that were changed or deleted
+            let changed_files: HashSet<&str> =
+                chunks.iter().map(|c| c.source.file.as_str()).collect();
+            let deleted_file_strs: HashSet<String> = deleted_files
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+
+            // Reconstruct full chunk list: unchanged from manifest + new from changed files
+            // We need to rebuild unchanged chunks from manifest entries, but we don't have
+            // the full chunk data in the manifest (only IDs and metadata).
+            // Instead, compute the diff against a virtual "current" that includes:
+            // - New chunks for changed files
+            // - Removal markers for deleted files
+            let diff = compute_incremental_diff(manifest, &chunks, &deleted_file_strs);
+
+            // The "final chunks" for manifest update = new chunks from changed files
+            // + chunks from manifest for unchanged files (keep manifest as-is for those)
+            // For output: only the new chunks + diff information
+            (chunks, Some(diff))
+        } else {
+            // No existing manifest - treat as fresh run
+            let diff = None;
+            (chunks, diff)
+        }
+    } else {
+        // Standard diff against manifest
+        let diff = existing_manifest.as_ref().map(|m| m.diff(&chunks));
+        (chunks, diff)
+    };
 
     // Output chunks or diff
     match config.output_format {
         EmbedOutputFormat::Jsonl => {
-            output_jsonl(&config, &chunks, diff.as_ref(), &settings, elapsed)?;
+            output_jsonl(&config, &final_chunks, diff.as_ref(), &settings, elapsed)?;
         },
         EmbedOutputFormat::Json => {
-            output_json(&config, &chunks, diff.as_ref(), &settings, elapsed)?;
+            output_json(&config, &final_chunks, diff.as_ref(), &settings, elapsed)?;
         },
     }
 
     // Update and save manifest
-    let mut manifest = existing_manifest.unwrap_or_else(|| {
-        EmbedManifest::new(config.path.to_string_lossy().to_string(), settings.clone())
-    });
-    manifest
-        .update(&chunks)
-        .context("Failed to update manifest")?;
+    let mut manifest = if since_ref.is_some() {
+        if let Some(mut m) = existing_manifest {
+            // Incremental update: remove deleted file chunks, update changed file chunks
+            let deleted_file_strs: HashSet<String> = deleted_files
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+
+            // Remove entries for deleted files
+            m.chunks.retain(|key, _| {
+                // Location key format: "file::symbol::kind"
+                let file_part = key.split("::").next().unwrap_or("");
+                !deleted_file_strs.contains(file_part)
+            });
+
+            // Remove entries for changed files (will be replaced by new chunks)
+            let changed_files: HashSet<&str> = final_chunks
+                .iter()
+                .map(|c| c.source.file.as_str())
+                .collect();
+            m.chunks.retain(|key, _| {
+                let file_part = key.split("::").next().unwrap_or("");
+                !changed_files.contains(file_part)
+            });
+
+            // Add new chunks for changed files
+            for chunk in &final_chunks {
+                let key = EmbedManifest::location_key(
+                    &chunk.source.file,
+                    &chunk.source.symbol,
+                    chunk.kind,
+                );
+                m.chunks.insert(
+                    key,
+                    ManifestEntry {
+                        chunk_id: chunk.id.clone(),
+                        full_hash: chunk.full_hash.clone(),
+                        tokens: chunk.tokens,
+                        lines: chunk.source.lines,
+                    },
+                );
+            }
+
+            m.settings = settings.clone();
+            m
+        } else {
+            let mut m =
+                EmbedManifest::new(config.path.to_string_lossy().to_string(), settings.clone());
+            m.update(&final_chunks)
+                .context("Failed to update manifest")?;
+            m
+        }
+    } else {
+        let mut m = existing_manifest.unwrap_or_else(|| {
+            EmbedManifest::new(config.path.to_string_lossy().to_string(), settings.clone())
+        });
+        m.update(&final_chunks)
+            .context("Failed to update manifest")?;
+        m
+    };
+
+    // Store current HEAD commit in manifest (for --since-manifest on next run)
+    if let Ok(head) = get_head_commit(&config.path) {
+        manifest.commit_hash = Some(head);
+    }
+
     manifest
         .save(&manifest_path)
         .context("Failed to save manifest")?;
 
     // Print statistics if not quiet and (outputting to file or verbose mode)
     if !config.quiet && (config.output_file.is_some() || config.verbose) {
-        print_statistics(&chunks, diff.as_ref(), elapsed, config.json_stats);
+        print_statistics(&final_chunks, diff.as_ref(), elapsed, config.json_stats);
+    }
+
+    Ok(())
+}
+
+/// Resolve the --since commit ref from CLI args or manifest
+fn resolve_since_ref(config: &EmbedConfig, manifest: Option<&EmbedManifest>) -> Option<String> {
+    if let Some(ref since) = config.since {
+        return Some(since.clone());
+    }
+
+    if config.since_manifest {
+        if let Some(m) = manifest {
+            if let Some(ref commit) = m.commit_hash {
+                return Some(commit.clone());
+            }
+            eprintln!(
+                "  {} No commit hash in manifest, falling back to full re-index",
+                "Warning:".yellow()
+            );
+        } else {
+            eprintln!("  {} No manifest found, falling back to full re-index", "Warning:".yellow());
+        }
+    }
+
+    None
+}
+
+/// Compute diff for incremental mode (--since)
+///
+/// Compares new chunks from changed files against the manifest, and marks
+/// chunks from deleted files as removed.
+fn compute_incremental_diff(
+    manifest: &EmbedManifest,
+    new_chunks: &[EmbedChunk],
+    deleted_files: &HashSet<String>,
+) -> EmbedDiff {
+    let mut added = Vec::new();
+    let mut modified = Vec::new();
+    let mut removed = Vec::new();
+    let mut unchanged_count = 0usize;
+
+    // Files that were changed (have new chunks)
+    let changed_files: HashSet<&str> = new_chunks.iter().map(|c| c.source.file.as_str()).collect();
+
+    // Check each manifest entry
+    for (key, entry) in &manifest.chunks {
+        let file_part = key.split("::").next().unwrap_or("");
+
+        if deleted_files.contains(file_part) {
+            // File was deleted - mark chunk as removed
+            removed.push(RemovedChunk { id: entry.chunk_id.clone(), location_key: key.clone() });
+        } else if changed_files.contains(file_part) {
+            // File was changed - will be handled below when comparing new chunks
+            // (don't count as unchanged)
+        } else {
+            // File was not changed - chunk is unchanged
+            unchanged_count += 1;
+        }
+    }
+
+    // Compare new chunks against manifest entries for changed files
+    for chunk in new_chunks {
+        let key = EmbedManifest::location_key(&chunk.source.file, &chunk.source.symbol, chunk.kind);
+
+        if let Some(entry) = manifest.chunks.get(&key) {
+            if chunk.id == entry.chunk_id {
+                unchanged_count += 1;
+            } else {
+                modified.push(ModifiedChunk {
+                    old_id: entry.chunk_id.clone(),
+                    new_id: chunk.id.clone(),
+                    chunk: chunk.clone(),
+                });
+            }
+        } else {
+            added.push(chunk.clone());
+        }
+    }
+
+    // Also find manifest entries for changed files that no longer exist in new chunks
+    // (e.g., a function was removed from a modified file)
+    for (key, entry) in &manifest.chunks {
+        let file_part = key.split("::").next().unwrap_or("");
+        if changed_files.contains(file_part) && !deleted_files.contains(file_part) {
+            // Check if this manifest entry has a corresponding new chunk
+            let has_match = new_chunks.iter().any(|c| {
+                let new_key = EmbedManifest::location_key(&c.source.file, &c.source.symbol, c.kind);
+                new_key == *key
+            });
+            if !has_match {
+                removed
+                    .push(RemovedChunk { id: entry.chunk_id.clone(), location_key: key.clone() });
+            }
+        }
+    }
+
+    let total_chunks = new_chunks.len() + unchanged_count;
+    let summary = DiffSummary {
+        added: added.len(),
+        modified: modified.len(),
+        removed: removed.len(),
+        unchanged: unchanged_count,
+        total_chunks,
+    };
+
+    EmbedDiff {
+        summary,
+        added,
+        modified,
+        removed,
+        unchanged: Vec::new(), // We don't track individual unchanged IDs in incremental mode
+    }
+}
+
+/// Helper to output and save when there are no changes (early return path)
+fn output_and_save(
+    config: &EmbedConfig,
+    chunks: &[EmbedChunk],
+    diff: Option<&EmbedDiff>,
+    settings: &EmbedSettings,
+    elapsed: std::time::Duration,
+    manifest_path: &Path,
+    existing_manifest: Option<EmbedManifest>,
+) -> Result<()> {
+    match config.output_format {
+        EmbedOutputFormat::Jsonl => {
+            output_jsonl(config, chunks, diff, settings, elapsed)?;
+        },
+        EmbedOutputFormat::Json => {
+            output_json(config, chunks, diff, settings, elapsed)?;
+        },
+    }
+
+    // Re-save manifest with updated HEAD commit
+    if let Some(mut manifest) = existing_manifest {
+        if let Ok(head) = get_head_commit(&config.path) {
+            manifest.commit_hash = Some(head);
+        }
+        manifest
+            .save(manifest_path)
+            .context("Failed to save manifest")?;
     }
 
     Ok(())
