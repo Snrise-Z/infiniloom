@@ -625,7 +625,18 @@ enum Commands {
         /// Enrich chunks with git metadata (change frequency, authors, last modified)
         #[arg(long)]
         git_metadata: bool,
+        /// Enable streaming output mode (lower memory usage for large repos)
+        ///
+        /// Processes files in batches and writes chunks as they are generated,
+        /// reducing peak memory from O(all chunks) to O(batch size). Trade-off:
+        /// called_by is populated within each batch only, not globally.
+        /// Only supported with JSONL output format.
+        #[arg(long)]
+        streaming: bool,
 
+        /// Files per batch in streaming mode (default: 500)
+        #[arg(long, default_value = "500")]
+        batch_size: usize,
         /// Verbose output (show progress and detailed stats)
         #[arg(short, long)]
         verbose: bool,
@@ -1285,6 +1296,8 @@ fn run_command(cli: Cli) -> Result<()> {
             hierarchy,
             hierarchy_min_children,
             git_metadata,
+            streaming,
+            batch_size,
             verbose,
             quiet,
             json_stats,
@@ -1317,6 +1330,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 enable_hierarchy: hierarchy,
                 hierarchy_min_children,
                 git_metadata,
+                streaming,
+                batch_size,
                 verbose,
                 quiet,
                 json_stats,

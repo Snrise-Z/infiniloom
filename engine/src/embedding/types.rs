@@ -333,6 +333,11 @@ fn default_hierarchy_min_children() -> usize {
     2
 }
 
+/// Default value for batch_size (for serde)
+fn default_batch_size() -> usize {
+    500
+}
+
 /// Kind of code symbol represented by a chunk
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -508,6 +513,27 @@ pub struct EmbedSettings {
     /// If not set, defaults to the directory name of the repository root.
     #[serde(default)]
     pub repo_name: Option<String>,
+
+    /// Enable streaming output mode for memory-efficient large repo processing
+    ///
+    /// When enabled, files are processed in batches and chunks are written to the
+    /// output as they are generated, rather than collecting all chunks into memory
+    /// first. This reduces peak memory from O(all chunks) to O(batch size).
+    ///
+    /// Trade-offs vs non-streaming mode:
+    /// - `called_by` is populated within each batch only, not globally
+    /// - Ordering is deterministic within batches but not globally sorted across
+    ///   batch boundaries (files within each batch are sorted, and batches are
+    ///   processed in lexicographic file order)
+    #[serde(default)]
+    pub streaming: bool,
+
+    /// Number of files to process per batch in streaming mode (default: 500)
+    ///
+    /// Larger batches improve `called_by` coverage and reduce overhead, but use
+    /// more memory. Only relevant when `streaming` is true.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
 }
 
 impl Default for EmbedSettings {
@@ -532,6 +558,8 @@ impl Default for EmbedSettings {
             git_metadata: false,     // Off by default (requires git repo)
             repo_namespace: None,
             repo_name: None,
+            streaming: false, // Off by default for full determinism
+            batch_size: 500,  // Files per batch in streaming mode
         }
     }
 }

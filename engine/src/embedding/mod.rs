@@ -112,7 +112,7 @@ pub use checkpoint::{
     CheckpointError, CheckpointManager, CheckpointPhase, CheckpointRepoId, CheckpointStats,
     ChunkReference, EmbedCheckpoint, CHECKPOINT_VERSION,
 };
-pub use chunker::EmbedChunker;
+pub use chunker::{EmbedChunker, StreamingStats};
 pub use complexity::compute_complexity;
 pub use contract_detection::{
     contract_tags, detect_contracts, ContractDefinition, ContractType, EnumDef, MessageDef,

@@ -6,14 +6,14 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use infiniloom_engine::embedding::{
     generate_graph_export, DiffSummary, EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest,
     EmbedSettings, ManifestEntry, ModifiedChunk, QuietProgress, RemovedChunk, ResourceLimits,
-    TerminalProgress,
+    StreamingStats, TerminalProgress,
 };
 use infiniloom_engine::git::GitRepo;
 
@@ -73,6 +73,10 @@ pub(crate) struct EmbedConfig {
     pub hierarchy_min_children: usize,
     /// Enrich chunks with git metadata
     pub git_metadata: bool,
+    /// Enable streaming output mode (lower memory usage)
+    pub streaming: bool,
+    /// Files per batch in streaming mode
+    pub batch_size: usize,
     /// Verbose output
     pub verbose: bool,
     /// Quiet mode (suppress non-error output)
@@ -116,6 +120,8 @@ impl Default for EmbedConfig {
             enable_hierarchy: false,
             hierarchy_min_children: 2,
             git_metadata: false,
+            streaming: false,
+            batch_size: 500,
             verbose: false,
             quiet: false,
             json_stats: false,
@@ -197,6 +203,8 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         enable_hierarchy: config.enable_hierarchy,
         hierarchy_min_children: config.hierarchy_min_children,
         git_metadata: config.git_metadata,
+        streaming: config.streaming,
+        batch_size: config.batch_size,
         ..Default::default()
     };
 
@@ -216,6 +224,13 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     } else {
         Box::new(QuietProgress) // Default to quiet for clean stdout piping
     };
+
+    // Streaming mode: write chunks as they are generated (JSONL only)
+    if config.streaming {
+        return cmd_embed_streaming(config, settings, chunker, progress.as_ref(), start);
+    }
+
+    // Non-streaming mode: collect all chunks, then output
 
     // Load existing manifest for diff (needed for both --since-manifest and standard diff)
     // Generate chunks
@@ -718,6 +733,109 @@ fn cmd_embed_sqlite(
     }
 
     Ok(())
+}
+
+/// Run the embed command in streaming mode.
+///
+/// Writes header, streams chunk batches directly to the writer via
+/// `chunk_repository_streaming`, then writes a footer with totals.
+/// Manifest updates are skipped in streaming mode because we never hold
+/// all chunks in memory simultaneously.
+fn cmd_embed_streaming(
+    config: EmbedConfig,
+    settings: EmbedSettings,
+    chunker: EmbedChunker,
+    progress: &dyn infiniloom_engine::ProgressReporter,
+    start: Instant,
+) -> Result<()> {
+    // Streaming only supports JSONL output
+    if !matches!(config.output_format, EmbedOutputFormat::Jsonl) {
+        anyhow::bail!("Streaming mode only supports JSONL output format. Remove --streaming or use --format jsonl.");
+    }
+
+    let mut writer: Box<dyn Write> = if let Some(ref path) = config.output_file {
+        Box::new(BufWriter::new(
+            std::fs::File::create(path).context("Failed to create output file")?,
+        ))
+    } else {
+        Box::new(BufWriter::new(std::io::stdout()))
+    };
+
+    // Write header line
+    let header = serde_json::json!({
+        "type": "header",
+        "streaming": true,
+        "batch_size": settings.batch_size,
+        "version": infiniloom_engine::embedding::MANIFEST_VERSION,
+        "settings": settings,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    });
+    writeln!(writer, "{}", serde_json::to_string(&header)?)?;
+
+    // Stream chunks -- the chunker writes {"type":"chunk","data":...} lines directly
+    let streaming_stats = chunker
+        .chunk_repository_streaming(&config.path, &mut writer, progress)
+        .context("Failed to generate chunks in streaming mode")?;
+
+    let elapsed = start.elapsed();
+
+    // Write footer line
+    let footer = serde_json::json!({
+        "type": "footer",
+        "total_chunks": streaming_stats.total_chunks,
+        "total_files": streaming_stats.total_files,
+        "files_processed": streaming_stats.files_processed,
+        "files_skipped": streaming_stats.files_skipped,
+        "batches_processed": streaming_stats.batches_processed,
+        "elapsed_ms": elapsed.as_millis(),
+    });
+    writeln!(writer, "{}", serde_json::to_string(&footer)?)?;
+
+    // Flush the writer
+    writer.flush()?;
+
+    // Print statistics to stderr if appropriate
+    if !config.quiet && (config.output_file.is_some() || config.verbose) {
+        print_streaming_statistics(&streaming_stats, elapsed, config.json_stats);
+    }
+
+    Ok(())
+}
+
+/// Print streaming statistics to stderr
+fn print_streaming_statistics(
+    stats: &StreamingStats,
+    elapsed: std::time::Duration,
+    json_output: bool,
+) {
+    if json_output {
+        let json = serde_json::json!({
+            "total_chunks": stats.total_chunks,
+            "total_files": stats.total_files,
+            "files_processed": stats.files_processed,
+            "files_skipped": stats.files_skipped,
+            "batches_processed": stats.batches_processed,
+            "elapsed_ms": elapsed.as_millis(),
+            "streaming": true,
+        });
+        eprintln!("{}", serde_json::to_string(&json).unwrap_or_default());
+    } else {
+        eprintln!();
+        eprintln!("{}", "━".repeat(50).dimmed());
+        eprintln!("  {}", "Streaming Embedding Statistics".cyan().bold());
+        eprintln!("{}", "━".repeat(50).dimmed());
+        eprintln!();
+        eprintln!("  Total Chunks:   {}", stats.total_chunks);
+        eprintln!("  Total Files:    {}", stats.total_files);
+        eprintln!("  Processed:      {}", stats.files_processed);
+        eprintln!("  Skipped:        {}", stats.files_skipped);
+        eprintln!("  Batches:        {}", stats.batches_processed);
+        eprintln!("  Elapsed:        {:?}", elapsed);
+        eprintln!();
+    }
 }
 
 /// Output chunks in JSONL envelope format

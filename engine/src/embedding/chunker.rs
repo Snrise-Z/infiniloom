@@ -17,6 +17,7 @@
 //! 3. Output chunks are sorted by (file, line, id)
 //! 4. All hash computations use integer-only math (no floats)
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -39,6 +40,21 @@ use super::types::{
     ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
     Visibility,
 };
+
+/// Statistics returned from streaming chunk generation
+#[derive(Debug, Clone, Default)]
+pub struct StreamingStats {
+    /// Total files discovered in the repository
+    pub total_files: usize,
+    /// Total files successfully processed
+    pub files_processed: usize,
+    /// Total files skipped due to non-critical errors
+    pub files_skipped: usize,
+    /// Total chunks written to output
+    pub total_chunks: usize,
+    /// Number of batches processed
+    pub batches_processed: usize,
+}
 
 /// Core chunker for generating embedding chunks
 pub struct EmbedChunker {
@@ -393,7 +409,191 @@ impl EmbedChunker {
             chunk.context.git = Some(metadata);
         }
     }
+    /// Generate chunks in streaming mode, writing each batch to a writer as JSONL.
+    ///
+    /// Instead of collecting all chunks into memory, this method processes files in
+    /// batches, writes each batch's chunks to the writer, then drops them. This
+    /// reduces peak memory from O(all chunks) to O(batch_size worth of chunks).
+    ///
+    /// # Determinism
+    ///
+    /// - Files are sorted lexicographically before batching, so batches are processed
+    ///   in a deterministic order.
+    /// - Within each batch, chunks are sorted by (file, start_line, end_line, symbol, id).
+    /// - Across batch boundaries, ordering is NOT globally sorted (batch N's last chunk
+    ///   may sort after batch N+1's first chunk). For full global sorting, use the
+    ///   non-streaming `chunk_repository()` method.
+    ///
+    /// # `called_by` trade-off
+    ///
+    /// The reverse call graph (`called_by` field) is populated within each batch only.
+    /// Cross-batch `called_by` references are not captured because that would require
+    /// keeping all chunks in memory. For full `called_by` coverage, use the
+    /// non-streaming `chunk_repository()` method.
+    ///
+    /// # Writer protocol
+    ///
+    /// Each chunk is serialized as a single JSON line (JSONL) via `serde_json`. The
+    /// caller is responsible for writing any header/footer lines around the chunks.
+    pub fn chunk_repository_streaming<W: Write>(
+        &self,
+        repo_path: &Path,
+        writer: &mut W,
+        progress: &dyn ProgressReporter,
+    ) -> Result<StreamingStats, EmbedError> {
+        // Validate repo path
+        let repo_root = self.validate_repo_path(repo_path)?;
 
+        // Phase 1: Discover files (deterministic order)
+        progress.set_phase("Scanning repository...");
+        let mut files = self.discover_files(&repo_root)?;
+        files.sort(); // Critical for determinism
+        progress.set_total(files.len());
+
+        if files.is_empty() {
+            return Err(EmbedError::NoChunksGenerated {
+                include_patterns: "default".to_owned(),
+                exclude_patterns: "default".to_owned(),
+            });
+        }
+
+        // Check file limit
+        if !self.limits.check_file_count(files.len()) {
+            return Err(EmbedError::TooManyFiles {
+                count: files.len(),
+                max: self.limits.max_files,
+            });
+        }
+
+        let batch_size = if self.settings.batch_size == 0 {
+            500
+        } else {
+            self.settings.batch_size
+        };
+
+        let mut stats = StreamingStats { total_files: files.len(), ..Default::default() };
+
+        // Phase 2: Process files in batches
+        progress.set_phase("Parsing and chunking (streaming)...");
+        let total_chunk_count = AtomicUsize::new(0);
+
+        for batch_files in files.chunks(batch_size) {
+            let processed_in_batch = AtomicUsize::new(0);
+
+            // Process this batch in parallel (same logic as chunk_repository)
+            let results: Vec<Result<Vec<EmbedChunk>, (PathBuf, EmbedError)>> = batch_files
+                .par_iter()
+                .map(|file| {
+                    let result = self.chunk_file(file, &repo_root);
+
+                    let done = processed_in_batch.fetch_add(1, Ordering::Relaxed) + 1;
+                    let global_done = stats.files_processed + done;
+                    progress.set_progress(global_done);
+
+                    match result {
+                        Ok(chunks) => {
+                            let chunks_to_add = chunks.len();
+                            loop {
+                                let current = total_chunk_count.load(Ordering::Acquire);
+                                let new_count = current + chunks_to_add;
+
+                                if !self.limits.check_chunk_count(new_count) {
+                                    return Err((
+                                        file.clone(),
+                                        EmbedError::TooManyChunks {
+                                            count: new_count,
+                                            max: self.limits.max_total_chunks,
+                                        },
+                                    ));
+                                }
+
+                                match total_chunk_count.compare_exchange(
+                                    current,
+                                    new_count,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                ) {
+                                    Ok(_) => break,
+                                    Err(_) => continue,
+                                }
+                            }
+                            Ok(chunks)
+                        },
+                        Err(e) => Err((file.clone(), e)),
+                    }
+                })
+                .collect();
+
+            // Separate successes and failures for this batch
+            let mut batch_chunks = Vec::new();
+
+            for result in results {
+                match result {
+                    Ok(chunks) => {
+                        stats.files_processed += 1;
+                        batch_chunks.extend(chunks);
+                    },
+                    Err((_path, err)) => {
+                        if err.is_critical() {
+                            return Err(err);
+                        }
+                        if err.is_skippable() {
+                            stats.files_skipped += 1;
+                            progress.warn(&format!("Skipped: {}", err));
+                        }
+                    },
+                }
+            }
+
+            // Populate called_by within this batch only.
+            // NOTE: Cross-batch called_by references are not captured in streaming
+            // mode. This is an intentional trade-off to avoid keeping all chunks in
+            // memory. For full called_by coverage, use chunk_repository() instead.
+            self.populate_called_by(&mut batch_chunks);
+
+            // Sort chunks within this batch for deterministic intra-batch ordering
+            batch_chunks.sort_by(|a, b| {
+                a.source
+                    .file
+                    .cmp(&b.source.file)
+                    .then_with(|| a.source.lines.0.cmp(&b.source.lines.0))
+                    .then_with(|| a.source.lines.1.cmp(&b.source.lines.1))
+                    .then_with(|| a.source.symbol.cmp(&b.source.symbol))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+
+            // Write each chunk as a JSONL line, then drop the batch
+            for chunk in &batch_chunks {
+                let chunk_json = serde_json::json!({
+                    "type": "chunk",
+                    "data": chunk,
+                });
+                let line = serde_json::to_string(&chunk_json).map_err(|e| EmbedError::IoError {
+                    path: repo_path.to_path_buf(),
+                    source: std::io::Error::new(std::io::ErrorKind::Other, e),
+                })?;
+                writeln!(writer, "{}", line).map_err(|e| EmbedError::IoError {
+                    path: repo_path.to_path_buf(),
+                    source: e,
+                })?;
+            }
+
+            stats.total_chunks += batch_chunks.len();
+            stats.batches_processed += 1;
+
+            // batch_chunks is dropped here, freeing memory
+        }
+
+        if stats.total_chunks == 0 {
+            return Err(EmbedError::NoChunksGenerated {
+                include_patterns: "default".to_owned(),
+                exclude_patterns: "default".to_owned(),
+            });
+        }
+
+        progress.set_phase("Complete");
+        Ok(stats)
+    }
     /// Populate the called_by field for all chunks by building a reverse call graph.
     ///
     /// This method first runs import-aware resolution to populate `qualified_calls`
