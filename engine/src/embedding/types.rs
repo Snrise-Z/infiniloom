@@ -125,9 +125,29 @@ pub struct EmbedChunk {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children_ids: Vec<String>,
 
+    /// Representation type: "code" (default) or "signature"
+    ///
+    /// Code chunks contain the full implementation. Signature chunks contain only
+    /// the declaration/signature, enabling tiered retrieval: search signatures
+    /// broadly, then fetch full code for top matches.
+    #[serde(default = "default_repr")]
+    pub repr: String,
+
+    /// For non-code representations, the ID of the full code chunk
+    ///
+    /// This links a signature chunk back to its corresponding code chunk,
+    /// enabling two-phase retrieval workflows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_chunk_id: Option<String>,
+
     /// For split chunks: part N of M
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part: Option<ChunkPart>,
+}
+
+/// Default representation type for chunks
+pub(super) fn default_repr() -> String {
+    "code".to_string()
 }
 
 /// Source location metadata for a chunk
@@ -484,6 +504,17 @@ pub struct EmbedSettings {
     #[serde(default)]
     pub include_tests: bool,
 
+    /// Generate signature-only chunks alongside full code chunks
+    ///
+    /// When enabled, each code chunk that has a signature in its context will
+    /// produce an additional compact signature-only chunk. This enables tiered
+    /// retrieval: search signatures broadly, then fetch full code for top matches.
+    ///
+    /// Signature chunks have `repr: "signature"` and link back to the code chunk
+    /// via the `code_chunk_id` field.
+    #[serde(default)]
+    pub include_signatures: bool,
+
     /// Enable hierarchical chunking for improved RAG recall
     ///
     /// When enabled, generates summary chunks for container types (classes, structs)
@@ -553,9 +584,10 @@ impl Default for EmbedSettings {
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
             include_tests: false,
-            enable_hierarchy: false, // Off by default for backward compatibility
+            include_signatures: false, // Off by default for backward compatibility
+            enable_hierarchy: false,   // Off by default for backward compatibility
             hierarchy_min_children: 2, // Minimum children for summary generation
-            git_metadata: false,     // Off by default (requires git repo)
+            git_metadata: false,       // Off by default (requires git repo)
             repo_namespace: None,
             repo_name: None,
             streaming: false, // Off by default for full determinism

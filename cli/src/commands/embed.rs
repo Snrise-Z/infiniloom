@@ -67,6 +67,8 @@ pub(crate) struct EmbedConfig {
     pub repo_namespace: Option<String>,
     /// Repository name override
     pub repo_name: Option<String>,
+    /// Generate signature-only chunks alongside code chunks
+    pub include_signatures: bool,
     /// Enable hierarchical chunking
     pub enable_hierarchy: bool,
     /// Minimum children for hierarchy summary
@@ -117,6 +119,7 @@ impl Default for EmbedConfig {
             since_manifest: false,
             repo_namespace: None,
             repo_name: None,
+            include_signatures: false,
             enable_hierarchy: false,
             hierarchy_min_children: 2,
             git_metadata: false,
@@ -200,6 +203,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         include_tests: config.include_tests,
         repo_namespace: config.repo_namespace.clone(),
         repo_name: config.repo_name.clone(),
+        include_signatures: config.include_signatures,
         enable_hierarchy: config.enable_hierarchy,
         hierarchy_min_children: config.hierarchy_min_children,
         git_metadata: config.git_metadata,

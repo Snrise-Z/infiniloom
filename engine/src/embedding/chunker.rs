@@ -37,8 +37,8 @@ use super::limits::ResourceLimits;
 use super::progress::ProgressReporter;
 use super::type_extraction;
 use super::types::{
-    ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
-    Visibility,
+    default_repr, ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings,
+    RepoIdentifier, Visibility,
 };
 
 /// Statistics returned from streaming chunk generation
@@ -370,7 +370,14 @@ impl EmbedChunker {
             all_chunks.extend(summaries);
         }
 
-        // Phase 5: Sort for deterministic output
+        // Phase 5: Generate signature-only chunks (if enabled)
+        if self.settings.include_signatures {
+            progress.set_phase("Generating signature chunks...");
+            let signature_chunks = self.generate_signature_chunks(&all_chunks);
+            all_chunks.extend(signature_chunks);
+        }
+
+        // Phase 6: Sort for deterministic output
         // Note: par_sort_by is unstable, but our comparison uses multiple tiebreakers
         // to guarantee no two elements ever compare equal, making stability irrelevant.
         // Order: file → start line → end line → symbol name → chunk ID
@@ -711,6 +718,57 @@ impl EmbedChunker {
         }
     }
 
+    /// Generate signature-only chunks for code chunks that have signatures
+    ///
+    /// For each code chunk with a `signature` in its context, creates a compact
+    /// signature-only chunk with:
+    /// - `repr` = "signature"
+    /// - `code_chunk_id` = the original code chunk's ID
+    /// - Content = just the signature string
+    /// - Minimal context (signature, docstring only)
+    ///
+    /// This enables tiered retrieval: search signatures broadly (cheap), then
+    /// fetch full code for top matches (expensive).
+    fn generate_signature_chunks(&self, chunks: &[EmbedChunk]) -> Vec<EmbedChunk> {
+        let token_model = self.parse_token_model(&self.settings.token_model);
+
+        chunks
+            .iter()
+            .filter(|chunk| {
+                // Only generate signature chunks for code chunks that have signatures
+                chunk.repr == "code"
+                    && chunk.code_chunk_id.is_none()
+                    && chunk.part.is_none() // Skip split parts (parent already has signature)
+                    && chunk.context.signature.is_some()
+                    && !matches!(chunk.kind, ChunkKind::Imports | ChunkKind::TopLevel)
+            })
+            .map(|chunk| {
+                let signature = chunk.context.signature.as_ref().unwrap();
+                let hash = hash_content(signature);
+                let tokens = self.tokenizer.count(signature, token_model);
+
+                EmbedChunk {
+                    id: hash.short_id,
+                    full_hash: hash.full_hash,
+                    content: signature.clone(),
+                    tokens,
+                    kind: chunk.kind,
+                    source: chunk.source.clone(),
+                    context: ChunkContext {
+                        signature: chunk.context.signature.clone(),
+                        docstring: chunk.context.docstring.clone(),
+                        context_prefix: chunk.context.context_prefix.clone(),
+                        ..Default::default()
+                    },
+                    children_ids: Vec::new(),
+                    repr: "signature".to_string(),
+                    code_chunk_id: Some(chunk.id.clone()),
+                    part: None,
+                }
+            })
+            .collect()
+    }
+
     /// Chunk a single file using thread-local resources
     fn chunk_file(&self, path: &Path, repo_root: &Path) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Validate file size
@@ -847,6 +905,8 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
+                    repr: default_repr(),
+                    code_chunk_id: None,
                     part: None,
                 });
             }
@@ -1008,6 +1068,8 @@ impl EmbedChunker {
                     source: part_source,
                     context: part_context,
                     children_ids: Vec::new(),
+                    repr: default_repr(),
+                    code_chunk_id: None,
                     part: Some(ChunkPart {
                         part: part_num,
                         of: 0, // Updated after all parts
@@ -1117,6 +1179,8 @@ impl EmbedChunker {
             source: top_source,
             context: top_context,
             children_ids: Vec::new(),
+            repr: default_repr(),
+            code_chunk_id: None,
             part: None,
         })
     }

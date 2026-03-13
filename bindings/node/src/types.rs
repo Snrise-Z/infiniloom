@@ -890,6 +890,10 @@ pub struct EmbedChunk {
     pub context: EmbedChunkContext,
     /// IDs of child chunks (methods inside a class, etc.)
     pub children_ids: Vec<String>,
+    /// Representation type: "code" (default) or "signature"
+    pub repr: String,
+    /// For non-code representations, ID of the full code chunk
+    pub code_chunk_id: Option<String>,
     /// Part info (for multi-part chunks)
     pub part: Option<EmbedChunkPart>,
 }

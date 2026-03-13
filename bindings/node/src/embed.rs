@@ -57,6 +57,8 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             dependents_count: chunk.context.dependents_count,
         },
         children_ids: chunk.children_ids.clone(),
+        repr: chunk.repr.clone(),
+        code_chunk_id: chunk.code_chunk_id.clone(),
         part: chunk.part.as_ref().map(|p| EmbedChunkPart {
             part: p.part,
             of: p.of,

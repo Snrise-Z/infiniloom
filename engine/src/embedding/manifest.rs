@@ -534,6 +534,8 @@ mod tests {
             },
             children_ids: Vec::new(),
             context: ChunkContext::default(),
+            repr: "code".to_string(),
+            code_chunk_id: None,
             part: None,
         }
     }

@@ -239,6 +239,8 @@ class EmbedChunk(TypedDict):
     kind: str
     source: EmbedSource
     context: EmbedContext
+    repr: str
+    code_chunk_id: Optional[str]
     part: Optional[EmbedPart]
 
 class ModifiedChunk(TypedDict):
@@ -250,6 +252,8 @@ class ModifiedChunk(TypedDict):
     kind: str
     source: EmbedSource
     context: EmbedContext
+    repr: str
+    code_chunk_id: Optional[str]
     part: Optional[EmbedPart]
     old_id: str
 

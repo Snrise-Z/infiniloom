@@ -3121,6 +3121,12 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
     }
     dict.set_item("context", context).unwrap();
 
+    // Representation type and code chunk linkage
+    dict.set_item("repr", &chunk.repr).unwrap();
+    if let Some(ref code_chunk_id) = chunk.code_chunk_id {
+        dict.set_item("code_chunk_id", code_chunk_id).unwrap();
+    }
+
     // Part information (for split chunks)
     if let Some(ref part) = chunk.part {
         let part_dict = PyDict::new(py);

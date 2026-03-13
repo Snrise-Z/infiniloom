@@ -272,6 +272,8 @@ impl HierarchyBuilder {
                 complexity_score: None,
                 dependents_count: None,
             },
+            repr: "code".to_string(),
+            code_chunk_id: None,
             part: None,
         })
     }
@@ -460,6 +462,8 @@ mod tests {
                 complexity_score: None,
                 dependents_count: None,
             },
+            repr: "code".to_string(),
+            code_chunk_id: None,
             part: None,
         }
     }

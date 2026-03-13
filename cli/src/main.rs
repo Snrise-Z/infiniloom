@@ -613,6 +613,10 @@ enum Commands {
         #[arg(long)]
         repo_name: Option<String>,
 
+        /// Generate signature-only chunks alongside code chunks
+        /// Enables tiered retrieval: search signatures broadly, fetch full code for top matches
+        #[arg(long)]
+        include_signatures: bool,
         /// Enable hierarchical chunking for improved RAG recall
         /// Generates summary chunks for classes/structs with member listings
         #[arg(long)]
@@ -1293,6 +1297,7 @@ fn run_command(cli: Cli) -> Result<()> {
             since_manifest,
             repo_namespace,
             repo_name,
+            include_signatures,
             hierarchy,
             hierarchy_min_children,
             git_metadata,
@@ -1327,6 +1332,7 @@ fn run_command(cli: Cli) -> Result<()> {
                 since_manifest,
                 repo_namespace,
                 repo_name,
+                include_signatures,
                 enable_hierarchy: hierarchy,
                 hierarchy_min_children,
                 git_metadata,

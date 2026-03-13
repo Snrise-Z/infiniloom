@@ -978,6 +978,14 @@ class EmbedChunk(BaseModel):
     kind: str = Field(description="Chunk kind")
     source: EmbedChunkSource = Field(description="Source information")
     context: EmbedChunkContext = Field(description="Context information")
+    repr: str = Field(
+        default="code",
+        description="Representation type: 'code' (default) or 'signature'",
+    )
+    code_chunk_id: str | None = Field(
+        default=None,
+        description="For non-code representations, ID of the full code chunk",
+    )
     part: EmbedChunkPart | None = Field(
         default=None, description="Part info (for multi-part chunks)"
     )
