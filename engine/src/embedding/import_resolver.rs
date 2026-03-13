@@ -522,12 +522,15 @@ mod tests {
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
+                module_path: None,
+                parent_chunk_id: None,
             },
             context: ChunkContext {
                 imports: imports.iter().map(|s| s.to_string()).collect(),
                 calls: calls.iter().map(|s| s.to_string()).collect(),
                 ..Default::default()
             },
+            children_ids: Vec::new(),
             part: None,
         }
     }

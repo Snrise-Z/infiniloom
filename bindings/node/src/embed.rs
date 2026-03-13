@@ -34,6 +34,8 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             parent: chunk.source.parent.clone(),
             visibility: format!("{:?}", chunk.source.visibility).to_lowercase(),
             is_test: chunk.source.is_test,
+            module_path: chunk.source.module_path.clone(),
+            parent_chunk_id: chunk.source.parent_chunk_id.clone(),
         },
         context: EmbedChunkContext {
             docstring: chunk.context.docstring.clone(),
@@ -52,7 +54,9 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             error_types: chunk.context.error_types.clone(),
             lines_of_code: chunk.context.lines_of_code,
             max_nesting_depth: chunk.context.max_nesting_depth,
+            dependents_count: chunk.context.dependents_count,
         },
+        children_ids: chunk.children_ids.clone(),
         part: chunk.part.as_ref().map(|p| EmbedChunkPart {
             part: p.part,
             of: p.of,

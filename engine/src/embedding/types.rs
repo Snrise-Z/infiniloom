@@ -120,6 +120,11 @@ pub struct EmbedChunk {
     /// Enriched context for better retrieval
     pub context: ChunkContext,
 
+    /// IDs of child chunks (methods inside a class, etc.)
+    /// Sorted for determinism. Enables hierarchical navigation in RAG systems.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children_ids: Vec<String>,
+
     /// For split chunks: part N of M
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part: Option<ChunkPart>,
@@ -161,6 +166,16 @@ pub struct ChunkSource {
 
     /// Whether this is test code
     pub is_test: bool,
+
+    /// Module path derived from file path and language conventions
+    /// e.g., "auth::jwt" for src/auth/jwt.rs in Rust
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+
+    /// Chunk ID of the parent container (class/struct/enum/trait/interface)
+    /// Enables hierarchical navigation in RAG systems
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_chunk_id: Option<String>,
 }
 
 /// Helper for skip_serializing_if - skip if repo is default (empty)
@@ -301,6 +316,11 @@ pub struct ChunkContext {
     /// and prioritizing code review in RAG applications.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub complexity_score: Option<u32>,
+
+    /// Number of symbols that call/depend on this chunk
+    /// Derived from the bidirectional call graph (called_by.len())
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependents_count: Option<u32>,
 }
 
 /// Helper for serde skip_serializing_if

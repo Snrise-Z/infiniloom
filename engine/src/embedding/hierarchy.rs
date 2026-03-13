@@ -244,7 +244,10 @@ impl HierarchyBuilder {
                 parent: container.source.parent.clone(),
                 visibility: container.source.visibility,
                 is_test: container.source.is_test,
+                module_path: container.source.module_path.clone(),
+                parent_chunk_id: None,
             },
+            children_ids: Vec::new(),
             context: ChunkContext {
                 docstring: container.context.docstring.clone(),
                 comments: Vec::new(),
@@ -267,6 +270,7 @@ impl HierarchyBuilder {
                 max_nesting_depth: 0,
                 git: container.context.git.clone(),
                 complexity_score: None,
+                dependents_count: None,
             },
             part: None,
         })
@@ -428,7 +432,10 @@ mod tests {
                 parent: parent.map(String::from),
                 visibility: Visibility::Public,
                 is_test: false,
+                module_path: None,
+                parent_chunk_id: None,
             },
+            children_ids: Vec::new(),
             context: ChunkContext {
                 docstring: docstring.map(String::from),
                 comments: Vec::new(),
@@ -451,6 +458,7 @@ mod tests {
                 max_nesting_depth: 2,
                 git: None,
                 complexity_score: None,
+                dependents_count: None,
             },
             part: None,
         }

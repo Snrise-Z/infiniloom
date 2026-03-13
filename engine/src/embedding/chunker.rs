@@ -322,9 +322,13 @@ impl EmbedChunker {
             });
         }
 
-        // Phase 3: Build reverse call graph (called_by)
+        // Phase 3: Build reverse call graph (called_by + dependents_count)
         progress.set_phase("Building call graph...");
         self.populate_called_by(&mut all_chunks);
+
+        // Phase 3b: Link parent/children chunk IDs
+        progress.set_phase("Linking parent/children chunks...");
+        self.link_parent_children(&mut all_chunks);
 
         // Phase 4: Build hierarchy summaries (if enabled)
         if self.settings.enable_hierarchy {
@@ -449,6 +453,61 @@ impl EmbedChunker {
             }
 
             chunk.context.called_by = called_by_set.into_iter().collect();
+
+            // Set dependents_count from called_by length
+            let count = chunk.context.called_by.len() as u32;
+            if count > 0 {
+                chunk.context.dependents_count = Some(count);
+            }
+        }
+    }
+
+    /// Link parent and children chunks by setting parent_chunk_id and children_ids
+    ///
+    /// For each chunk with `source.parent` set, find the corresponding container chunk
+    /// (Class/Struct/Enum/Trait/Interface) and set bidirectional links:
+    /// - child's `source.parent_chunk_id` = parent's chunk ID
+    /// - parent's `children_ids` includes child's chunk ID
+    fn link_parent_children(&self, chunks: &mut [EmbedChunk]) {
+        use std::collections::BTreeMap;
+
+        // Build map: (file, symbol_name) -> chunk index for container types
+        let mut container_map: BTreeMap<(String, String), usize> = BTreeMap::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            if matches!(
+                chunk.kind,
+                ChunkKind::Class
+                    | ChunkKind::Struct
+                    | ChunkKind::Enum
+                    | ChunkKind::Trait
+                    | ChunkKind::Interface
+            ) {
+                container_map.insert((chunk.source.file.clone(), chunk.source.symbol.clone()), i);
+            }
+        }
+
+        // First pass: set parent_chunk_id on children, collect children per parent
+        let mut parent_children: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+
+        for i in 0..chunks.len() {
+            if let Some(ref parent_name) = chunks[i].source.parent {
+                let key = (chunks[i].source.file.clone(), parent_name.clone());
+                if let Some(&parent_idx) = container_map.get(&key) {
+                    let parent_id = chunks[parent_idx].id.clone();
+                    chunks[i].source.parent_chunk_id = Some(parent_id);
+
+                    parent_children
+                        .entry(parent_idx)
+                        .or_default()
+                        .push(chunks[i].id.clone());
+                }
+            }
+        }
+
+        // Second pass: set children_ids on parents (sorted for determinism)
+        for (parent_idx, mut child_ids) in parent_children {
+            child_ids.sort();
+            chunks[parent_idx].children_ids = child_ids;
         }
     }
 
@@ -572,6 +631,8 @@ impl EmbedChunker {
                     parent: symbol.parent.clone(),
                     visibility: symbol.visibility.into(),
                     is_test: self.is_test_code(path, symbol),
+                    module_path: Some(derive_module_path(&relative_path, &language)),
+                    parent_chunk_id: None,
                 };
 
                 // Generate natural language summary
@@ -585,6 +646,7 @@ impl EmbedChunker {
                     kind: chunk_kind,
                     source,
                     context,
+                    children_ids: Vec::new(),
                     part: None,
                 });
             }
@@ -721,6 +783,8 @@ impl EmbedChunker {
                     parent: Some(symbol.name.clone()),
                     visibility: symbol.visibility.into(),
                     is_test: false,
+                    module_path: Some(derive_module_path(file, language)),
+                    parent_chunk_id: None,
                 };
                 let mut part_context = ChunkContext {
                     signature: symbol.signature.clone(), // Include in every part for context
@@ -743,6 +807,7 @@ impl EmbedChunker {
                     kind: ChunkKind::FunctionPart, // or ClassPart based on symbol.kind
                     source: part_source,
                     context: part_context,
+                    children_ids: Vec::new(),
                     part: Some(ChunkPart {
                         part: part_num,
                         of: 0, // Updated after all parts
@@ -832,6 +897,8 @@ impl EmbedChunker {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: Some(derive_module_path(file, language)),
+            parent_chunk_id: None,
         };
         let mut top_context = ChunkContext {
             keywords,
@@ -849,6 +916,7 @@ impl EmbedChunker {
             kind: ChunkKind::TopLevel,
             source: top_source,
             context: top_context,
+            children_ids: Vec::new(),
             part: None,
         })
     }
@@ -916,6 +984,7 @@ impl EmbedChunker {
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled
             complexity_score: lang.and_then(|l| super::complexity::compute_complexity(content, l)),
+            dependents_count: None,
         }
     }
 
@@ -1860,6 +1929,181 @@ pub(crate) fn split_identifier(ident: &str) -> Vec<String> {
     tokens
 }
 
+/// Derive a module path from a file path and language.
+///
+/// Converts file paths to language-idiomatic module paths:
+/// - **Rust**: `src/auth/jwt.rs` -> `auth::jwt`, `src/lib.rs` -> root, `src/auth/mod.rs` -> `auth`
+/// - **Python**: `src/auth/jwt.py` -> `auth.jwt`, `__init__.py` -> parent module
+/// - **TypeScript/JavaScript**: `src/auth/jwt.ts` -> `auth/jwt`, `index.ts` -> parent
+/// - **Java**: `src/main/java/com/foo/Bar.java` -> `com.foo`
+/// - **Go**: `internal/auth/jwt.go` -> `auth/jwt`
+/// - **Default**: strip `src/`/`lib/`, replace `/` with `::`, drop extension
+pub(crate) fn derive_module_path(file_path: &str, language: &str) -> String {
+    let path = file_path.replace('\\', "/");
+    let lang_lower = language.to_lowercase();
+
+    match lang_lower.as_str() {
+        "rust" => derive_module_path_rust(&path),
+        "python" => derive_module_path_python(&path),
+        "typescript" | "tsx" | "javascript" | "jsx" => derive_module_path_js(&path),
+        "java" => derive_module_path_java(&path),
+        "go" => derive_module_path_go(&path),
+        _ => derive_module_path_default(&path),
+    }
+}
+
+fn derive_module_path_rust(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip src/ prefix
+    if let Some(rest) = p.strip_prefix("src/") {
+        p = rest.to_owned();
+    }
+
+    // Handle special files
+    if p == "lib.rs" || p == "main.rs" {
+        return String::new(); // root module
+    }
+
+    // Strip mod.rs -> use parent directory
+    if let Some(rest) = p.strip_suffix("/mod.rs") {
+        p = rest.to_owned();
+    } else if let Some(rest) = p.strip_suffix(".rs") {
+        p = rest.to_owned();
+    }
+
+    p.replace('/', "::")
+}
+
+fn derive_module_path_python(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip common prefixes
+    for prefix in &["src/", "lib/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            p = rest.to_owned();
+            break;
+        }
+    }
+
+    // Handle __init__.py -> parent module
+    if let Some(rest) = p.strip_suffix("/__init__.py") {
+        return rest.replace('/', ".");
+    }
+    if p == "__init__.py" {
+        return String::new();
+    }
+
+    // Strip .py extension
+    if let Some(rest) = p.strip_suffix(".py") {
+        p = rest.to_owned();
+    }
+
+    p.replace('/', ".")
+}
+
+fn derive_module_path_js(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip common prefixes
+    for prefix in &["src/", "lib/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            p = rest.to_owned();
+            break;
+        }
+    }
+
+    // Handle index files -> parent directory
+    let index_suffixes = ["/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
+    for suffix in &index_suffixes {
+        if let Some(rest) = p.strip_suffix(suffix) {
+            return rest.to_owned();
+        }
+    }
+    if p.starts_with("index.") {
+        return String::new();
+    }
+
+    // Strip extension
+    for ext in &[".ts", ".tsx", ".js", ".jsx"] {
+        if let Some(rest) = p.strip_suffix(ext) {
+            return rest.to_owned();
+        }
+    }
+
+    p
+}
+
+fn derive_module_path_java(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip src/main/java/ or src/test/java/ prefix
+    for prefix in &["src/main/java/", "src/test/java/", "src/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            p = rest.to_owned();
+            break;
+        }
+    }
+
+    // Strip .java extension and take parent path (package)
+    if let Some(rest) = p.strip_suffix(".java") {
+        p = rest.to_owned();
+    }
+
+    // Get the directory part (package) — drop the class name
+    if let Some(last_slash) = p.rfind('/') {
+        p = p[..last_slash].to_owned();
+    } else {
+        return String::new(); // default package
+    }
+
+    p.replace('/', ".")
+}
+
+fn derive_module_path_go(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip common Go prefixes
+    for prefix in &["internal/", "pkg/", "cmd/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            p = rest.to_owned();
+            break;
+        }
+    }
+
+    // Strip .go extension
+    if let Some(rest) = p.strip_suffix(".go") {
+        p = rest.to_owned();
+    }
+
+    // In Go, module path is the directory, not the file
+    if let Some(last_slash) = p.rfind('/') {
+        p[..last_slash].to_owned()
+    } else {
+        // Single file at root level
+        p
+    }
+}
+
+fn derive_module_path_default(path: &str) -> String {
+    let mut p = path.to_owned();
+
+    // Strip common prefixes
+    for prefix in &["src/", "lib/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            p = rest.to_owned();
+            break;
+        }
+    }
+
+    // Strip extension
+    if let Some(dot_pos) = p.rfind('.') {
+        p = p[..dot_pos].to_owned();
+    }
+
+    p.replace('/', "::")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2283,6 +2527,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext {
             docstring: Some("/// Verify a JWT token and return the claims.".to_owned()),
@@ -2306,6 +2552,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext {
             signature: Some("pub fn verify_token(token: &str) -> Result<Claims>".to_owned()),
@@ -2334,6 +2582,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext::default();
 
@@ -2353,6 +2603,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext::default();
 
@@ -2379,6 +2631,8 @@ impl User {
             parent: None,
             visibility: Visibility::Private,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext { signature: Some(long_sig), ..Default::default() };
 
@@ -2401,6 +2655,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext::default();
 
@@ -2439,6 +2695,8 @@ impl User {
             parent: None,
             visibility: Visibility::Public,
             is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
         };
         let context = ChunkContext {
             docstring: Some("\"\"\"Parse configuration from a YAML file.\"\"\"".to_owned()),

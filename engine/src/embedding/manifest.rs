@@ -529,7 +529,10 @@ mod tests {
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
+                module_path: None,
+                parent_chunk_id: None,
             },
+            children_ids: Vec::new(),
             context: ChunkContext::default(),
             part: None,
         }

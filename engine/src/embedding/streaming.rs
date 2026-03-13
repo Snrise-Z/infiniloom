@@ -542,7 +542,13 @@ impl ChunkStream {
                     parent: symbol.parent.clone(),
                     visibility: symbol.visibility.into(),
                     is_test: self.is_test_code(path, symbol),
+                    module_path: Some(super::chunker::derive_module_path(
+                        &relative_path,
+                        &language,
+                    )),
+                    parent_chunk_id: None,
                 },
+                children_ids: Vec::new(),
                 context: ChunkContext {
                     docstring: symbol.docstring.clone(),
                     comments: Vec::new(),
@@ -565,6 +571,7 @@ impl ChunkStream {
                     max_nesting_depth: 0,
                     git: None,
                     complexity_score: None,
+                    dependents_count: None,
                 },
                 part: None,
             });

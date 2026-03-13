@@ -3042,7 +3042,19 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
         .set_item("visibility", chunk.source.visibility.name())
         .unwrap();
     source.set_item("is_test", chunk.source.is_test).unwrap();
+    if let Some(ref module_path) = chunk.source.module_path {
+        source.set_item("module_path", module_path).unwrap();
+    }
+    if let Some(ref parent_chunk_id) = chunk.source.parent_chunk_id {
+        source.set_item("parent_chunk_id", parent_chunk_id).unwrap();
+    }
     dict.set_item("source", source).unwrap();
+
+    // Children IDs
+    if !chunk.children_ids.is_empty() {
+        dict.set_item("children_ids", chunk.children_ids.clone())
+            .unwrap();
+    }
 
     // Context metadata
     let context = PyDict::new(py);
@@ -3103,6 +3115,9 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
         context
             .set_item("error_types", chunk.context.error_types.clone())
             .unwrap();
+    }
+    if let Some(count) = chunk.context.dependents_count {
+        context.set_item("dependents_count", count).unwrap();
     }
     dict.set_item("context", context).unwrap();
 

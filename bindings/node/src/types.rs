@@ -814,6 +814,10 @@ pub struct EmbedChunkSource {
     pub visibility: String,
     /// Whether this is test code
     pub is_test: bool,
+    /// Module path derived from file path and language conventions
+    pub module_path: Option<String>,
+    /// Chunk ID of the parent container (class/struct/enum/trait/interface)
+    pub parent_chunk_id: Option<String>,
 }
 
 /// Context information for a chunk
@@ -850,6 +854,8 @@ pub struct EmbedChunkContext {
     pub lines_of_code: u32,
     /// Maximum nesting depth (control flow, blocks)
     pub max_nesting_depth: u32,
+    /// Number of symbols that call/depend on this chunk
+    pub dependents_count: Option<u32>,
 }
 
 /// Chunk part info for split chunks
@@ -882,6 +888,8 @@ pub struct EmbedChunk {
     pub source: EmbedChunkSource,
     /// Context information
     pub context: EmbedChunkContext,
+    /// IDs of child chunks (methods inside a class, etc.)
+    pub children_ids: Vec<String>,
     /// Part info (for multi-part chunks)
     pub part: Option<EmbedChunkPart>,
 }
