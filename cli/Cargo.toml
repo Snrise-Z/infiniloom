@@ -89,6 +89,8 @@ default = ["document"]
 document = ["infiniloom-engine/document"]
 # Enable clipboard support
 clipboard = ["dep:arboard"]
+# SQLite-backed manifest storage for embed command
+sqlite-manifest = ["infiniloom-engine/sqlite-manifest"]
 
 [lints]
 workspace = true

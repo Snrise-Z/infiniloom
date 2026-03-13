@@ -123,6 +123,9 @@ quick-xml = { version = "0.37", optional = true }
 # XLSX/XLS spreadsheet parsing
 calamine = { version = "0.26", optional = true }
 
+# SQLite for manifest storage (optional, feature-gated)
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+
 # PDF text extraction
 pdf-extract = { version = "0.7", optional = true }
 
@@ -159,6 +162,9 @@ embeddings = ["candle-core", "candle-transformers"]
 watch = ["notify"]
 
 # Note: "git" feature removed - git operations use CLI via std::process::Command
+
+# SQLite-backed manifest storage for embed command
+sqlite-manifest = ["rusqlite"]
 
 # Enable all optional features
 full = ["embeddings", "watch", "document", "document-xlsx", "document-pdf"]

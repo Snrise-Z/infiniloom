@@ -84,6 +84,7 @@ mod batch;
 mod checkpoint;
 mod chunker;
 mod complexity;
+mod contract_detection;
 mod error;
 pub mod git_enrichment;
 mod hasher;
@@ -94,6 +95,8 @@ mod manifest;
 mod normalizer;
 pub mod pgvector_schema;
 mod progress;
+#[cfg(feature = "sqlite-manifest")]
+pub mod sqlite_manifest;
 mod streaming;
 mod types;
 
@@ -108,6 +111,10 @@ pub use checkpoint::{
 };
 pub use chunker::EmbedChunker;
 pub use complexity::compute_complexity;
+pub use contract_detection::{
+    contract_tags, detect_contracts, ContractDefinition, ContractType, EnumDef, MessageDef,
+    ServiceDef,
+};
 pub use error::{sanitize_path, sanitize_pathbuf, EmbedError, SafePath};
 pub use hasher::{hash_content, HashResult};
 pub use hierarchy::{
@@ -121,6 +128,8 @@ pub use manifest::{
 };
 pub use normalizer::{needs_normalization, normalize_for_hash};
 pub use progress::{ProgressReporter, QuietProgress, TerminalProgress};
+#[cfg(feature = "sqlite-manifest")]
+pub use sqlite_manifest::SqliteManifest;
 pub use streaming::{
     BatchIterator, Batches, CancellationHandle, ChunkStream, StreamConfig, StreamStats,
 };

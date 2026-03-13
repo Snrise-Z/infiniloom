@@ -637,6 +637,11 @@ enum Commands {
         /// Embedding vector dimensions for schema generation (default: 1536)
         #[arg(long, default_value = "1536")]
         embedding_dims: u32,
+
+        /// Use SQLite for manifest storage (faster incremental updates, queryable)
+        /// Requires the sqlite-manifest feature. Manifest stored as .infiniloom-embed.db
+        #[arg(long)]
+        sqlite_manifest: bool,
     },
 
     /// Ingest a document and convert to LLM-optimized format
@@ -1267,6 +1272,7 @@ fn run_command(cli: Cli) -> Result<()> {
             json_stats,
             generate_schema,
             embedding_dims,
+            sqlite_manifest,
         } => {
             let config = commands::EmbedConfig {
                 path,
@@ -1294,6 +1300,7 @@ fn run_command(cli: Cli) -> Result<()> {
                 json_stats,
                 generate_schema,
                 embedding_dims,
+                sqlite_manifest,
             };
             // Map embed errors to CliError for semantic exit codes
             commands::cmd_embed(config).map_err(|e| {

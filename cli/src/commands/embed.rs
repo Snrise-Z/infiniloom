@@ -78,6 +78,8 @@ pub(crate) struct EmbedConfig {
     pub generate_schema: Option<String>,
     /// Embedding vector dimensions for schema generation
     pub embedding_dims: u32,
+    /// Use SQLite for manifest storage instead of bincode
+    pub sqlite_manifest: bool,
 }
 
 impl Default for EmbedConfig {
@@ -109,6 +111,7 @@ impl Default for EmbedConfig {
             json_stats: false,
             generate_schema: None,
             embedding_dims: infiniloom_engine::embedding::pgvector_schema::DEFAULT_EMBEDDING_DIMS,
+            sqlite_manifest: false,
         }
     }
 }
@@ -201,11 +204,46 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     };
 
     // Load existing manifest for diff (needed for both --since-manifest and standard diff)
-    let manifest_path = if config.manifest_path.is_absolute() {
+    // Generate chunks
+    let chunks = chunker
+        .chunk_repository(&config.path, progress.as_ref())
+        .context("Failed to generate chunks")?;
+
+    let elapsed = start.elapsed();
+
+    // Determine manifest path based on storage backend
+    #[cfg(feature = "sqlite-manifest")]
+    let use_sqlite = config.sqlite_manifest;
+    #[cfg(not(feature = "sqlite-manifest"))]
+    let use_sqlite = {
+        if config.sqlite_manifest {
+            anyhow::bail!(
+                "SQLite manifest requires the 'sqlite-manifest' feature.\n\
+                 Rebuild with: cargo build --features sqlite-manifest"
+            );
+        }
+        false
+    };
+
+    let manifest_path = if use_sqlite {
+        // Use .db extension for SQLite manifests
+        let db_name = PathBuf::from(".infiniloom-embed.db");
+        if config.manifest_path.is_absolute() {
+            config.manifest_path.with_extension("db")
+        } else {
+            config.path.join(db_name)
+        }
+    } else if config.manifest_path.is_absolute() {
         config.manifest_path.clone()
     } else {
         config.path.join(&config.manifest_path)
     };
+
+    // Branch: SQLite manifest or bincode manifest
+    #[cfg(feature = "sqlite-manifest")]
+    if use_sqlite {
+        return cmd_embed_sqlite(config, settings, chunks, elapsed, &manifest_path);
+    }
 
     let existing_manifest =
         EmbedManifest::load_if_exists(&manifest_path).context("Failed to load manifest")?;
@@ -560,6 +598,104 @@ fn output_and_save(
         manifest
             .save(manifest_path)
             .context("Failed to save manifest")?;
+    }
+
+    Ok(())
+}
+
+/// Run embed command with SQLite manifest backend
+#[cfg(feature = "sqlite-manifest")]
+fn cmd_embed_sqlite(
+    config: EmbedConfig,
+    settings: EmbedSettings,
+    chunks: Vec<EmbedChunk>,
+    elapsed: std::time::Duration,
+    manifest_path: &std::path::Path,
+) -> Result<()> {
+    use infiniloom_engine::embedding::SqliteManifest;
+
+    // Open or create SQLite manifest
+    let mut sqlite_manifest =
+        SqliteManifest::new(manifest_path).context("Failed to open SQLite manifest")?;
+
+    // Initialize if needed (first run)
+    sqlite_manifest
+        .init(config.path.to_string_lossy().to_string(), &settings)
+        .context("Failed to initialize SQLite manifest")?;
+
+    // Compute diff against existing state
+    let diff = sqlite_manifest
+        .diff(&chunks)
+        .context("Failed to compute diff")?;
+    let diff_ref = Some(&diff);
+
+    // Output chunks or diff
+    match config.output_format {
+        EmbedOutputFormat::Jsonl => {
+            output_jsonl(&config, &chunks, diff_ref, &settings, elapsed)?;
+        },
+        EmbedOutputFormat::Json => {
+            output_json(&config, &chunks, diff_ref, &settings, elapsed)?;
+        },
+    }
+
+    // Update manifest with current chunks
+    sqlite_manifest
+        .save_chunks(&chunks)
+        .context("Failed to save chunks to SQLite manifest")?;
+
+    // Print statistics if not quiet and (outputting to file or verbose mode)
+    if !config.quiet && (config.output_file.is_some() || config.verbose) {
+        print_statistics(&chunks, diff_ref, elapsed, config.json_stats);
+    }
+
+    Ok(())
+}
+
+/// Run embed command with SQLite manifest backend
+#[cfg(feature = "sqlite-manifest")]
+fn cmd_embed_sqlite(
+    config: EmbedConfig,
+    settings: EmbedSettings,
+    chunks: Vec<EmbedChunk>,
+    elapsed: std::time::Duration,
+    manifest_path: &std::path::Path,
+) -> Result<()> {
+    use infiniloom_engine::embedding::SqliteManifest;
+
+    // Open or create SQLite manifest
+    let sqlite_manifest =
+        SqliteManifest::new(manifest_path).context("Failed to open SQLite manifest")?;
+
+    // Save settings so subsequent runs can detect config changes
+    sqlite_manifest
+        .save_settings(&settings)
+        .context("Failed to save settings to SQLite manifest")?;
+
+    // Compute diff against existing state
+    let diff = sqlite_manifest
+        .diff(&chunks)
+        .context("Failed to compute diff")?;
+    let diff_ref = Some(&diff);
+
+    // Output chunks or diff
+    match config.output_format {
+        EmbedOutputFormat::Jsonl => {
+            output_jsonl(&config, &chunks, diff_ref, &settings, elapsed)?;
+        },
+        EmbedOutputFormat::Json => {
+            output_json(&config, &chunks, diff_ref, &settings, elapsed)?;
+        },
+    }
+
+    // Update manifest with current chunks
+    sqlite_manifest
+        .save_chunks(&chunks)
+        .context("Failed to save chunks to SQLite manifest")?;
+
+    // Print statistics if not quiet and (outputting to file or verbose mode)
+    if !config.quiet && (config.output_file.is_some() || config.verbose) {
+        print_statistics(&chunks, diff_ref, elapsed, config.json_stats);
     }
 
     Ok(())

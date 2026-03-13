@@ -130,6 +130,9 @@ pub enum EmbedError {
 
     #[error("Too many errors encountered ({count}, max: {max})\n\nFix: Address individual errors, or increase error tolerance")]
     TooManyErrors { count: usize, max: usize },
+
+    #[error("SQLite manifest error: {reason}\n\nFix: Delete the .infiniloom-embed.db file and retry, or check disk permissions")]
+    SqliteError { reason: String },
 }
 
 impl EmbedError {
@@ -234,10 +237,11 @@ impl EmbedError {
             | EmbedError::FileTooLarge { .. }
             | EmbedError::LineTooLong { .. } => 11,
 
-            // System errors (I/O, serialization): 12
+            // System errors (I/O, serialization, SQLite): 12
             EmbedError::IoError { .. }
             | EmbedError::SerializationError { .. }
-            | EmbedError::DeserializationError { .. } => 12,
+            | EmbedError::DeserializationError { .. }
+            | EmbedError::SqliteError { .. } => 12,
 
             // Internal errors (hash collision - extremely rare): 13
             EmbedError::HashCollision { .. } => 13,
@@ -277,6 +281,7 @@ impl EmbedError {
             EmbedError::HashCollision { .. } => "E040_HASH_COLLISION",
             EmbedError::ParseError { .. } => "E050_PARSE_ERROR",
             EmbedError::MultipleErrors { .. } => "E099_MULTIPLE_ERRORS",
+            EmbedError::SqliteError { .. } => "E033_SQLITE_ERROR",
         }
     }
 }
@@ -346,6 +351,7 @@ impl Clone for EmbedError {
                 Self::InvalidPattern { pattern: pattern.clone(), reason: reason.clone() }
             },
             Self::TooManyErrors { count, max } => Self::TooManyErrors { count: *count, max: *max },
+            Self::SqliteError { reason } => Self::SqliteError { reason: reason.clone() },
         }
     }
 }
