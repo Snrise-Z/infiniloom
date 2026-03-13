@@ -246,7 +246,16 @@ pub struct ChunkContext {
     /// Generated from docstring (first line) or heuristic template.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Fully qualified calls resolved via import scope.
+    /// Each entry is a qualified name like "crate::auth::jwt::verify_token" or "auth.jwt::verify".
+    /// Populated by the import resolver for Rust, TypeScript, and Python files.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub qualified_calls: Vec<String>,
 
+    /// Calls that could not be resolved via imports or same-file symbols.
+    /// These are raw call names that had no matching import or local definition.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_calls: Vec<String>,
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
     /// Lines of code in this chunk (excluding blank lines and comments)

@@ -348,18 +348,25 @@ impl EmbedChunker {
         }
     }
 
-    /// Populate the called_by field for all chunks by building a reverse call graph
+    /// Populate the called_by field for all chunks by building a reverse call graph.
     ///
-    /// This scans all chunks' `calls` fields and creates reverse mappings to populate
-    /// the `called_by` field, enabling bidirectional navigation of the call graph.
+    /// This method first runs import-aware resolution to populate `qualified_calls`
+    /// and `unresolved_calls`, then builds the reverse map for `called_by` using
+    /// both qualified and unqualified call names.
     fn populate_called_by(&self, chunks: &mut [EmbedChunk]) {
+        use super::import_resolver::ImportResolver;
         use std::collections::{BTreeMap, BTreeSet};
 
-        // Build map: callee_name -> set of caller FQNs
-        // Using BTreeMap/BTreeSet for deterministic iteration order and O(log n) deduplication
-        let mut reverse_calls: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        // Phase A: Resolve calls via imports (populates qualified_calls / unresolved_calls)
+        let resolver = ImportResolver::from_chunks(chunks);
+        resolver.resolve_all_calls(chunks);
 
-        // First pass: collect all calls (deduplicated via BTreeSet)
+        // Phase B: Build reverse call maps
+        // 1. Qualified reverse map (import-resolved, more accurate)
+        let qualified_reverse = resolver.build_qualified_reverse_map(chunks);
+
+        // 2. Unqualified reverse map (fallback for unresolved calls, backward-compatible)
+        let mut reverse_calls: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for chunk in chunks.iter() {
             let caller_fqn = chunk.source.fqn.as_deref().unwrap_or(&chunk.source.symbol);
             for callee in &chunk.context.calls {
@@ -370,26 +377,35 @@ impl EmbedChunker {
             }
         }
 
-        // Second pass: populate called_by
+        // Phase C: Populate called_by using both maps
         for chunk in chunks.iter_mut() {
-            // Try to match by FQN first, then by symbol name
             let fqn = chunk.source.fqn.as_deref().unwrap_or("");
             let symbol = &chunk.source.symbol;
+            let file = &chunk.source.file;
 
-            // Use BTreeSet for O(log n) deduplication instead of Vec::contains() which is O(n)
             let mut called_by_set: BTreeSet<String> = BTreeSet::new();
 
-            // Check if anyone calls this symbol by FQN
-            if let Some(callers) = reverse_calls.get(fqn) {
+            // Check qualified reverse map: look for "file::symbol" as a callee
+            let qualified_key = format!("{}::{}", file, symbol);
+            if let Some(callers) = qualified_reverse.get(&qualified_key) {
                 called_by_set.extend(callers.iter().cloned());
             }
 
-            // Also check if anyone calls by just the symbol name (common for unqualified calls)
+            // Also check by FQN in the qualified map
+            if !fqn.is_empty() {
+                if let Some(callers) = qualified_reverse.get(fqn) {
+                    called_by_set.extend(callers.iter().cloned());
+                }
+            }
+
+            // Fallback: unqualified reverse map (for unresolved calls and backward compat)
+            if let Some(callers) = reverse_calls.get(fqn) {
+                called_by_set.extend(callers.iter().cloned());
+            }
             if let Some(callers) = reverse_calls.get(symbol) {
                 called_by_set.extend(callers.iter().cloned());
             }
 
-            // BTreeSet is already sorted, convert to Vec
             chunk.context.called_by = called_by_set.into_iter().collect();
         }
     }
@@ -797,7 +813,7 @@ impl EmbedChunker {
             comments: Vec::new(), // TODO: Extract inline comments
             signature: symbol.signature.clone(),
             calls: symbol.calls.clone(),
-            called_by: Vec::new(), // Populated from dependency graph
+            called_by: Vec::new(), // Populated in populate_called_by pass
             imports: Vec::new(),   // Populated from file-level
             tags: self.generate_tags(symbol),
             keywords: extract_keywords(content),
@@ -806,7 +822,9 @@ impl EmbedChunker {
                 symbol.parent.as_deref(),
                 &symbol.kind,
             )),
-            summary: None, // Populated after source is built
+            summary: None,                // Populated after source is built
+            qualified_calls: Vec::new(),  // Populated by ImportResolver
+            unresolved_calls: Vec::new(), // Populated by ImportResolver
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled

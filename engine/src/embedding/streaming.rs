@@ -554,6 +554,8 @@ impl ChunkStream {
                     keywords,
                     context_prefix: Some(context_prefix),
                     summary: None,
+                    qualified_calls: Vec::new(),
+                    unresolved_calls: Vec::new(),
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                     git: None,

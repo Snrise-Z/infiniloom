@@ -3077,6 +3077,16 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
             .set_item("tags", chunk.context.tags.clone())
             .unwrap();
     }
+    if !chunk.context.qualified_calls.is_empty() {
+        context
+            .set_item("qualified_calls", chunk.context.qualified_calls.clone())
+            .unwrap();
+    }
+    if !chunk.context.unresolved_calls.is_empty() {
+        context
+            .set_item("unresolved_calls", chunk.context.unresolved_calls.clone())
+            .unwrap();
+    }
     dict.set_item("context", context).unwrap();
 
     // Part information (for split chunks)

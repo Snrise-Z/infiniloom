@@ -43,6 +43,8 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             called_by: chunk.context.called_by.clone(),
             imports: chunk.context.imports.clone(),
             tags: chunk.context.tags.clone(),
+            qualified_calls: chunk.context.qualified_calls.clone(),
+            unresolved_calls: chunk.context.unresolved_calls.clone(),
             lines_of_code: chunk.context.lines_of_code,
             max_nesting_depth: chunk.context.max_nesting_depth,
         },

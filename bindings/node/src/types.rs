@@ -833,6 +833,10 @@ pub struct EmbedChunkContext {
     pub imports: Vec<String>,
     /// Auto-generated semantic tags (async, security, database, etc.)
     pub tags: Vec<String>,
+    /// Fully qualified calls resolved via import scope
+    pub qualified_calls: Vec<String>,
+    /// Calls that couldn't be resolved via imports
+    pub unresolved_calls: Vec<String>,
     /// Lines of code (excluding blank lines and comments)
     pub lines_of_code: u32,
     /// Maximum nesting depth (control flow, blocks)
