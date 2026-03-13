@@ -31,6 +31,7 @@ use super::error::EmbedError;
 use super::git_enrichment::GitMetadataCollector;
 use super::hasher::hash_content;
 use super::hierarchy::{HierarchyBuilder, HierarchyConfig};
+use super::identifiers::extract_identifiers;
 use super::limits::ResourceLimits;
 use super::progress::ProgressReporter;
 use super::types::{
@@ -505,6 +506,7 @@ impl EmbedChunker {
                     &language,
                     start_line,
                     0, // Initial depth
+                    lang_enum,
                 )?;
                 chunks.extend(split_chunks);
             } else {
@@ -550,7 +552,7 @@ impl EmbedChunker {
         // Handle top-level code if configured
         if self.settings.include_top_level && !symbols.is_empty() {
             if let Some(top_level) =
-                self.extract_top_level(&lines, &symbols, &relative_path, &language)
+                self.extract_top_level(&lines, &symbols, &relative_path, &language, lang_enum)
             {
                 chunks.push(top_level);
             }
@@ -595,6 +597,7 @@ impl EmbedChunker {
         language: &str,
         base_line: u32,
         depth: u32,
+        lang_enum: Option<Language>,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Depth limit to prevent stack overflow
         if !self.limits.check_recursion_depth(depth) {
@@ -656,6 +659,7 @@ impl EmbedChunker {
             if tokens >= self.settings.min_tokens {
                 let hash = hash_content(&part_content);
                 let part_keywords = extract_keywords(&part_content);
+                let part_identifiers = extract_identifiers(&part_content, lang_enum);
                 let part_prefix =
                     Some(generate_context_prefix(file, Some(&symbol.name), &symbol.kind));
 
@@ -683,6 +687,7 @@ impl EmbedChunker {
                     // Each part should be self-contained for semantic search
                     docstring: symbol.docstring.clone(),
                     keywords: part_keywords,
+                    identifiers: part_identifiers,
                     context_prefix: part_prefix,
                     ..Default::default()
                 };
@@ -730,6 +735,7 @@ impl EmbedChunker {
         symbols: &[Symbol],
         file: &str,
         language: &str,
+        lang_enum: Option<Language>,
     ) -> Option<EmbedChunk> {
         if lines.is_empty() || symbols.is_empty() {
             return None;
@@ -771,6 +777,7 @@ impl EmbedChunker {
 
         let hash = hash_content(&content);
         let keywords = extract_keywords(&content);
+        let top_identifiers = extract_identifiers(&content, lang_enum);
         let context_prefix =
             Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
 
@@ -785,7 +792,12 @@ impl EmbedChunker {
             visibility: Visibility::Public,
             is_test: false,
         };
-        let mut top_context = ChunkContext { keywords, context_prefix, ..Default::default() };
+        let mut top_context = ChunkContext {
+            keywords,
+            identifiers: top_identifiers,
+            context_prefix,
+            ..Default::default()
+        };
         top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
 
         Some(EmbedChunk {
@@ -825,6 +837,7 @@ impl EmbedChunker {
             summary: None,                // Populated after source is built
             qualified_calls: Vec::new(),  // Populated by ImportResolver
             unresolved_calls: Vec::new(), // Populated by ImportResolver
+            identifiers: extract_identifiers(content, lang),
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled
@@ -1728,7 +1741,7 @@ fn truncate_signature(sig: &str, max_len: usize) -> String {
 /// - "getUserName" -> ["get", "User", "Name"]
 /// - "get_user_name" -> ["get", "user", "name"]
 /// - "HTTPClient" -> ["HTTP", "Client"]
-fn split_identifier(ident: &str) -> Vec<String> {
+pub(crate) fn split_identifier(ident: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
 

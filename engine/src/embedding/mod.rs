@@ -89,6 +89,7 @@ mod error;
 pub mod git_enrichment;
 mod hasher;
 mod hierarchy;
+pub mod identifiers;
 pub mod import_resolver;
 mod limits;
 mod manifest;
@@ -120,6 +121,7 @@ pub use hasher::{hash_content, HashResult};
 pub use hierarchy::{
     get_hierarchy_summary, ChildReference, HierarchyBuilder, HierarchyConfig, HierarchySummary,
 };
+pub use identifiers::extract_identifiers;
 pub use import_resolver::ImportResolver;
 pub use limits::ResourceLimits;
 pub use manifest::{

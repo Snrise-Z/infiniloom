@@ -556,6 +556,7 @@ impl ChunkStream {
                     summary: None,
                     qualified_calls: Vec::new(),
                     unresolved_calls: Vec::new(),
+                    identifiers: None,
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                     git: None,

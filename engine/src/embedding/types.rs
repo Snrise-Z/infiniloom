@@ -256,6 +256,12 @@ pub struct ChunkContext {
     /// These are raw call names that had no matching import or local definition.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unresolved_calls: Vec<String>,
+    /// Space-separated string of all unique identifiers extracted from the chunk,
+    /// optimized for BM25/sparse text indexing. Includes both original identifiers
+    /// and their camelCase/snake_case split parts, all lowercased.
+    /// Language keywords and single-character identifiers are filtered out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifiers: Option<String>,
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
     /// Lines of code in this chunk (excluding blank lines and comments)
