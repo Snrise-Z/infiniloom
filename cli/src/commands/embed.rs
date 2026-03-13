@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use infiniloom_engine::embedding::{
-    DiffSummary, EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest, EmbedSettings, ManifestEntry,
-    ModifiedChunk, QuietProgress, RemovedChunk, ResourceLimits, TerminalProgress,
+    generate_graph_export, DiffSummary, EmbedChunk, EmbedChunker, EmbedDiff, EmbedManifest,
+    EmbedSettings, ManifestEntry, ModifiedChunk, QuietProgress, RemovedChunk, ResourceLimits,
+    TerminalProgress,
 };
 use infiniloom_engine::git::GitRepo;
 
@@ -80,6 +81,10 @@ pub(crate) struct EmbedConfig {
     pub embedding_dims: u32,
     /// Use SQLite for manifest storage instead of bincode
     pub sqlite_manifest: bool,
+    /// Generate Neptune-compatible graph files
+    pub graph_export: bool,
+    /// Output directory for graph files
+    pub graph_dir: PathBuf,
 }
 
 impl Default for EmbedConfig {
@@ -90,14 +95,13 @@ impl Default for EmbedConfig {
             output_file: None,
             manifest_path: PathBuf::from(".infiniloom-embed.bin"),
             diff_only: false,
-            // Defaults match EmbedSettings in engine for consistency
-            max_tokens: 1000, // Matches EmbedSettings::default().max_tokens
-            min_tokens: 50,   // Matches EmbedSettings::default().min_tokens
-            context_lines: 5, // Matches EmbedSettings::default().context_lines
+            max_tokens: 1000,
+            min_tokens: 50,
+            context_lines: 5,
             token_model: "claude".to_owned(),
-            include_imports: true, // Include imports by default for dependency tracking
+            include_imports: true,
             include_top_level: true,
-            security_scan: true, // Enable security scanning by default for safety
+            security_scan: true,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
             include_tests: false,
@@ -112,6 +116,8 @@ impl Default for EmbedConfig {
             generate_schema: None,
             embedding_dims: infiniloom_engine::embedding::pgvector_schema::DEFAULT_EMBEDDING_DIMS,
             sqlite_manifest: false,
+            graph_export: false,
+            graph_dir: PathBuf::from("./graph/"),
         }
     }
 }
@@ -452,6 +458,11 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     manifest
         .save(&manifest_path)
         .context("Failed to save manifest")?;
+
+    // Generate graph export if requested
+    if config.graph_export {
+        write_graph_export(&final_chunks, &config.graph_dir, config.quiet)?;
+    }
 
     // Print statistics if not quiet and (outputting to file or verbose mode)
     if !config.quiet && (config.output_file.is_some() || config.verbose) {
@@ -842,6 +853,45 @@ fn output_json(
     };
 
     writeln!(writer, "{}", serde_json::to_string_pretty(&output)?)?;
+
+    Ok(())
+}
+
+/// Write Neptune-compatible graph files (vertices.jsonl + edges.jsonl)
+fn write_graph_export(
+    chunks: &[EmbedChunk],
+    graph_dir: &std::path::Path,
+    quiet: bool,
+) -> Result<()> {
+    let graph = generate_graph_export(chunks);
+
+    // Create output directory
+    std::fs::create_dir_all(graph_dir)
+        .with_context(|| format!("Failed to create graph directory: {}", graph_dir.display()))?;
+
+    // Write vertices.jsonl
+    let vertices_path = graph_dir.join("vertices.jsonl");
+    let mut vfile =
+        std::fs::File::create(&vertices_path).context("Failed to create vertices.jsonl")?;
+    for vertex in &graph.vertices {
+        writeln!(vfile, "{}", serde_json::to_string(vertex)?)?;
+    }
+
+    // Write edges.jsonl
+    let edges_path = graph_dir.join("edges.jsonl");
+    let mut efile = std::fs::File::create(&edges_path).context("Failed to create edges.jsonl")?;
+    for edge in &graph.edges {
+        writeln!(efile, "{}", serde_json::to_string(edge)?)?;
+    }
+
+    if !quiet {
+        eprintln!(
+            "  Graph export: {} vertices, {} edges -> {}",
+            graph.vertices.len(),
+            graph.edges.len(),
+            graph_dir.display()
+        );
+    }
 
     Ok(())
 }

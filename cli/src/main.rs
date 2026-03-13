@@ -642,6 +642,14 @@ enum Commands {
         /// Requires the sqlite-manifest feature. Manifest stored as .infiniloom-embed.db
         #[arg(long)]
         sqlite_manifest: bool,
+
+        /// Generate Neptune-compatible graph files (vertices.jsonl + edges.jsonl)
+        #[arg(long)]
+        graph_export: bool,
+
+        /// Output directory for graph files (default: ./graph/)
+        #[arg(long, default_value = "./graph/")]
+        graph_dir: PathBuf,
     },
 
     /// Ingest a document and convert to LLM-optimized format
@@ -1273,6 +1281,8 @@ fn run_command(cli: Cli) -> Result<()> {
             generate_schema,
             embedding_dims,
             sqlite_manifest,
+            graph_export,
+            graph_dir,
         } => {
             let config = commands::EmbedConfig {
                 path,
@@ -1301,6 +1311,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 generate_schema,
                 embedding_dims,
                 sqlite_manifest,
+                graph_export,
+                graph_dir,
             };
             // Map embed errors to CliError for semantic exit codes
             commands::cmd_embed(config).map_err(|e| {

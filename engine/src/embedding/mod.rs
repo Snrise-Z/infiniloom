@@ -87,6 +87,7 @@ mod complexity;
 mod contract_detection;
 mod error;
 pub mod git_enrichment;
+mod graph_export;
 mod hasher;
 mod hierarchy;
 pub mod identifiers;
@@ -117,6 +118,7 @@ pub use contract_detection::{
     ServiceDef,
 };
 pub use error::{sanitize_path, sanitize_pathbuf, EmbedError, SafePath};
+pub use graph_export::{generate_graph_export, GraphEdge, GraphExport, GraphVertex};
 pub use hasher::{hash_content, HashResult};
 pub use hierarchy::{
     get_hierarchy_summary, ChildReference, HierarchyBuilder, HierarchyConfig, HierarchySummary,
