@@ -557,6 +557,7 @@ impl ChunkStream {
                     lines_of_code: 0,
                     max_nesting_depth: 0,
                     git: None,
+                    complexity_score: None,
                 },
                 part: None,
             });

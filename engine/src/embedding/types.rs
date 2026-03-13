@@ -258,12 +258,18 @@ pub struct ChunkContext {
     /// Higher values indicate more complex logic; useful for prioritizing review
     #[serde(skip_serializing_if = "is_zero", default)]
     pub max_nesting_depth: u32,
-
     // === Git Metadata ===
     /// Git version control metadata (change frequency, authors, last modified)
     /// Only populated when `EmbedSettings::git_metadata` is enabled
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<GitMetadata>,
+    /// Cyclomatic complexity score (1 + number of branch points)
+    /// Computed via Tree-sitter AST analysis of the chunk's source code.
+    /// A score of 1 means linear code with no branching.
+    /// Higher scores indicate more complex control flow; useful for filtering
+    /// and prioritizing code review in RAG applications.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complexity_score: Option<u32>,
 }
 
 /// Helper for serde skip_serializing_if

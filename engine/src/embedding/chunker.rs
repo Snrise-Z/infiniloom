@@ -448,6 +448,7 @@ impl EmbedChunker {
             }
         }
         let language = self.detect_language(path);
+        let lang_enum = self.detect_language_enum(path);
 
         // Use thread-local parser (from parser module)
         let mut symbols = parse_file_symbols(&content, path);
@@ -495,7 +496,8 @@ impl EmbedChunker {
                 let hash = hash_content(&chunk_content);
 
                 // Extract context (with complexity metrics)
-                let mut context = self.extract_context(symbol, &chunk_content, &relative_path);
+                let mut context =
+                    self.extract_context(symbol, &chunk_content, &relative_path, lang_enum);
 
                 // Compute fully qualified name for symbol disambiguation
                 let fqn = self.compute_fqn(&relative_path, symbol);
@@ -783,7 +785,13 @@ impl EmbedChunker {
     }
 
     /// Extract semantic context for retrieval
-    fn extract_context(&self, symbol: &Symbol, content: &str, file_path: &str) -> ChunkContext {
+    fn extract_context(
+        &self,
+        symbol: &Symbol,
+        content: &str,
+        file_path: &str,
+        lang: Option<Language>,
+    ) -> ChunkContext {
         ChunkContext {
             docstring: symbol.docstring.clone(),
             comments: Vec::new(), // TODO: Extract inline comments
@@ -802,6 +810,7 @@ impl EmbedChunker {
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled
+            complexity_score: lang.and_then(|l| super::complexity::compute_complexity(content, l)),
         }
     }
 
@@ -1409,6 +1418,13 @@ impl EmbedChunker {
             .and_then(|e| e.to_str())
             .and_then(Language::from_extension)
             .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
+    }
+
+    /// Detect the Language enum for a file path (returns None for unsupported extensions)
+    fn detect_language_enum(&self, path: &Path) -> Option<Language> {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .and_then(Language::from_extension)
     }
 
     /// Parse token model string

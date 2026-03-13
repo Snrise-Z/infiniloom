@@ -83,6 +83,7 @@ mod audit;
 mod batch;
 mod checkpoint;
 mod chunker;
+mod complexity;
 mod error;
 pub mod git_enrichment;
 mod hasher;
@@ -104,6 +105,7 @@ pub use checkpoint::{
     ChunkReference, EmbedCheckpoint, CHECKPOINT_VERSION,
 };
 pub use chunker::EmbedChunker;
+pub use complexity::compute_complexity;
 pub use error::{sanitize_path, sanitize_pathbuf, EmbedError, SafePath};
 pub use hasher::{hash_content, HashResult};
 pub use hierarchy::{

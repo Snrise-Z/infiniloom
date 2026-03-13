@@ -259,6 +259,7 @@ impl HierarchyBuilder {
                 lines_of_code: 0,
                 max_nesting_depth: 0,
                 git: container.context.git.clone(),
+                complexity_score: None,
             },
             part: None,
         })
@@ -435,6 +436,7 @@ mod tests {
                 lines_of_code: 10,
                 max_nesting_depth: 2,
                 git: None,
+                complexity_score: None,
             },
             part: None,
         }
