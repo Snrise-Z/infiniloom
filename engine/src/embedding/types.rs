@@ -262,6 +262,22 @@ pub struct ChunkContext {
     /// Language keywords and single-character identifiers are filtered out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifiers: Option<String>,
+
+    /// Full type signature: "fn verify_token(token: &str) -> Result<Claims, AuthError>"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_signature: Option<String>,
+
+    /// Individual parameter types: ["i32", "&str"]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameter_types: Vec<String>,
+
+    /// Return type: "Result<Claims, AuthError>"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
+
+    /// Error/exception types: ["AuthError"]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_types: Vec<String>,
     // === Complexity Metrics ===
     // These enable filtering by code complexity in RAG applications
     /// Lines of code in this chunk (excluding blank lines and comments)

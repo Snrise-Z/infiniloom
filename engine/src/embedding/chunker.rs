@@ -34,6 +34,7 @@ use super::hierarchy::{HierarchyBuilder, HierarchyConfig};
 use super::identifiers::extract_identifiers;
 use super::limits::ResourceLimits;
 use super::progress::ProgressReporter;
+use super::type_extraction;
 use super::types::{
     ChunkContext, ChunkKind, ChunkPart, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier,
     Visibility,
@@ -555,7 +556,7 @@ impl EmbedChunker {
 
                 // Extract context (with complexity metrics)
                 let mut context =
-                    self.extract_context(symbol, &chunk_content, &relative_path, lang_enum);
+                    self.extract_context(symbol, &chunk_content, &relative_path, path);
 
                 // Compute fully qualified name for symbol disambiguation
                 let fqn = self.compute_fqn(&relative_path, symbol);
@@ -858,8 +859,37 @@ impl EmbedChunker {
         symbol: &Symbol,
         content: &str,
         file_path: &str,
-        lang: Option<Language>,
+        source_path: &Path,
     ) -> ChunkContext {
+        // Detect language for type extraction and complexity scoring
+        let lang = source_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(Language::from_extension);
+
+        // Extract type information via Tree-sitter if this is a function/method
+        let (type_signature, parameter_types, return_type, error_types) = if matches!(
+            symbol.kind,
+            crate::types::SymbolKind::Function | crate::types::SymbolKind::Method
+        ) {
+            if let Some(lang) = lang {
+                if let Some(type_info) = type_extraction::extract_types(content, lang) {
+                    (
+                        type_info.type_signature,
+                        type_info.parameter_types,
+                        type_info.return_type,
+                        type_info.error_types,
+                    )
+                } else {
+                    (None, Vec::new(), None, Vec::new())
+                }
+            } else {
+                (None, Vec::new(), None, Vec::new())
+            }
+        } else {
+            (None, Vec::new(), None, Vec::new())
+        };
+
         ChunkContext {
             docstring: symbol.docstring.clone(),
             comments: Vec::new(), // TODO: Extract inline comments
@@ -878,6 +908,10 @@ impl EmbedChunker {
             qualified_calls: Vec::new(),  // Populated by ImportResolver
             unresolved_calls: Vec::new(), // Populated by ImportResolver
             identifiers: extract_identifiers(content, lang),
+            type_signature,
+            parameter_types,
+            return_type,
+            error_types,
             lines_of_code: self.count_lines_of_code(content),
             max_nesting_depth: self.calculate_nesting_depth(content),
             git: None, // Populated later by enrich_with_git_metadata if enabled

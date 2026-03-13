@@ -45,6 +45,11 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             tags: chunk.context.tags.clone(),
             qualified_calls: chunk.context.qualified_calls.clone(),
             unresolved_calls: chunk.context.unresolved_calls.clone(),
+
+            type_signature: chunk.context.type_signature.clone(),
+            parameter_types: chunk.context.parameter_types.clone(),
+            return_type: chunk.context.return_type.clone(),
+            error_types: chunk.context.error_types.clone(),
             lines_of_code: chunk.context.lines_of_code,
             max_nesting_depth: chunk.context.max_nesting_depth,
         },

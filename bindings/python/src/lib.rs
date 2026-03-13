@@ -3087,6 +3087,23 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
             .set_item("unresolved_calls", chunk.context.unresolved_calls.clone())
             .unwrap();
     }
+
+    if let Some(ref type_signature) = chunk.context.type_signature {
+        context.set_item("type_signature", type_signature).unwrap();
+    }
+    if !chunk.context.parameter_types.is_empty() {
+        context
+            .set_item("parameter_types", chunk.context.parameter_types.clone())
+            .unwrap();
+    }
+    if let Some(ref return_type) = chunk.context.return_type {
+        context.set_item("return_type", return_type).unwrap();
+    }
+    if !chunk.context.error_types.is_empty() {
+        context
+            .set_item("error_types", chunk.context.error_types.clone())
+            .unwrap();
+    }
     dict.set_item("context", context).unwrap();
 
     // Part information (for split chunks)

@@ -100,6 +100,7 @@ mod progress;
 #[cfg(feature = "sqlite-manifest")]
 pub mod sqlite_manifest;
 mod streaming;
+pub mod type_extraction;
 mod types;
 
 // Re-export public types

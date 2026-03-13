@@ -837,6 +837,15 @@ pub struct EmbedChunkContext {
     pub qualified_calls: Vec<String>,
     /// Calls that couldn't be resolved via imports
     pub unresolved_calls: Vec<String>,
+
+    /// Clean type signature: "(i32, &str) -> Result<Claims, AuthError>"
+    pub type_signature: Option<String>,
+    /// Individual parameter types: ["i32", "&str"]
+    pub parameter_types: Vec<String>,
+    /// Return type: "Result<Claims, AuthError>"
+    pub return_type: Option<String>,
+    /// Error/exception types: ["AuthError"]
+    pub error_types: Vec<String>,
     /// Lines of code (excluding blank lines and comments)
     pub lines_of_code: u32,
     /// Maximum nesting depth (control flow, blocks)

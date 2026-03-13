@@ -926,6 +926,22 @@ class EmbedChunkContext(BaseModel):
     tags: list[str] = Field(
         description="Auto-generated semantic tags (async, security, database, etc.)"
     )
+    type_signature: str | None = Field(
+        default=None,
+        description='Clean type signature: "(i32, &str) -> Result<Claims, AuthError>"',
+    )
+    parameter_types: list[str] = Field(
+        default_factory=list,
+        description='Individual parameter types: ["i32", "&str"]',
+    )
+    return_type: str | None = Field(
+        default=None,
+        description='Return type: "Result<Claims, AuthError>"',
+    )
+    error_types: list[str] = Field(
+        default_factory=list,
+        description='Error/exception types: ["AuthError"]',
+    )
     lines_of_code: Annotated[int, Field(ge=0)] = Field(
         description="Lines of code (excluding blank lines and comments)"
     )
