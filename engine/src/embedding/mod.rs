@@ -92,6 +92,7 @@ pub mod import_resolver;
 mod limits;
 mod manifest;
 mod normalizer;
+pub mod pgvector_schema;
 mod progress;
 mod streaming;
 mod types;

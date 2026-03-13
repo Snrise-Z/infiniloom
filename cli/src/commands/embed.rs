@@ -74,6 +74,10 @@ pub(crate) struct EmbedConfig {
     pub quiet: bool,
     /// JSON output (for statistics)
     pub json_stats: bool,
+    /// Generate database schema and exit (e.g., "pgvector")
+    pub generate_schema: Option<String>,
+    /// Embedding vector dimensions for schema generation
+    pub embedding_dims: u32,
 }
 
 impl Default for EmbedConfig {
@@ -103,6 +107,8 @@ impl Default for EmbedConfig {
             verbose: false,
             quiet: false,
             json_stats: false,
+            generate_schema: None,
+            embedding_dims: infiniloom_engine::embedding::pgvector_schema::DEFAULT_EMBEDDING_DIMS,
         }
     }
 }
@@ -150,6 +156,11 @@ fn get_head_commit(repo_path: &Path) -> Result<String> {
 
 /// Run the embed command
 pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
+    // Handle --generate-schema: print schema and exit without running embedding
+    if let Some(ref schema_type) = config.generate_schema {
+        return generate_schema(schema_type, config.embedding_dims);
+    }
+
     let start = Instant::now();
 
     // Build settings
@@ -748,5 +759,34 @@ fn print_statistics(
         eprintln!();
         eprintln!("  Elapsed:       {:?}", elapsed);
         eprintln!();
+    }
+}
+
+/// Generate a database schema and print it to stdout.
+///
+/// Currently supports: "pgvector"
+fn generate_schema(schema_type: &str, embedding_dims: u32) -> Result<()> {
+    match schema_type.to_lowercase().as_str() {
+        "pgvector" | "pg_vector" | "pg" => {
+            use infiniloom_engine::embedding::pgvector_schema;
+
+            if embedding_dims < pgvector_schema::MIN_EMBEDDING_DIMS
+                || embedding_dims > pgvector_schema::MAX_EMBEDDING_DIMS
+            {
+                anyhow::bail!(
+                    "Embedding dimensions must be between {} and {}, got {}",
+                    pgvector_schema::MIN_EMBEDDING_DIMS,
+                    pgvector_schema::MAX_EMBEDDING_DIMS,
+                    embedding_dims,
+                );
+            }
+
+            let schema = pgvector_schema::generate_pgvector_schema(embedding_dims);
+            print!("{schema}");
+            Ok(())
+        },
+        other => {
+            anyhow::bail!("Unsupported schema type: '{}'. Supported types: pgvector", other);
+        },
     }
 }

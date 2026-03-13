@@ -629,6 +629,14 @@ enum Commands {
         /// Output statistics as JSON (to stderr)
         #[arg(long)]
         json_stats: bool,
+
+        /// Generate database schema and exit (supported: pgvector)
+        #[arg(long)]
+        generate_schema: Option<String>,
+
+        /// Embedding vector dimensions for schema generation (default: 1536)
+        #[arg(long, default_value = "1536")]
+        embedding_dims: u32,
     },
 
     /// Ingest a document and convert to LLM-optimized format
@@ -1257,6 +1265,8 @@ fn run_command(cli: Cli) -> Result<()> {
             verbose,
             quiet,
             json_stats,
+            generate_schema,
+            embedding_dims,
         } => {
             let config = commands::EmbedConfig {
                 path,
@@ -1282,6 +1292,8 @@ fn run_command(cli: Cli) -> Result<()> {
                 verbose,
                 quiet,
                 json_stats,
+                generate_schema,
+                embedding_dims,
             };
             // Map embed errors to CliError for semantic exit codes
             commands::cmd_embed(config).map_err(|e| {
