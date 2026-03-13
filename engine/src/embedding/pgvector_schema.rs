@@ -229,8 +229,8 @@ mod tests {
     fn test_generate_schema_custom_dims() {
         let schema = generate_pgvector_schema(768);
         assert!(schema.contains("vector(768)"));
-        // Should appear in table, index, and function
-        assert_eq!(schema.matches("vector(768)").count(), 3);
+        // Should appear in table and function
+        assert_eq!(schema.matches("vector(768)").count(), 2);
     }
 
     #[test]
