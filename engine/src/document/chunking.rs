@@ -73,7 +73,7 @@ fn flatten_sections(sections: &[Section], parent_breadcrumb: &str) -> Vec<Sectio
         } else if let Some(title) = &section.title {
             format!("{} > {}", parent_breadcrumb, title)
         } else {
-            parent_breadcrumb.to_string()
+            parent_breadcrumb.to_owned()
         };
 
         // Create a candidate for this section without its children

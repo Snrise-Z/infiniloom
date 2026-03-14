@@ -252,7 +252,7 @@ impl EmbedChunker {
         let results: Vec<Result<Vec<EmbedChunk>, (PathBuf, EmbedError)>> = files
             .par_iter()
             .map(|file| {
-                let result = self.chunk_file(file, &repo_root);
+                let result = self.chunk_file(file, repo_root);
 
                 // Update progress
                 let done = processed.fetch_add(1, Ordering::Relaxed) + 1;
@@ -395,7 +395,7 @@ impl EmbedChunker {
         // Phase 6: Enrich with git metadata (if enabled)
         if self.settings.git_metadata {
             progress.set_phase("Collecting git metadata...");
-            self.enrich_with_git_metadata(&mut all_chunks, &repo_root);
+            self.enrich_with_git_metadata(&mut all_chunks, repo_root);
         }
 
         progress.set_phase("Complete");
@@ -577,7 +577,7 @@ impl EmbedChunker {
                 });
                 let line = serde_json::to_string(&chunk_json).map_err(|e| EmbedError::IoError {
                     path: repo_path.to_path_buf(),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, e),
+                    source: std::io::Error::other(e),
                 })?;
                 writeln!(writer, "{}", line).map_err(|e| EmbedError::IoError {
                     path: repo_path.to_path_buf(),
@@ -761,7 +761,7 @@ impl EmbedChunker {
                         ..Default::default()
                     },
                     children_ids: Vec::new(),
-                    repr: "signature".to_string(),
+                    repr: "signature".to_owned(),
                     code_chunk_id: Some(chunk.id.clone()),
                     part: None,
                 }
@@ -2109,10 +2109,7 @@ fn file_path_to_module(file_path: &str) -> String {
         .unwrap_or(&path);
 
     // Drop file extension
-    let without_ext = stripped
-        .rsplit_once('.')
-        .map(|(base, _)| base)
-        .unwrap_or(stripped);
+    let without_ext = stripped.rsplit_once('.').map_or(stripped, |(base, _)| base);
 
     // Replace / with ::
     without_ext.replace('/', "::")

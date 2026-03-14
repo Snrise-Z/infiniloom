@@ -272,7 +272,7 @@ impl HierarchyBuilder {
                 complexity_score: None,
                 dependents_count: None,
             },
-            repr: "code".to_string(),
+            repr: "code".to_owned(),
             code_chunk_id: None,
             part: None,
         })

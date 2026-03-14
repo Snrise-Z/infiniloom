@@ -436,8 +436,13 @@ mod tests {
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
+                module_path: None,
+                parent_chunk_id: None,
             },
             context: ChunkContext::default(),
+            children_ids: Vec::new(),
+            repr: "code".to_owned(),
+            code_chunk_id: None,
             part: None,
         }
     }

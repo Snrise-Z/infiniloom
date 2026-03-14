@@ -83,7 +83,7 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
             return Err(InfiniloomError::not_supported(
                 "PDF parsing requires the 'document-pdf' feature. \
                  Rebuild with: cargo build --features document-pdf"
-                    .to_string(),
+                    .to_owned(),
             ));
         }
     } else if format == DocumentFormat::Xlsx {
@@ -99,7 +99,7 @@ pub fn parse_document(path: &Path, options: &ParseOptions) -> Result<Document, I
             return Err(InfiniloomError::not_supported(
                 "XLSX parsing requires the 'document-xlsx' feature. \
                  Rebuild with: cargo build --features document-xlsx"
-                    .to_string(),
+                    .to_owned(),
             ));
         }
     } else {

@@ -147,7 +147,7 @@ pub struct EmbedChunk {
 
 /// Default representation type for chunks
 pub(super) fn default_repr() -> String {
-    "code".to_string()
+    "code".to_owned()
 }
 
 /// Source location metadata for a chunk

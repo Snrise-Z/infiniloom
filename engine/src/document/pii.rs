@@ -186,7 +186,7 @@ fn luhn_check(digits: &str) -> bool {
             }
         })
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Validate SSN area/group/serial rules to reduce false positives.

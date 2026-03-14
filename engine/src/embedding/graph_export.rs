@@ -180,7 +180,7 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
         for file in &files {
             if let Some(module_path) = derive_module_path(file) {
                 if modules.contains(&module_path) {
-                    mf.entry(modules.get(&module_path).map(|s| s.as_str()).unwrap_or(""))
+                    mf.entry(modules.get(&module_path).map_or("", |s| s.as_str()))
                         .or_default()
                         .push(file);
                 }

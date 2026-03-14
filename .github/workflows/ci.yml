@@ -71,6 +71,34 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  # All Features Build (validates feature-gated code)
+  all-features:
+    name: All Features Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-all-features-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build with all features
+        run: cargo build --workspace --all-features
+
+      - name: Test with all features
+        run: cargo test --workspace --all-features
+
   # Python Bindings
   python-bindings:
     name: Python Bindings

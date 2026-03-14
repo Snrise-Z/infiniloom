@@ -459,11 +459,10 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
                 );
             }
 
-            m.settings = settings.clone();
+            m.settings = settings;
             m
         } else {
-            let mut m =
-                EmbedManifest::new(config.path.to_string_lossy().to_string(), settings.clone());
+            let mut m = EmbedManifest::new(config.path.to_string_lossy().to_string(), settings);
             m.update(&final_chunks)
                 .context("Failed to update manifest")?;
             m
@@ -636,55 +635,6 @@ fn output_and_save(
         manifest
             .save(manifest_path)
             .context("Failed to save manifest")?;
-    }
-
-    Ok(())
-}
-
-/// Run embed command with SQLite manifest backend
-#[cfg(feature = "sqlite-manifest")]
-fn cmd_embed_sqlite(
-    config: EmbedConfig,
-    settings: EmbedSettings,
-    chunks: Vec<EmbedChunk>,
-    elapsed: std::time::Duration,
-    manifest_path: &std::path::Path,
-) -> Result<()> {
-    use infiniloom_engine::embedding::SqliteManifest;
-
-    // Open or create SQLite manifest
-    let mut sqlite_manifest =
-        SqliteManifest::new(manifest_path).context("Failed to open SQLite manifest")?;
-
-    // Initialize if needed (first run)
-    sqlite_manifest
-        .init(config.path.to_string_lossy().to_string(), &settings)
-        .context("Failed to initialize SQLite manifest")?;
-
-    // Compute diff against existing state
-    let diff = sqlite_manifest
-        .diff(&chunks)
-        .context("Failed to compute diff")?;
-    let diff_ref = Some(&diff);
-
-    // Output chunks or diff
-    match config.output_format {
-        EmbedOutputFormat::Jsonl => {
-            output_jsonl(&config, &chunks, diff_ref, &settings, elapsed)?;
-        },
-        EmbedOutputFormat::Json => {
-            output_json(&config, &chunks, diff_ref, &settings, elapsed)?;
-        },
-    }
-
-    // Update manifest with current chunks
-    sqlite_manifest
-        .save_chunks(&chunks)
-        .context("Failed to save chunks to SQLite manifest")?;
-
-    // Print statistics if not quiet and (outputting to file or verbose mode)
-    if !config.quiet && (config.output_file.is_some() || config.verbose) {
-        print_statistics(&chunks, diff_ref, elapsed, config.json_stats);
     }
 
     Ok(())
@@ -988,11 +938,7 @@ fn output_json(
 }
 
 /// Write Neptune-compatible graph files (vertices.jsonl + edges.jsonl)
-fn write_graph_export(
-    chunks: &[EmbedChunk],
-    graph_dir: &std::path::Path,
-    quiet: bool,
-) -> Result<()> {
+fn write_graph_export(chunks: &[EmbedChunk], graph_dir: &Path, quiet: bool) -> Result<()> {
     let graph = generate_graph_export(chunks);
 
     // Create output directory
@@ -1086,8 +1032,8 @@ fn generate_schema(schema_type: &str, embedding_dims: u32) -> Result<()> {
         "pgvector" | "pg_vector" | "pg" => {
             use infiniloom_engine::embedding::pgvector_schema;
 
-            if embedding_dims < pgvector_schema::MIN_EMBEDDING_DIMS
-                || embedding_dims > pgvector_schema::MAX_EMBEDDING_DIMS
+            if !(pgvector_schema::MIN_EMBEDDING_DIMS..=pgvector_schema::MAX_EMBEDDING_DIMS)
+                .contains(&embedding_dims)
             {
                 anyhow::bail!(
                     "Embedding dimensions must be between {} and {}, got {}",

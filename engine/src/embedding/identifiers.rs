@@ -69,7 +69,7 @@ fn should_include(lower: &str, keywords: &HashSet<&str>) -> bool {
     }
 
     // Filter language keywords
-    if keywords.contains(&*lower) {
+    if keywords.contains(lower) {
         return false;
     }
 
@@ -128,7 +128,7 @@ fn collect_identifiers_recursive(
     if is_identifier_node(kind) {
         if let Ok(text) = node.utf8_text(source) {
             if !text.is_empty() && text.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                identifiers.push(text.to_string());
+                identifiers.push(text.to_owned());
             }
         }
     }
@@ -168,7 +168,7 @@ fn fallback_extraction(content: &str) -> Vec<String> {
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|s| !s.is_empty() && s.len() >= 2)
         .filter(|s| s.chars().any(|c| c.is_alphabetic()))
-        .map(|s| s.to_string())
+        .map(|s| s.to_owned())
         .collect()
 }
 

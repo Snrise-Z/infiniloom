@@ -221,11 +221,11 @@ pub fn detect_contracts(content: &str, file_path: &str) -> Option<ContractDefini
 /// assert!(tags.contains(&"grpc".to_string()));
 /// ```
 pub fn contract_tags(contract: &ContractDefinition) -> Vec<String> {
-    let mut tags = vec!["protobuf".to_string(), "api-contract".to_string()];
+    let mut tags = vec!["protobuf".to_owned(), "api-contract".to_owned()];
 
     // Add "grpc" if services present
     if !contract.services.is_empty() {
-        tags.push("grpc".to_string());
+        tags.push("grpc".to_owned());
     }
 
     tags
@@ -242,7 +242,7 @@ fn strip_comments(content: &str) -> String {
                 if next_ch == '/' {
                     // Line comment: skip until end of line
                     chars.next(); // consume second '/'
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == '\n' {
                             result.push('\n'); // preserve line breaks
                             break;
@@ -253,7 +253,7 @@ fn strip_comments(content: &str) -> String {
                     // Block comment: skip until */
                     chars.next(); // consume '*'
                     let mut prev = ' ';
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if prev == '*' && c == '/' {
                             break;
                         }

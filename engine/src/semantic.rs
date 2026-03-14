@@ -615,7 +615,30 @@ impl SemanticCompressor {
     fn compress_with_embeddings(&self, content: &str) -> Result<String> {
         let mut chunks = self.split_into_chunks(content);
 
+        // When no chunks can be created, apply character-level truncation based on budget_ratio.
+        // This ensures budget_ratio always has an effect, even for small/unstructured content.
         if chunks.is_empty() {
+            // Apply truncation if:
+            // 1. budget_ratio < 1.0 (user wants compression)
+            // 2. Content is at least 10 chars (very short content passes through)
+            // 3. The truncation would actually reduce the size
+            if self.config.budget_ratio < 1.0 && content.len() >= 10 {
+                let target_len = (content.len() as f32 * self.config.budget_ratio) as usize;
+                if target_len > 0 && target_len < content.len() {
+                    // Find a safe truncation point (word/line boundary)
+                    let truncate_at = find_safe_truncation_point(content, target_len);
+                    if truncate_at < content.len() && truncate_at > 0 {
+                        let truncated = &content[..truncate_at];
+                        return Ok(format!(
+                            "{}\n/* ... truncated to {:.0}% ({} of {} chars) ... */",
+                            truncated.trim_end(),
+                            self.config.budget_ratio * 100.0,
+                            truncate_at,
+                            content.len()
+                        ));
+                    }
+                }
+            }
             return Ok(content.to_owned());
         }
 
@@ -627,7 +650,39 @@ impl SemanticCompressor {
         // Cluster similar chunks
         let clusters = self.cluster_chunks(&chunks)?;
 
-        // Select representative from each cluster
+        // If everything clusters together (only 1 cluster), fall back to sampling approach
+        // since clustering doesn't provide meaningful compression in this case
+        if clusters.len() == 1 {
+            // Keep every Nth chunk based on budget ratio (same as heuristic approach)
+            let target_chunks = ((chunks.len() as f32) * self.config.budget_ratio).ceil() as usize;
+            let step = chunks.len() / target_chunks.max(1);
+
+            let mut result = String::new();
+            let mut kept = 0;
+
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i % step.max(1) == 0 && kept < target_chunks {
+                    if !result.is_empty() {
+                        result.push_str("\n\n");
+                    }
+                    result.push_str(&chunk.content);
+                    kept += 1;
+                }
+            }
+
+            // Add truncation marker if we removed content
+            if kept < chunks.len() {
+                result.push_str(&format!(
+                    "\n\n/* ... {} chunks compressed ({:.0}% of original) ... */",
+                    chunks.len() - kept,
+                    (kept as f32 / chunks.len() as f32) * 100.0
+                ));
+            }
+
+            return Ok(result);
+        }
+
+        // Multiple clusters: select representative from each cluster
         let mut result = String::new();
         for cluster in clusters.values() {
             if let Some(representative) = self.select_representative(cluster) {
