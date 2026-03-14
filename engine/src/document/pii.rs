@@ -237,9 +237,17 @@ fn is_valid_iban(iban: &str) -> bool {
     // MOD 97 on the large number (process in chunks to avoid overflow)
     let mut remainder: u64 = 0;
     for chunk in numeric.as_bytes().chunks(9) {
-        let s = std::str::from_utf8(chunk).unwrap_or("0");
+        // Safety: `numeric` is built from ASCII digits only, so from_utf8 and parse
+        // should never fail. If they do, the IBAN is structurally invalid.
+        let s = match std::str::from_utf8(chunk) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
         let combined = format!("{remainder}{s}");
-        remainder = combined.parse::<u64>().unwrap_or(0) % 97;
+        remainder = match combined.parse::<u64>() {
+            Ok(n) => n % 97,
+            Err(_) => return false,
+        };
     }
     remainder == 1
 }
@@ -1622,5 +1630,20 @@ mod tests {
         scan_text("SSN: 123-45-6789 email: user@test.com", "test", &mut findings);
         assert!(findings.iter().any(|f| f.kind == PiiKind::Ssn));
         assert!(findings.iter().any(|f| f.kind == PiiKind::Email));
+    }
+
+    // Regression test for #124: IBAN validation must not panic on invalid UTF-8 or
+    // large numeric strings. The old code used unwrap_or which silently masked errors.
+    #[test]
+    fn test_iban_validation_no_panic_on_edge_cases() {
+        // Very long IBAN-like string that could cause parse overflow
+        assert!(!is_valid_iban("DE89999999999999999999999999999999999"));
+        // Minimum-length valid structure but wrong check digits
+        assert!(!is_valid_iban("AB12C"));
+        // All-digit IBAN (no letters in body) — should compute MOD-97 without panic
+        assert!(!is_valid_iban("DE00000000000000000000"));
+        // Valid IBAN still works after the fix
+        assert!(is_valid_iban("DE89370400440532013000"));
+        assert!(is_valid_iban("GB29NWBK60161331926819"));
     }
 }

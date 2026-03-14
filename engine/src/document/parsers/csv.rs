@@ -12,6 +12,10 @@ use crate::error::InfiniloomError;
 /// Prevents unbounded memory allocation from extremely large files.
 const MAX_CSV_ROWS: usize = 1_000_000;
 
+/// Maximum number of columns (cells per row) to parse.
+/// Prevents OOM from a single row with millions of delimiter-separated fields.
+const MAX_CSV_COLUMNS: usize = 10_000;
+
 /// Parse CSV content into a Document containing a table.
 pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, InfiniloomError> {
     let mut doc = Document::new("", DocumentFormat::Csv);
@@ -108,22 +112,27 @@ fn split_csv_line(line: &str, delimiter: char) -> Vec<String> {
             }
         } else if ch == delimiter && !in_quotes {
             fields.push(sanitize_cell(&current));
+            if fields.len() >= MAX_CSV_COLUMNS {
+                break;
+            }
             current = String::new();
         } else {
             current.push(ch);
         }
     }
-    fields.push(sanitize_cell(&current));
+    if fields.len() < MAX_CSV_COLUMNS {
+        fields.push(sanitize_cell(&current));
+    }
     fields
 }
 
-/// Sanitize a cell value to prevent CSV formula injection.
+/// Sanitize a cell value to prevent formula injection in spreadsheet applications.
 ///
 /// When a cell value starts with `=`, `+`, `-`, `@`, `|`, or a tab character
 /// (before or after whitespace trimming), it is prefixed with a single quote
 /// to neutralize potential formula execution when the output is opened in a
 /// spreadsheet application.
-fn sanitize_cell(value: &str) -> String {
+pub(super) fn sanitize_cell(value: &str) -> String {
     let trimmed = value.trim();
     // Check the raw value first (catches leading tabs that trim() would remove),
     // then also check the trimmed value.
@@ -254,5 +263,22 @@ mod tests {
         assert_eq!(t.rows[5][0], "'indented", "tab prefix should be sanitized");
         assert_eq!(t.rows[6][0], "plain", "plain text should be unchanged");
         assert_eq!(t.rows[6][1], "safe", "safe cell should be unchanged");
+    }
+
+    // Regression test for #127: CSV parser must limit columns to prevent DoS
+    #[test]
+    fn test_column_limit_enforced() {
+        // Build a CSV line with more than MAX_CSV_COLUMNS fields
+        let many_headers: String = (0..MAX_CSV_COLUMNS + 100)
+            .map(|i| format!("H{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let doc = parse(&many_headers, &ParseOptions::default()).unwrap();
+        let t = first_table(&doc);
+        assert!(
+            t.headers.len() <= MAX_CSV_COLUMNS,
+            "columns should be capped at MAX_CSV_COLUMNS, got {}",
+            t.headers.len()
+        );
     }
 }

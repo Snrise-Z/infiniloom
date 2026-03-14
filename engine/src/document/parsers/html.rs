@@ -329,12 +329,23 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
 fn strip_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut in_tag = false;
+    let mut in_quote: Option<char> = None; // Track quoted attributes inside tags
     for ch in html.chars() {
-        if ch == '<' {
+        if in_tag {
+            match in_quote {
+                Some(q) if ch == q => in_quote = None,
+                Some(_) => {},
+                None if ch == '"' || ch == '\'' => in_quote = Some(ch),
+                None if ch == '>' => {
+                    in_tag = false;
+                    in_quote = None;
+                },
+                None => {},
+            }
+        } else if ch == '<' {
             in_tag = true;
-        } else if ch == '>' {
-            in_tag = false;
-        } else if !in_tag {
+            in_quote = None;
+        } else {
             result.push(ch);
         }
     }
@@ -594,7 +605,7 @@ fn extract_table(html: &str) -> Option<Table> {
                 .find("</th>")
                 .map_or(html.len(), |e| content_start + e);
             let text = strip_tags(&html[content_start..end]);
-            headers.push(decode_entities(&text).trim().to_owned());
+            headers.push(super::csv::sanitize_cell(&decode_entities(&text)));
             pos = (end + 5).min(html.len());
         } else {
             break;
@@ -623,7 +634,7 @@ fn extract_table(html: &str) -> Option<Table> {
                         .find("</td>")
                         .map_or(tr_html.len(), |e| content_start + e);
                     let text = strip_tags(&tr_html[content_start..td_end]);
-                    cells.push(decode_entities(&text).trim().to_owned());
+                    cells.push(super::csv::sanitize_cell(&decode_entities(&text)));
                     td_pos = (td_end + 5).min(tr_html.len());
                 } else {
                     break;
@@ -778,5 +789,44 @@ mod tests {
         let input = "&euro; and &#8364; and &#x20AC; are all euro";
         let result = decode_entities(input);
         assert_eq!(result, "\u{20AC} and \u{20AC} and \u{20AC} are all euro");
+    }
+
+    // Regression test for #128: strip_tags must handle `>` inside quoted attributes
+    #[test]
+    fn test_strip_tags_quoted_angle_bracket() {
+        let html = r#"<a href="page?x=1&gt;2">link text</a> after"#;
+        let result = strip_tags(html);
+        assert!(result.contains("link text"), "Text inside tag should be preserved");
+        assert!(!result.contains("2\">link"), "Quoted > should not close the tag prematurely");
+    }
+
+    #[test]
+    fn test_strip_tags_single_quoted_attribute() {
+        let html = "<div data-x='a>b'>content</div>";
+        let result = strip_tags(html);
+        assert_eq!(result.trim(), "content");
+    }
+
+    // Regression test for #126: HTML table cells should be sanitized against formula injection
+    #[test]
+    fn test_html_table_formula_injection_sanitized() {
+        let html =
+            "<table><tr><th>=HEADER</th></tr><tr><td>=CMD('calc')</td><td>safe</td></tr></table>";
+        let doc = parse(html, &ParseOptions::default()).unwrap();
+        let table = doc
+            .sections
+            .iter()
+            .flat_map(|s| &s.content)
+            .find_map(|b| {
+                if let ContentBlock::Table(t) = b {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("should have a table");
+        assert_eq!(table.headers[0], "'=HEADER", "header cells should be sanitized");
+        assert_eq!(table.rows[0][0], "'=CMD('calc')", "data cells should be sanitized");
+        assert_eq!(table.rows[0][1], "safe", "safe cells should be unchanged");
     }
 }

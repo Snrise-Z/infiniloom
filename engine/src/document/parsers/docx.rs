@@ -23,6 +23,11 @@ use crate::error::InfiniloomError;
 /// Protects against decompression bombs (zip bombs).
 const MAX_ZIP_ENTRY_SIZE: u64 = 100 * 1024 * 1024;
 
+/// Validate that a ZIP entry name is safe (no path traversal).
+fn is_safe_zip_entry(name: &str) -> bool {
+    !name.contains("..") && !name.starts_with('/') && !name.starts_with('\\')
+}
+
 /// Parse a DOCX file from raw bytes into a [`Document`].
 pub fn parse(content: &[u8], options: &ParseOptions) -> Result<Document, InfiniloomError> {
     let cursor = Cursor::new(content);
@@ -31,6 +36,18 @@ pub fn parse(content: &[u8], options: &ParseOptions) -> Result<Document, Infinil
     })?;
 
     let mut doc = Document::new("", DocumentFormat::Docx);
+
+    // Validate ZIP entry paths to prevent path traversal attacks.
+    for i in 0..archive.len() {
+        if let Ok(entry) = archive.by_index(i) {
+            if !is_safe_zip_entry(entry.name()) {
+                return Err(InfiniloomError::invalid_input(format!(
+                    "DOCX archive contains unsafe path: {}",
+                    entry.name()
+                )));
+            }
+        }
+    }
 
     // Extract metadata from docProps/core.xml (if present).
     // Safety: wrap in a bounded reader to protect against zip bombs where the
@@ -237,7 +254,8 @@ impl BodyParser {
             },
             "tc" if self.in_table => {
                 self.in_table_cell = false;
-                self.current_row.push(self.cell_text.trim().to_owned());
+                self.current_row
+                    .push(super::csv::sanitize_cell(&self.cell_text));
                 self.cell_text.clear();
             },
             "tr" if self.in_table => {
@@ -794,5 +812,16 @@ mod tests {
         assert!(has_paragraph);
         assert!(has_table);
         assert!(has_list);
+    }
+
+    // Regression test for #129: ZIP path traversal validation
+    #[test]
+    fn test_is_safe_zip_entry() {
+        assert!(is_safe_zip_entry("word/document.xml"));
+        assert!(is_safe_zip_entry("[Content_Types].xml"));
+        assert!(!is_safe_zip_entry("../etc/passwd"));
+        assert!(!is_safe_zip_entry("word/../../etc/passwd"));
+        assert!(!is_safe_zip_entry("/absolute/path.xml"));
+        assert!(!is_safe_zip_entry("\\windows\\path.xml"));
     }
 }

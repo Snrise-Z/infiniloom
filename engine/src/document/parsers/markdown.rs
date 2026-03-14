@@ -92,19 +92,15 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
         // Table handling — require leading or trailing pipe to avoid false positives
         // from prose containing | (shell commands, logical expressions, etc.)
         if !line.trim().is_empty() && (line.trim().starts_with('|') || line.trim().ends_with('|')) {
-            let cells: Vec<String> = line
-                .trim()
-                .trim_matches('|')
-                .split('|')
-                .map(|c| c.trim().to_owned())
-                .collect();
+            let raw_cells: Vec<&str> = line.trim().trim_matches('|').split('|').collect();
 
-            // Check if this is a separator row (---|---|---)
-            if cells
-                .iter()
-                .all(|c| c.chars().all(|ch| ch == '-' || ch == ':' || ch == ' '))
-            {
-                table_alignments = cells
+            // Check if this is a separator row (---|---|---) before sanitizing
+            if raw_cells.iter().all(|c| {
+                c.trim()
+                    .chars()
+                    .all(|ch| ch == '-' || ch == ':' || ch == ' ')
+            }) {
+                table_alignments = raw_cells
                     .iter()
                     .map(|c| {
                         let c = c.trim();
@@ -121,6 +117,12 @@ pub fn parse(content: &str, _options: &ParseOptions) -> Result<Document, Infinil
                     .collect();
                 continue;
             }
+
+            // Sanitize cells after separator check (separator dashes start with '-')
+            let cells: Vec<String> = raw_cells
+                .iter()
+                .map(|c| super::csv::sanitize_cell(c))
+                .collect();
 
             if !in_table {
                 flush_paragraph(&mut para_buf, &mut current_section);
@@ -550,5 +552,52 @@ mod tests {
         assert!(!text.contains("title: My Doc"));
         assert!(text.contains("Heading"));
         assert!(text.contains("Content here"));
+    }
+
+    // Regression test for #126: Markdown table cells should be sanitized
+    // against formula injection, but separator rows (---|---) must not be
+    // broken by the sanitization (since `-` is a dangerous prefix).
+    #[test]
+    fn test_table_cell_sanitization() {
+        let md = "# Data\n\n| Name | Value |\n|---|---|\n| =CMD('x') | safe |\n| +1 | ok |\n";
+        let doc = parse(md, &ParseOptions::default()).unwrap();
+        let table = doc
+            .sections
+            .iter()
+            .flat_map(|s| &s.content)
+            .find_map(|b| {
+                if let ContentBlock::Table(t) = b {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("should have a table");
+        assert_eq!(table.headers, vec!["Name", "Value"], "headers should be normal text");
+        assert_eq!(table.rows[0][0], "'=CMD('x')", "= prefix should be sanitized");
+        assert_eq!(table.rows[0][1], "safe", "safe cell unchanged");
+        assert_eq!(table.rows[1][0], "'+1", "+ prefix should be sanitized");
+    }
+
+    #[test]
+    fn test_table_separator_not_broken_by_sanitization() {
+        // Ensure alignment markers still work after sanitization changes
+        let md = "| A | B |\n|:---|---:|\n| 1 | 2 |\n";
+        let doc = parse(md, &ParseOptions::default()).unwrap();
+        let table = doc
+            .sections
+            .iter()
+            .flat_map(|s| &s.content)
+            .find_map(|b| {
+                if let ContentBlock::Table(t) = b {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("should have a table");
+        assert_eq!(table.alignments[0], Alignment::Left);
+        assert_eq!(table.alignments[1], Alignment::Right);
+        assert_eq!(table.rows.len(), 1);
     }
 }
