@@ -39,7 +39,7 @@ fn extract_function_signature(code: &str, lang: Language) -> Option<TypeSignatur
         Language::Python => "(function_definition) @func",
         Language::TypeScript | Language::JavaScript => {
             "[(function_declaration) (method_definition) (arrow_function)] @func"
-        }
+        },
         Language::Rust => "(function_item) @func",
         Language::Go => "[(function_declaration) (method_declaration)] @func",
         _ => return None,
@@ -62,7 +62,15 @@ fn extract_function_signature(code: &str, lang: Language) -> Option<TypeSignatur
     // Fallback: walk the tree manually to find function nodes
     let mut child_cursor = root.walk();
     for child in root.children(&mut child_cursor) {
-        if matches!(child.kind(), "function_definition" | "async_function_definition" | "function_declaration" | "method_definition" | "function_item" | "method_declaration") {
+        if matches!(
+            child.kind(),
+            "function_definition"
+                | "async_function_definition"
+                | "function_declaration"
+                | "method_definition"
+                | "function_item"
+                | "method_declaration"
+        ) {
             let extractor = TypeSignatureExtractor::new(code);
             return Some(extractor.extract(&child, lang));
         }
@@ -70,7 +78,15 @@ fn extract_function_signature(code: &str, lang: Language) -> Option<TypeSignatur
         // Try grandchildren (e.g., module -> function)
         let mut grandchild_cursor = child.walk();
         for grandchild in child.children(&mut grandchild_cursor) {
-            if matches!(grandchild.kind(), "function_definition" | "async_function_definition" | "function_declaration" | "method_definition" | "function_item" | "method_declaration") {
+            if matches!(
+                grandchild.kind(),
+                "function_definition"
+                    | "async_function_definition"
+                    | "function_declaration"
+                    | "method_definition"
+                    | "function_item"
+                    | "method_declaration"
+            ) {
                 let extractor = TypeSignatureExtractor::new(code);
                 return Some(extractor.extract(&grandchild, lang));
             }
@@ -92,8 +108,11 @@ fn python_empty_parameter_list() {
     let sig = extract_function_signature(code, Language::Python);
 
     assert!(sig.is_some(), "should parse simple function");
-    assert_eq!(sig.unwrap().parameters.len(), 0,
-        "empty parameter list must return empty vec, not null");
+    assert_eq!(
+        sig.unwrap().parameters.len(),
+        0,
+        "empty parameter list must return empty vec, not null"
+    );
 }
 
 #[test]
@@ -107,8 +126,7 @@ fn python_single_untyped_parameter() {
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 1);
     assert_eq!(sig.parameters[0].name, "x");
-    assert!(sig.parameters[0].type_info.is_none(),
-        "untyped parameter should have no type_info");
+    assert!(sig.parameters[0].type_info.is_none(), "untyped parameter should have no type_info");
 }
 
 #[test]
@@ -125,8 +143,11 @@ fn python_args_classified_as_var_positional() {
     assert!(args_param.is_some(), "should have *args parameter");
 
     let args = args_param.unwrap();
-    assert!(matches!(args.kind, ParameterKind::VarPositional),
-        "*args must be VarPositional, got {:?}", args.kind);
+    assert!(
+        matches!(args.kind, ParameterKind::VarPositional),
+        "*args must be VarPositional, got {:?}",
+        args.kind
+    );
 }
 
 #[test]
@@ -143,8 +164,11 @@ fn python_kwargs_classified_as_var_keyword() {
     assert!(kwargs_param.is_some(), "should have **kwargs parameter");
 
     let kwargs = kwargs_param.unwrap();
-    assert!(matches!(kwargs.kind, ParameterKind::VarKeyword),
-        "**kwargs must be VarKeyword, got {:?}", kwargs.kind);
+    assert!(
+        matches!(kwargs.kind, ParameterKind::VarKeyword),
+        "**kwargs must be VarKeyword, got {:?}",
+        kwargs.kind
+    );
 }
 
 #[test]
@@ -163,10 +187,14 @@ fn python_keyword_only_parameters_after_star() {
 
     assert!(b_param.is_some() && c_param.is_some());
 
-    assert!(matches!(b_param.unwrap().kind, ParameterKind::KeywordOnly),
-        "parameter after * must be KeywordOnly");
-    assert!(matches!(c_param.unwrap().kind, ParameterKind::KeywordOnly),
-        "parameter after * must be KeywordOnly");
+    assert!(
+        matches!(b_param.unwrap().kind, ParameterKind::KeywordOnly),
+        "parameter after * must be KeywordOnly"
+    );
+    assert!(
+        matches!(c_param.unwrap().kind, ParameterKind::KeywordOnly),
+        "parameter after * must be KeywordOnly"
+    );
 }
 
 #[test]
@@ -177,8 +205,7 @@ fn python_async_function_detected() {
     let sig = extract_function_signature(code, Language::Python);
 
     assert!(sig.is_some());
-    assert!(sig.unwrap().is_async,
-        "async def must set is_async=true");
+    assert!(sig.unwrap().is_async, "async def must set is_async=true");
 }
 
 #[test]
@@ -192,8 +219,7 @@ def foo():
     let sig = extract_function_signature(code, Language::Python);
 
     assert!(sig.is_some());
-    assert!(sig.unwrap().is_generator,
-        "function with yield must set is_generator=true");
+    assert!(sig.unwrap().is_generator, "function with yield must set is_generator=true");
 }
 
 #[test]
@@ -224,8 +250,10 @@ fn python_default_parameter_value() {
     assert_eq!(sig.parameters.len(), 1);
 
     let param = &sig.parameters[0];
-    assert!(param.default_value.is_some(),
-        "parameter with default should have default_value field populated");
+    assert!(
+        param.default_value.is_some(),
+        "parameter with default should have default_value field populated"
+    );
     assert_eq!(param.default_value.as_deref(), Some("42"));
 }
 
@@ -239,8 +267,7 @@ fn python_unicode_identifier_supported() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 1);
-    assert_eq!(sig.parameters[0].name, "参数",
-        "should correctly extract Unicode identifier");
+    assert_eq!(sig.parameters[0].name, "参数", "should correctly extract Unicode identifier");
 }
 
 #[test]
@@ -280,8 +307,7 @@ fn python_underscore_prefixed_private_param() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 1);
-    assert_eq!(sig.parameters[0].name, "_param",
-        "underscore prefix must be preserved");
+    assert_eq!(sig.parameters[0].name, "_param", "underscore prefix must be preserved");
 }
 
 // ============================================================================
@@ -300,8 +326,7 @@ fn typescript_optional_parameter() {
     assert_eq!(sig.parameters.len(), 1);
 
     let param = &sig.parameters[0];
-    assert!(param.is_optional,
-        "parameter with ? suffix must be marked optional");
+    assert!(param.is_optional, "parameter with ? suffix must be marked optional");
 }
 
 #[test]
@@ -316,8 +341,7 @@ fn typescript_rest_parameter() {
 
     let args_param = sig.parameters.iter().find(|p| p.name == "args");
     assert!(args_param.is_some(), "should have ...args parameter");
-    assert!(args_param.unwrap().is_variadic,
-        "...args must be marked variadic");
+    assert!(args_param.unwrap().is_variadic, "...args must be marked variadic");
 }
 
 #[test]
@@ -328,8 +352,7 @@ fn typescript_async_function() {
     let sig = extract_function_signature(code, Language::TypeScript);
 
     assert!(sig.is_some());
-    assert!(sig.unwrap().is_async,
-        "async function must set is_async=true");
+    assert!(sig.unwrap().is_async, "async function must set is_async=true");
 }
 
 #[test]
@@ -341,8 +364,7 @@ fn typescript_generic_function() {
 
     assert!(sig.is_some());
     let sig = sig.unwrap();
-    assert!(!sig.generics.is_empty(),
-        "generic function must have generics extracted");
+    assert!(!sig.generics.is_empty(), "generic function must have generics extracted");
     assert_eq!(sig.generics[0].name, "T");
 }
 
@@ -356,10 +378,8 @@ fn javascript_no_types_handled() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 2);
-    assert!(sig.parameters[0].type_info.is_none(),
-        "JavaScript param should have no type info");
-    assert!(sig.return_type.is_none(),
-        "JavaScript function should have no return type");
+    assert!(sig.parameters[0].type_info.is_none(), "JavaScript param should have no type info");
+    assert!(sig.return_type.is_none(), "JavaScript function should have no return type");
 }
 
 // ============================================================================
@@ -386,8 +406,7 @@ fn rust_self_parameter() {
 
     assert!(sig.is_some());
     let sig = sig.unwrap();
-    assert!(sig.receiver.is_some(),
-        "&self should populate receiver field");
+    assert!(sig.receiver.is_some(), "&self should populate receiver field");
 }
 
 #[test]
@@ -400,8 +419,7 @@ fn rust_mutable_self() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert!(sig.receiver.is_some());
-    assert!(sig.receiver.unwrap().contains("mut"),
-        "&mut self must be distinguished from &self");
+    assert!(sig.receiver.unwrap().contains("mut"), "&mut self must be distinguished from &self");
 }
 
 #[test]
@@ -412,8 +430,7 @@ fn rust_async_fn() {
     let sig = extract_function_signature(code, Language::Rust);
 
     assert!(sig.is_some());
-    assert!(sig.unwrap().is_async,
-        "async fn must set is_async=true");
+    assert!(sig.unwrap().is_async, "async fn must set is_async=true");
 }
 
 // ============================================================================
@@ -445,8 +462,7 @@ fn go_variadic_parameter() {
 
     let args_param = sig.parameters.iter().find(|p| p.name == "args");
     assert!(args_param.is_some());
-    assert!(args_param.unwrap().is_variadic,
-        "...int parameter must be marked variadic");
+    assert!(args_param.unwrap().is_variadic, "...int parameter must be marked variadic");
 }
 
 // ============================================================================
@@ -493,8 +509,7 @@ fn underscore_only_identifier() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 1);
-    assert_eq!(sig.parameters[0].name, "_",
-        "underscore wildcard must be preserved as name");
+    assert_eq!(sig.parameters[0].name, "_", "underscore wildcard must be preserved as name");
 }
 
 #[test]
@@ -507,10 +522,8 @@ fn mixed_case_identifiers() {
     assert!(sig.is_some());
     let sig = sig.unwrap();
     assert_eq!(sig.parameters.len(), 2);
-    assert_eq!(sig.parameters[0].name, "PascalCaseParam",
-        "PascalCase must be preserved");
-    assert_eq!(sig.parameters[1].name, "snake_case_param",
-        "snake_case must be preserved");
+    assert_eq!(sig.parameters[0].name, "PascalCaseParam", "PascalCase must be preserved");
+    assert_eq!(sig.parameters[1].name, "snake_case_param", "snake_case must be preserved");
 }
 
 // ============================================================================

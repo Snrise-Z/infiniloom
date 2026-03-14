@@ -64,9 +64,9 @@ impl TypeSignatureExtractor {
         sig.is_async = {
             let mut cursor = node.walk();
             let children: Vec<_> = node.children(&mut cursor).collect();
-            children.iter().any(|child| {
-                child.kind() == "async" || self.node_text(child) == "async"
-            })
+            children
+                .iter()
+                .any(|child| child.kind() == "async" || self.node_text(child) == "async")
         };
 
         // Extract parameters
