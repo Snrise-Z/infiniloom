@@ -3,8 +3,9 @@
 //! Focus: Bug prevention through edge-case testing and expected behavior validation
 //! Coverage target: type_signature.rs from 1.78% → 50%+
 
+use infiniloom_engine::analysis::type_signature::TypeSignatureExtractor;
 use infiniloom_engine::analysis::types::{ParameterKind, TypeSignature};
-use infiniloom_engine::parser::{Language, Parser};
+use infiniloom_engine::parser::Language;
 use proptest::prelude::*;
 
 // ============================================================================
@@ -13,17 +14,70 @@ use proptest::prelude::*;
 
 /// Parse code and extract type signature from first function-like node
 fn extract_function_signature(code: &str, lang: Language) -> Option<TypeSignature> {
-    let mut parser = Parser::new();
-    let symbols = parser.parse(code, lang).ok()?;
+    use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
-    if symbols.is_empty() {
-        return None;
+    // Get tree-sitter language
+    let ts_lang = match lang {
+        Language::Python => tree_sitter_python::LANGUAGE,
+        Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+        Language::JavaScript => tree_sitter_javascript::LANGUAGE,
+        Language::Rust => tree_sitter_rust::LANGUAGE,
+        Language::Go => tree_sitter_go::LANGUAGE,
+        _ => return None,
+    };
+
+    // Parse code
+    let mut parser = Parser::new();
+    parser.set_language(&ts_lang.into()).ok()?;
+    let tree = parser.parse(code, None)?;
+    let root = tree.root_node();
+
+    // Query for function-like nodes
+    let query_str = match lang {
+        // Python: both sync and async functions have kind "function_definition"
+        // The "async" keyword is a child node
+        Language::Python => "(function_definition) @func",
+        Language::TypeScript | Language::JavaScript => {
+            "[(function_declaration) (method_definition) (arrow_function)] @func"
+        }
+        Language::Rust => "(function_item) @func",
+        Language::Go => "[(function_declaration) (method_declaration)] @func",
+        _ => return None,
+    };
+
+    let query = Query::new(&ts_lang.into(), query_str).ok()?;
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&query, root, code.as_bytes());
+
+    // Extract signature from first function node
+    while let Some(m) = matches.next() {
+        if let Some(capture) = m.captures.first() {
+            let node = capture.node;
+            let extractor = TypeSignatureExtractor::new(code);
+            return Some(extractor.extract(&node, lang));
+        }
     }
 
-    // Type signature extraction is done via the TypeSignatureExtractor
-    // For now, return a placeholder to establish test infrastructure
-    // TODO: Once type_signature.rs is integrated with Parser, extract real signatures
-    Some(TypeSignature::default())
+    // Fallback: walk the tree manually to find function nodes
+    let mut child_cursor = root.walk();
+    for child in root.children(&mut child_cursor) {
+        if matches!(child.kind(), "function_definition" | "async_function_definition" | "function_declaration" | "method_definition" | "function_item" | "method_declaration") {
+            let extractor = TypeSignatureExtractor::new(code);
+            return Some(extractor.extract(&child, lang));
+        }
+
+        // Try grandchildren (e.g., module -> function)
+        let mut grandchild_cursor = child.walk();
+        for grandchild in child.children(&mut grandchild_cursor) {
+            if matches!(grandchild.kind(), "function_definition" | "async_function_definition" | "function_declaration" | "method_definition" | "function_item" | "method_declaration") {
+                let extractor = TypeSignatureExtractor::new(code);
+                return Some(extractor.extract(&grandchild, lang));
+            }
+        }
+    }
+
+    None
 }
 
 // ============================================================================

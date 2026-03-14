@@ -59,8 +59,15 @@ impl TypeSignatureExtractor {
     fn extract_python(&self, node: &Node<'_>) -> TypeSignature {
         let mut sig = TypeSignature::default();
 
-        // Check for async def
-        sig.is_async = node.kind() == "async_function_definition" || node.kind().contains("async");
+        // Check for async def - in Python, async functions have kind "function_definition"
+        // with an "async" keyword child
+        sig.is_async = {
+            let mut cursor = node.walk();
+            let children: Vec<_> = node.children(&mut cursor).collect();
+            children.iter().any(|child| {
+                child.kind() == "async" || self.node_text(child) == "async"
+            })
+        };
 
         // Extract parameters
         if let Some(params) = node.child_by_field_name("parameters") {
@@ -155,7 +162,8 @@ impl TypeSignatureExtractor {
                     }
                     params.push(param);
                 },
-                "*" => {
+                "*" | "keyword_separator" => {
+                    // Bare * in Python means all following params are keyword-only
                     seen_star = true;
                 },
                 "**" => {
@@ -336,7 +344,22 @@ impl TypeSignatureExtractor {
                     };
 
                     if let Some(pattern) = child.child_by_field_name("pattern") {
-                        param.name = self.node_text(&pattern).to_owned();
+                        // Check if this is a rest parameter (...args)
+                        if pattern.kind() == "rest_pattern" {
+                            param.is_variadic = true;
+                            param.kind = ParameterKind::VarPositional;
+
+                            // Get the identifier inside rest_pattern (strip the ...)
+                            let mut pattern_cursor = pattern.walk();
+                            for pattern_child in pattern.children(&mut pattern_cursor) {
+                                if pattern_child.kind() == "identifier" {
+                                    param.name = self.node_text(&pattern_child).to_owned();
+                                    break;
+                                }
+                            }
+                        } else {
+                            param.name = self.node_text(&pattern).to_owned();
+                        }
                     }
 
                     if let Some(type_ann) = child.child_by_field_name("type") {
