@@ -180,43 +180,88 @@ impl TypeSignatureExtractor {
     }
 
     fn parse_python_type(&self, node: &Node<'_>) -> TypeInfo {
-        let text = self.node_text(node);
-        let mut type_info = TypeInfo { name: text.to_owned(), ..Default::default() };
-
         match node.kind() {
             "type" => {
+                // Unwrap "type" wrapper node
                 if let Some(inner) = node.child(0) {
                     return self.parse_python_type(&inner);
                 }
             },
-            "subscript" => {
+            "subscript" | "generic_type" => {
                 // Generic type like List[int] or Optional[str]
+                // Python uses both "subscript" (older) and "generic_type" (newer tree-sitter)
+                let mut type_info = TypeInfo::default();
+
+                // Try "value" field first (subscript), then check for identifier child (generic_type)
                 if let Some(value) = node.child_by_field_name("value") {
                     type_info.name = self.node_text(&value).to_owned();
+                } else {
+                    // For generic_type, find the identifier child (base type name)
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "identifier" || child.kind() == "attribute" {
+                            type_info.name = self.node_text(&child).to_owned();
+                            break;
+                        }
+                    }
                 }
+
+                // Extract generic arguments
                 if let Some(subscript) = node.child_by_field_name("subscript") {
+                    // Old style subscript node
                     type_info.generic_args = self.extract_generic_args(&subscript);
+                } else if let Some(type_args) = node.child_by_field_name("type_arguments") {
+                    // TypeScript/newer style
+                    type_info.generic_args = self.extract_generic_args(&type_args);
+                } else {
+                    // For generic_type, look for type_parameter children
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "type_parameter" {
+                            // Extract types from inside the brackets
+                            type_info.generic_args = self.extract_generic_args(&child);
+                            break;
+                        }
+                    }
                 }
 
                 // Check for Optional
                 if type_info.name == "Optional" {
                     type_info.is_nullable = true;
                 }
+
+                return type_info;
             },
             "binary_operator" => {
                 // Union type: X | Y
+                let mut type_info = TypeInfo { name: "Union".to_owned(), ..Default::default() };
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind() != "|" {
                         type_info.union_types.push(self.parse_python_type(&child));
                     }
                 }
-                type_info.name = "Union".to_owned();
+                return type_info;
             },
-            _ => {},
+            "identifier" | "attribute" => {
+                // Simple type name or qualified name (e.g., typing.Optional)
+                let text = self.node_text(node);
+                return TypeInfo { name: text.to_owned(), ..Default::default() };
+            },
+            _ => {
+                // Check if this node contains a subscript/generic_type as a child
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if matches!(child.kind(), "subscript" | "generic_type" | "binary_operator") {
+                        return self.parse_python_type(&child);
+                    }
+                }
+            },
         }
 
-        type_info
+        // Default: use the full text as the type name
+        let text = self.node_text(node);
+        TypeInfo { name: text.to_owned(), ..Default::default() }
     }
 
     fn extract_generic_args(&self, node: &Node<'_>) -> Vec<TypeInfo> {
@@ -224,8 +269,12 @@ impl TypeSignatureExtractor {
         let mut cursor = node.walk();
 
         for child in node.children(&mut cursor) {
-            if child.kind() != "," {
-                args.push(self.parse_python_type(&child));
+            // Skip brackets, commas, and other punctuation
+            match child.kind() {
+                "," | "[" | "]" | "<" | ">" | "(" | ")" => continue,
+                _ => {
+                    args.push(self.parse_python_type(&child));
+                },
             }
         }
 
@@ -601,21 +650,40 @@ impl TypeSignatureExtractor {
 
         for child in node.children(&mut cursor) {
             match child.kind() {
-                "type_identifier" => {
-                    generics.push(GenericParam {
-                        name: self.node_text(&child).to_owned(),
-                        ..Default::default()
-                    });
+                "type_parameter" => {
+                    // Simple type parameter like T or 'a (lifetime)
+                    let text = self.node_text(&child);
+                    // Skip lifetimes (start with ')
+                    if !text.starts_with('\'') {
+                        generics.push(GenericParam { name: text.to_owned(), ..Default::default() });
+                    }
                 },
                 "constrained_type_parameter" => {
+                    // Type parameter with bounds like T: Display
                     let mut param = GenericParam::default();
-                    if let Some(name) = child.child(0) {
-                        param.name = self.node_text(&name).to_owned();
+
+                    // Extract name (first child is usually the type_identifier)
+                    let mut child_cursor = child.walk();
+                    for gc in child.children(&mut child_cursor) {
+                        if gc.kind() == "type_identifier" {
+                            param.name = self.node_text(&gc).to_owned();
+                            break;
+                        }
                     }
+
+                    // Extract bounds
                     if let Some(bounds) = child.child_by_field_name("bounds") {
                         param.constraints.push(self.node_text(&bounds).to_owned());
                     }
-                    generics.push(param);
+
+                    if !param.name.is_empty() {
+                        generics.push(param);
+                    }
+                },
+                "lifetime" => {
+                    // Lifetime parameter like 'a - store but mark differently
+                    let text = self.node_text(&child);
+                    generics.push(GenericParam { name: text.to_owned(), ..Default::default() });
                 },
                 _ => {},
             }

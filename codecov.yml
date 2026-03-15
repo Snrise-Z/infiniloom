@@ -51,3 +51,4 @@ ignore:
   - "benches/"
   - "**/tests/**"
   - "**/*_test.rs"
+  - "**/*_tests.rs"
