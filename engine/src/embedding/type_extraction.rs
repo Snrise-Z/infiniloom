@@ -196,7 +196,8 @@ fn find_top_level_comma(s: &str) -> Option<usize> {
     for (i, ch) in s.char_indices() {
         match ch {
             '<' | '(' | '[' => depth += 1,
-            '>' | ')' | ']' => depth -= 1,
+            '>' | ')' | ']' if depth > 0 => depth -= 1,
+            '>' | ')' | ']' => {},
             ',' if depth == 0 => return Some(i),
             _ => {},
         }

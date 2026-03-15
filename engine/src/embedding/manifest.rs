@@ -190,7 +190,8 @@ impl EmbedManifest {
             .map_err(|e| EmbedError::SerializationError { reason: e.to_string() })?;
 
         // Atomic write: write to temp file first, then rename
-        let tmp_path = path.with_extension("tmp");
+        // Use PID in temp name to prevent collisions from concurrent embed runs
+        let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
         std::fs::write(&tmp_path, bytes)
             .map_err(|e| EmbedError::IoError { path: tmp_path.clone(), source: e })?;
 

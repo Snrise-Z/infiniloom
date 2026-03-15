@@ -82,7 +82,7 @@ impl TerminalProgress {
 
     /// Get current phase name
     pub fn phase(&self) -> String {
-        self.phase.read().unwrap().clone()
+        self.phase.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -94,7 +94,7 @@ impl Default for TerminalProgress {
 
 impl ProgressReporter for TerminalProgress {
     fn set_phase(&self, phase: &str) {
-        *self.phase.write().unwrap() = phase.to_owned();
+        *self.phase.write().unwrap_or_else(|e| e.into_inner()) = phase.to_owned();
         if self.show_output {
             eprintln!("[infiniloom] {phase}");
         }

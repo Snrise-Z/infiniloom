@@ -339,20 +339,21 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
                 let new_chunks = if only_files.is_empty() {
                     Vec::new()
                 } else {
-                    chunker
-                        .chunk_repository_filtered(&config.path, &only_files, progress.as_ref())
-                        .unwrap_or_else(|e| {
-                            // NoChunksGenerated is expected when changed files have no symbols
-                            if matches!(
-                                e,
-                                infiniloom_engine::embedding::EmbedError::NoChunksGenerated { .. }
-                            ) {
-                                Vec::new()
-                            } else {
-                                eprintln!("Warning: chunk generation failed: {}", e);
-                                Vec::new()
-                            }
-                        })
+                    match chunker.chunk_repository_filtered(
+                        &config.path,
+                        &only_files,
+                        progress.as_ref(),
+                    ) {
+                        Ok(chunks) => chunks,
+                        // NoChunksGenerated is expected when changed files have no symbols
+                        Err(infiniloom_engine::embedding::EmbedError::NoChunksGenerated {
+                            ..
+                        }) => Vec::new(),
+                        // Propagate critical errors instead of silently swallowing
+                        Err(e) => {
+                            anyhow::bail!("Chunk generation failed: {}", e);
+                        },
+                    }
                 };
 
                 (new_chunks, deleted, processed_file_strs)

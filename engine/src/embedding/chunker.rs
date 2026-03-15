@@ -268,7 +268,7 @@ impl EmbedChunker {
                         // Atomically check and update chunk count to prevent race conditions
                         // Use Mutex to ensure thread-safe limit enforcement
                         let chunks_to_add = chunks.len();
-                        let mut count = chunk_count.lock().unwrap();
+                        let mut count = chunk_count.lock().unwrap_or_else(|e| e.into_inner());
                         let new_count = *count + chunks_to_add;
 
                         // Check chunk limit BEFORE incrementing
@@ -495,7 +495,8 @@ impl EmbedChunker {
                             // Atomically check and update chunk count to prevent race conditions
                             // Use Mutex to ensure thread-safe limit enforcement
                             let chunks_to_add = chunks.len();
-                            let mut count = total_chunk_count.lock().unwrap();
+                            let mut count =
+                                total_chunk_count.lock().unwrap_or_else(|e| e.into_inner());
                             let new_count = *count + chunks_to_add;
 
                             // Check chunk limit BEFORE incrementing
@@ -545,6 +546,9 @@ impl EmbedChunker {
             // mode. This is an intentional trade-off to avoid keeping all chunks in
             // memory. For full called_by coverage, use chunk_repository() instead.
             self.populate_called_by(&mut batch_chunks);
+
+            // Link parent/children chunk IDs within this batch
+            self.link_parent_children(&mut batch_chunks, progress);
 
             // Sort chunks within this batch for deterministic intra-batch ordering
             batch_chunks.sort_by(|a, b| {
@@ -753,12 +757,12 @@ impl EmbedChunker {
                     && chunk.context.signature.is_some()
                     && !matches!(chunk.kind, ChunkKind::Imports | ChunkKind::TopLevel)
             })
-            .map(|chunk| {
-                let signature = chunk.context.signature.as_ref().unwrap();
+            .filter_map(|chunk| {
+                let signature = chunk.context.signature.as_ref()?;
                 let hash = hash_content(signature);
                 let tokens = self.tokenizer.count(signature, token_model);
 
-                EmbedChunk {
+                Some(EmbedChunk {
                     id: hash.short_id,
                     full_hash: hash.full_hash,
                     content: signature.clone(),
@@ -775,7 +779,7 @@ impl EmbedChunker {
                     repr: "signature".to_owned(),
                     code_chunk_id: Some(chunk.id.clone()),
                     part: None,
-                }
+                })
             })
             .collect()
     }
@@ -1358,284 +1362,7 @@ impl EmbedChunker {
     /// Tags are generated based on symbol names, signatures, and common patterns.
     /// These help with semantic search and filtering in vector databases.
     fn generate_tags(&self, symbol: &Symbol) -> Vec<String> {
-        let mut tags = Vec::new();
-        let signature = symbol.signature.as_deref().unwrap_or("");
-        let name_lower = symbol.name.to_lowercase();
-
-        // Async/concurrent code
-        // Rust: async/await, JavaScript: async/await, Python: async/await
-        // Kotlin: suspend, Go: goroutines (go keyword detected in signature)
-        if signature.contains("async")
-            || signature.contains("await")
-            || signature.contains("suspend")
-        // Kotlin coroutines
-        {
-            tags.push("async".to_owned());
-        }
-        if name_lower.contains("thread")
-            || name_lower.contains("mutex")
-            || name_lower.contains("lock")
-            || name_lower.contains("spawn")
-            || name_lower.contains("parallel")
-            || name_lower.contains("goroutine")
-            || name_lower.contains("channel")
-            || signature.contains("Mutex")
-            || signature.contains("RwLock")
-            || signature.contains("Arc")
-            || signature.contains("chan ")      // Go channels
-            || signature.contains("<-chan")     // Go receive-only channel
-            || signature.contains("chan<-")     // Go send-only channel
-            || signature.contains("sync.")      // Go sync package
-            || signature.contains("WaitGroup")
-        // Go WaitGroup
-        {
-            tags.push("concurrency".to_owned());
-        }
-
-        // Security-related
-        if name_lower.contains("password")
-            || name_lower.contains("token")
-            || name_lower.contains("secret")
-            || name_lower.contains("auth")
-            || name_lower.contains("crypt")
-            || name_lower.contains("hash")
-            || name_lower.contains("permission")
-            || signature.contains("password")
-            || signature.contains("token")
-            || signature.contains("secret")
-        {
-            tags.push("security".to_owned());
-        }
-
-        // Error handling
-        if signature.contains("Error")
-            || signature.contains("Result")
-            || name_lower.contains("error")
-            || name_lower.contains("exception")
-            || name_lower.contains("panic")
-            || name_lower.contains("unwrap")
-        {
-            tags.push("error-handling".to_owned());
-        }
-
-        // Database
-        if name_lower.contains("query")
-            || name_lower.contains("sql")
-            || name_lower.contains("database")
-            || name_lower.contains("db_")
-            || name_lower.starts_with("db")
-            || name_lower.contains("repository")
-            || name_lower.contains("transaction")
-        {
-            tags.push("database".to_owned());
-        }
-
-        // HTTP/API
-        if name_lower.contains("http")
-            || name_lower.contains("request")
-            || name_lower.contains("response")
-            || name_lower.contains("endpoint")
-            || name_lower.contains("route")
-            || name_lower.contains("handler")
-            || name_lower.contains("middleware")
-        {
-            tags.push("http".to_owned());
-        }
-
-        // CLI/Commands
-        if name_lower.contains("command")
-            || name_lower.contains("cli")
-            || name_lower.contains("arg")
-            || name_lower.contains("flag")
-            || name_lower.contains("option")
-            || name_lower.contains("subcommand")
-        {
-            tags.push("cli".to_owned());
-        }
-
-        // Configuration
-        if name_lower.contains("config")
-            || name_lower.contains("setting")
-            || name_lower.contains("preference")
-            || name_lower.contains("option")
-            || name_lower.contains("env")
-        {
-            tags.push("config".to_owned());
-        }
-
-        // Logging
-        if name_lower.contains("log")
-            || name_lower.contains("trace")
-            || name_lower.contains("debug")
-            || name_lower.contains("warn")
-            || name_lower.contains("info")
-            || name_lower.contains("metric")
-        {
-            tags.push("logging".to_owned());
-        }
-
-        // Caching
-        if name_lower.contains("cache")
-            || name_lower.contains("memoize")
-            || name_lower.contains("invalidate")
-        {
-            tags.push("cache".to_owned());
-        }
-
-        // Validation
-        if name_lower.contains("valid")
-            || name_lower.contains("check")
-            || name_lower.contains("verify")
-            || name_lower.contains("assert")
-            || name_lower.contains("sanitize")
-        {
-            tags.push("validation".to_owned());
-        }
-
-        // Serialization
-        if name_lower.contains("serial")
-            || name_lower.contains("deserial")
-            || name_lower.contains("json")
-            || name_lower.contains("xml")
-            || name_lower.contains("yaml")
-            || name_lower.contains("toml")
-            || name_lower.contains("encode")
-            || name_lower.contains("decode")
-            || name_lower.contains("parse")
-            || name_lower.contains("format")
-        {
-            tags.push("serialization".to_owned());
-        }
-
-        // File I/O
-        if name_lower.contains("file")
-            || name_lower.contains("read")
-            || name_lower.contains("write")
-            || name_lower.contains("path")
-            || name_lower.contains("dir")
-            || name_lower.contains("fs")
-            || name_lower.contains("io")
-        {
-            tags.push("io".to_owned());
-        }
-
-        // Networking
-        if name_lower.contains("socket")
-            || name_lower.contains("connect")
-            || name_lower.contains("network")
-            || name_lower.contains("tcp")
-            || name_lower.contains("udp")
-            || name_lower.contains("client")
-            || name_lower.contains("server")
-        {
-            tags.push("network".to_owned());
-        }
-
-        // Initialization/Setup
-        if name_lower == "new"
-            || name_lower == "init"
-            || name_lower == "setup"
-            || name_lower == "create"
-            || name_lower.starts_with("new_")
-            || name_lower.starts_with("init_")
-            || name_lower.starts_with("create_")
-            || name_lower.ends_with("_new")
-        {
-            tags.push("init".to_owned());
-        }
-
-        // Cleanup/Teardown
-        if name_lower.contains("cleanup")
-            || name_lower.contains("teardown")
-            || name_lower.contains("close")
-            || name_lower.contains("dispose")
-            || name_lower.contains("shutdown")
-            || name_lower == "drop"
-        {
-            tags.push("cleanup".to_owned());
-        }
-
-        // Test
-        if symbol.name.starts_with("test_")
-            || symbol.name.ends_with("_test")
-            || symbol.name.contains("Test")
-            || name_lower.contains("mock")
-            || name_lower.contains("stub")
-            || name_lower.contains("fixture")
-        {
-            tags.push("test".to_owned());
-        }
-
-        // Deprecated (check signature for attributes)
-        if signature.contains("deprecated") || signature.contains("Deprecated") {
-            tags.push("deprecated".to_owned());
-        }
-
-        // Public API marker (useful for filtering to public interfaces)
-        if signature.starts_with("pub fn")
-            || signature.starts_with("pub async fn")
-            || signature.starts_with("export")
-        {
-            tags.push("public-api".to_owned());
-        }
-
-        // Machine Learning / AI
-        if name_lower.contains("model")
-            || name_lower.contains("train")
-            || name_lower.contains("predict")
-            || name_lower.contains("inference")
-            || name_lower.contains("neural")
-            || name_lower.contains("embedding")
-            || name_lower.contains("classifier")
-            || name_lower.contains("regressor")
-            || name_lower.contains("optimizer")
-            || name_lower.contains("loss")
-            || name_lower.contains("gradient")
-            || name_lower.contains("backprop")
-            || name_lower.contains("forward")
-            || name_lower.contains("layer")
-            || name_lower.contains("activation")
-            || name_lower.contains("weight")
-            || name_lower.contains("bias")
-            || name_lower.contains("epoch")
-            || name_lower.contains("batch")
-            || signature.contains("torch")
-            || signature.contains("tensorflow")
-            || signature.contains("keras")
-            || signature.contains("sklearn")
-            || signature.contains("nn.")
-            || signature.contains("nn::")
-        {
-            tags.push("ml".to_owned());
-        }
-
-        // Data Science / Data Processing
-        if name_lower.contains("dataframe")
-            || name_lower.contains("dataset")
-            || name_lower.contains("tensor")
-            || name_lower.contains("numpy")
-            || name_lower.contains("pandas")
-            || name_lower.contains("array")
-            || name_lower.contains("matrix")
-            || name_lower.contains("vector")
-            || name_lower.contains("feature")
-            || name_lower.contains("preprocess")
-            || name_lower.contains("normalize")
-            || name_lower.contains("transform")
-            || name_lower.contains("pipeline")
-            || name_lower.contains("etl")
-            || name_lower.contains("aggregate")
-            || name_lower.contains("groupby")
-            || name_lower.contains("pivot")
-            || signature.contains("pd.")
-            || signature.contains("np.")
-            || signature.contains("DataFrame")
-            || signature.contains("ndarray")
-        {
-            tags.push("data-science".to_owned());
-        }
-
-        tags
+        generate_tags_for_symbol(&symbol.name, symbol.signature.as_deref())
     }
 
     /// Compute fully qualified name for a symbol
@@ -1957,6 +1684,244 @@ pub(crate) fn generate_context_prefix(
         Some(p) => format!("From {file_path}, in {p}, {kind_name}"),
         None => format!("From {file_path}, {kind_name}"),
     }
+}
+
+/// Generate semantic tags from symbol name and signature.
+///
+/// Standalone function so it can be used from both `EmbedChunker` and `ChunkStream`.
+pub(crate) fn generate_tags_for_symbol(name: &str, sig: Option<&str>) -> Vec<String> {
+    let mut tags = Vec::new();
+    let signature = sig.unwrap_or("");
+    let name_lower = name.to_lowercase();
+
+    if signature.contains("async") || signature.contains("await") || signature.contains("suspend") {
+        tags.push("async".to_owned());
+    }
+    if name_lower.contains("thread")
+        || name_lower.contains("mutex")
+        || name_lower.contains("lock")
+        || name_lower.contains("spawn")
+        || name_lower.contains("parallel")
+        || name_lower.contains("goroutine")
+        || name_lower.contains("channel")
+        || signature.contains("Mutex")
+        || signature.contains("RwLock")
+        || signature.contains("Arc")
+        || signature.contains("chan ")
+        || signature.contains("<-chan")
+        || signature.contains("chan<-")
+        || signature.contains("sync.")
+        || signature.contains("WaitGroup")
+    {
+        tags.push("concurrency".to_owned());
+    }
+    if name_lower.contains("password")
+        || name_lower.contains("token")
+        || name_lower.contains("secret")
+        || name_lower.contains("auth")
+        || name_lower.contains("crypt")
+        || name_lower.contains("hash")
+        || name_lower.contains("permission")
+        || signature.contains("password")
+        || signature.contains("token")
+        || signature.contains("secret")
+    {
+        tags.push("security".to_owned());
+    }
+    if signature.contains("Error")
+        || signature.contains("Result")
+        || name_lower.contains("error")
+        || name_lower.contains("exception")
+        || name_lower.contains("panic")
+        || name_lower.contains("unwrap")
+    {
+        tags.push("error-handling".to_owned());
+    }
+    if name_lower.contains("query")
+        || name_lower.contains("sql")
+        || name_lower.contains("database")
+        || name_lower.contains("db_")
+        || name_lower.starts_with("db")
+        || name_lower.contains("repository")
+        || name_lower.contains("transaction")
+    {
+        tags.push("database".to_owned());
+    }
+    if name_lower.contains("http")
+        || name_lower.contains("request")
+        || name_lower.contains("response")
+        || name_lower.contains("endpoint")
+        || name_lower.contains("route")
+        || name_lower.contains("handler")
+        || name_lower.contains("middleware")
+    {
+        tags.push("http".to_owned());
+    }
+    if name_lower.contains("command")
+        || name_lower.contains("cli")
+        || name_lower.contains("arg")
+        || name_lower.contains("flag")
+        || name_lower.contains("option")
+        || name_lower.contains("subcommand")
+    {
+        tags.push("cli".to_owned());
+    }
+    if name_lower.contains("config")
+        || name_lower.contains("setting")
+        || name_lower.contains("preference")
+        || name_lower.contains("option")
+        || name_lower.contains("env")
+    {
+        tags.push("config".to_owned());
+    }
+    if name_lower.contains("log")
+        || name_lower.contains("trace")
+        || name_lower.contains("debug")
+        || name_lower.contains("warn")
+        || name_lower.contains("info")
+        || name_lower.contains("metric")
+    {
+        tags.push("logging".to_owned());
+    }
+    if name_lower.contains("cache")
+        || name_lower.contains("memoize")
+        || name_lower.contains("invalidate")
+    {
+        tags.push("cache".to_owned());
+    }
+    if name_lower.contains("valid")
+        || name_lower.contains("check")
+        || name_lower.contains("verify")
+        || name_lower.contains("assert")
+        || name_lower.contains("sanitize")
+    {
+        tags.push("validation".to_owned());
+    }
+    if name_lower.contains("serial")
+        || name_lower.contains("deserial")
+        || name_lower.contains("json")
+        || name_lower.contains("xml")
+        || name_lower.contains("yaml")
+        || name_lower.contains("toml")
+        || name_lower.contains("encode")
+        || name_lower.contains("decode")
+        || name_lower.contains("parse")
+        || name_lower.contains("format")
+    {
+        tags.push("serialization".to_owned());
+    }
+    if name_lower.contains("file")
+        || name_lower.contains("read")
+        || name_lower.contains("write")
+        || name_lower.contains("path")
+        || name_lower.contains("dir")
+        || name_lower.contains("fs")
+        || name_lower.contains("io")
+    {
+        tags.push("io".to_owned());
+    }
+    if name_lower.contains("socket")
+        || name_lower.contains("connect")
+        || name_lower.contains("network")
+        || name_lower.contains("tcp")
+        || name_lower.contains("udp")
+        || name_lower.contains("client")
+        || name_lower.contains("server")
+    {
+        tags.push("network".to_owned());
+    }
+    if name_lower == "new"
+        || name_lower == "init"
+        || name_lower == "setup"
+        || name_lower == "create"
+        || name_lower.starts_with("new_")
+        || name_lower.starts_with("init_")
+        || name_lower.starts_with("create_")
+        || name_lower.ends_with("_new")
+    {
+        tags.push("init".to_owned());
+    }
+    if name_lower.contains("cleanup")
+        || name_lower.contains("teardown")
+        || name_lower.contains("close")
+        || name_lower.contains("dispose")
+        || name_lower.contains("shutdown")
+        || name_lower == "drop"
+    {
+        tags.push("cleanup".to_owned());
+    }
+    if name.starts_with("test_")
+        || name.ends_with("_test")
+        || name.contains("Test")
+        || name_lower.contains("mock")
+        || name_lower.contains("stub")
+        || name_lower.contains("fixture")
+    {
+        tags.push("test".to_owned());
+    }
+    if signature.contains("deprecated") || signature.contains("Deprecated") {
+        tags.push("deprecated".to_owned());
+    }
+    if signature.starts_with("pub fn")
+        || signature.starts_with("pub async fn")
+        || signature.starts_with("export")
+    {
+        tags.push("public-api".to_owned());
+    }
+    if name_lower.contains("model")
+        || name_lower.contains("train")
+        || name_lower.contains("predict")
+        || name_lower.contains("inference")
+        || name_lower.contains("neural")
+        || name_lower.contains("embedding")
+        || name_lower.contains("classifier")
+        || name_lower.contains("regressor")
+        || name_lower.contains("optimizer")
+        || name_lower.contains("loss")
+        || name_lower.contains("gradient")
+        || name_lower.contains("backprop")
+        || name_lower.contains("forward")
+        || name_lower.contains("layer")
+        || name_lower.contains("activation")
+        || name_lower.contains("weight")
+        || name_lower.contains("bias")
+        || name_lower.contains("epoch")
+        || name_lower.contains("batch")
+        || signature.contains("torch")
+        || signature.contains("tensorflow")
+        || signature.contains("keras")
+        || signature.contains("sklearn")
+        || signature.contains("nn.")
+        || signature.contains("nn::")
+    {
+        tags.push("ml".to_owned());
+    }
+    if name_lower.contains("dataframe")
+        || name_lower.contains("dataset")
+        || name_lower.contains("tensor")
+        || name_lower.contains("numpy")
+        || name_lower.contains("pandas")
+        || name_lower.contains("array")
+        || name_lower.contains("matrix")
+        || name_lower.contains("vector")
+        || name_lower.contains("feature")
+        || name_lower.contains("preprocess")
+        || name_lower.contains("normalize")
+        || name_lower.contains("transform")
+        || name_lower.contains("pipeline")
+        || name_lower.contains("etl")
+        || name_lower.contains("aggregate")
+        || name_lower.contains("groupby")
+        || name_lower.contains("pivot")
+        || signature.contains("pd.")
+        || signature.contains("np.")
+        || signature.contains("DataFrame")
+        || signature.contains("ndarray")
+    {
+        tags.push("data-science".to_owned());
+    }
+
+    tags
 }
 
 /// Generate a natural language summary for a chunk.

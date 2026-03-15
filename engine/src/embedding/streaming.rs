@@ -66,9 +66,13 @@ use crate::parser::{parse_file_symbols, Language};
 use crate::security::SecurityScanner;
 use crate::tokenizer::{TokenModel, Tokenizer};
 
+use super::chunker::{generate_summary, generate_tags_for_symbol};
+use super::complexity::compute_complexity;
 use super::error::EmbedError;
 use super::hasher::hash_content;
+use super::identifiers::extract_identifiers;
 use super::limits::ResourceLimits;
+use super::type_extraction::extract_types;
 use super::types::{ChunkContext, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier};
 
 /// Configuration for streaming chunk generation
@@ -526,53 +530,76 @@ impl ChunkStream {
                 &symbol.kind,
             );
 
+            // Extract enrichments: identifiers, type signatures, complexity, tags
+            let lang_enum =
+                Language::from_extension(path.extension().and_then(|e| e.to_str()).unwrap_or(""));
+            let identifiers = extract_identifiers(&chunk_content, lang_enum);
+            let (type_signature, parameter_types, return_type, error_types) =
+                if let Some(lang) = lang_enum {
+                    match extract_types(&chunk_content, lang) {
+                        Some(ti) => {
+                            (ti.type_signature, ti.parameter_types, ti.return_type, ti.error_types)
+                        },
+                        None => (None, Vec::new(), None, Vec::new()),
+                    }
+                } else {
+                    (None, Vec::new(), None, Vec::new())
+                };
+            let complexity_score = lang_enum.and_then(|l| compute_complexity(&chunk_content, l));
+            let tags = generate_tags_for_symbol(&symbol.name, symbol.signature.as_deref());
+
+            let chunk_kind = symbol.kind.into();
+            let source = ChunkSource {
+                repo: self.repo_id.clone(),
+                file: relative_path.clone(),
+                lines: ((context_start + 1) as u32, context_end as u32),
+                symbol: symbol.name.clone(),
+                fqn: Some(fqn),
+                language: language.clone(),
+                parent: symbol.parent.clone(),
+                visibility: symbol.visibility.into(),
+                is_test: self.is_test_code(path, symbol),
+                module_path: Some(super::chunker::derive_module_path(&relative_path, &language)),
+                parent_chunk_id: None,
+            };
+
+            let mut context = ChunkContext {
+                docstring: symbol.docstring.clone(),
+                comments: Vec::new(),
+                signature: symbol.signature.clone(),
+                calls: symbol.calls.clone(),
+                called_by: Vec::new(),
+                imports: Vec::new(),
+                tags,
+                keywords,
+                context_prefix: Some(context_prefix),
+                summary: None,
+                qualified_calls: Vec::new(),
+                unresolved_calls: Vec::new(),
+                identifiers,
+                type_signature,
+                parameter_types,
+                return_type,
+                error_types,
+                lines_of_code: chunk_content.lines().count() as u32,
+                max_nesting_depth: 0,
+                git: None,
+                complexity_score,
+                dependents_count: None,
+            };
+
+            // Generate summary after source and context are built
+            context.summary = generate_summary(chunk_kind, &source, &context);
+
             chunks.push(EmbedChunk {
                 id: hash.short_id,
                 full_hash: hash.full_hash,
                 content: chunk_content,
                 tokens,
-                kind: symbol.kind.into(),
-                source: ChunkSource {
-                    repo: self.repo_id.clone(),
-                    file: relative_path.clone(),
-                    lines: ((context_start + 1) as u32, context_end as u32),
-                    symbol: symbol.name.clone(),
-                    fqn: Some(fqn),
-                    language: language.clone(),
-                    parent: symbol.parent.clone(),
-                    visibility: symbol.visibility.into(),
-                    is_test: self.is_test_code(path, symbol),
-                    module_path: Some(super::chunker::derive_module_path(
-                        &relative_path,
-                        &language,
-                    )),
-                    parent_chunk_id: None,
-                },
+                kind: chunk_kind,
+                source,
                 children_ids: Vec::new(),
-                context: ChunkContext {
-                    docstring: symbol.docstring.clone(),
-                    comments: Vec::new(),
-                    signature: symbol.signature.clone(),
-                    calls: symbol.calls.clone(),
-                    called_by: Vec::new(),
-                    imports: Vec::new(),
-                    tags: Vec::new(),
-                    keywords,
-                    context_prefix: Some(context_prefix),
-                    summary: None,
-                    qualified_calls: Vec::new(),
-                    unresolved_calls: Vec::new(),
-                    identifiers: None,
-                    type_signature: None,
-                    parameter_types: Vec::new(),
-                    return_type: None,
-                    error_types: Vec::new(),
-                    lines_of_code: 0,
-                    max_nesting_depth: 0,
-                    git: None,
-                    complexity_score: None,
-                    dependents_count: None,
-                },
+                context,
                 repr: "code".to_owned(),
                 code_chunk_id: None,
                 part: None,
