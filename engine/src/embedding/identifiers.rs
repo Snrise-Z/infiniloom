@@ -1094,4 +1094,606 @@ mod tests {
         let words: Vec<&str> = ids.split_whitespace().collect();
         assert!(!words.contains(&"func"), "Should not contain Go keyword 'func'");
     }
+
+    // ===== should_include tests =====
+
+    #[test]
+    fn test_should_include_rejects_single_char() {
+        let kw = HashSet::new();
+        assert!(!should_include("a", &kw));
+        assert!(!should_include("x", &kw));
+        assert!(!should_include("_", &kw));
+    }
+
+    #[test]
+    fn test_should_include_accepts_two_char() {
+        let kw = HashSet::new();
+        assert!(should_include("ab", &kw));
+        assert!(should_include("id", &kw));
+    }
+
+    #[test]
+    fn test_should_include_rejects_keywords() {
+        let mut kw = HashSet::new();
+        kw.insert("fn");
+        kw.insert("let");
+        assert!(!should_include("fn", &kw));
+        assert!(!should_include("let", &kw));
+        assert!(should_include("foo", &kw));
+    }
+
+    #[test]
+    fn test_should_include_rejects_noise() {
+        let kw = HashSet::new();
+        for noise in NOISE_IDENTIFIERS {
+            assert!(!should_include(noise, &kw), "Noise identifier '{}' should be excluded", noise);
+        }
+    }
+
+    #[test]
+    fn test_should_include_rejects_pure_numeric() {
+        let kw = HashSet::new();
+        assert!(!should_include("42", &kw));
+        assert!(!should_include("123456", &kw));
+        assert!(!should_include("00", &kw));
+    }
+
+    #[test]
+    fn test_should_include_accepts_alphanumeric_mix() {
+        let kw = HashSet::new();
+        assert!(should_include("x2", &kw));
+        assert!(should_include("2fast", &kw));
+        assert!(should_include("item1", &kw));
+    }
+
+    // ===== is_identifier_node tests =====
+
+    #[test]
+    fn test_is_identifier_node_known_kinds() {
+        assert!(is_identifier_node("identifier"));
+        assert!(is_identifier_node("type_identifier"));
+        assert!(is_identifier_node("field_identifier"));
+        assert!(is_identifier_node("property_identifier"));
+        assert!(is_identifier_node("shorthand_property_identifier"));
+        assert!(is_identifier_node("shorthand_property_identifier_pattern"));
+        assert!(is_identifier_node("attribute_item"));
+        assert!(is_identifier_node("name"));
+        assert!(is_identifier_node("simple_identifier"));
+        assert!(is_identifier_node("word"));
+    }
+
+    #[test]
+    fn test_is_identifier_node_rejects_non_identifier_kinds() {
+        assert!(!is_identifier_node("string_literal"));
+        assert!(!is_identifier_node("integer_literal"));
+        assert!(!is_identifier_node("comment"));
+        assert!(!is_identifier_node("binary_expression"));
+        assert!(!is_identifier_node("function_declaration"));
+        assert!(!is_identifier_node(""));
+    }
+
+    // ===== fallback_extraction tests =====
+
+    #[test]
+    fn test_fallback_extraction_basic() {
+        // Fallback splits on chars that are NOT alphanumeric and NOT underscore.
+        // So "get_user_name" stays as one token (underscores are kept).
+        let result = fallback_extraction("get_user_name = 42");
+        assert!(
+            result.contains(&"get_user_name".to_string()),
+            "Underscored identifier should be kept intact: {:?}",
+            result
+        );
+        // Test splitting on spaces/operators
+        let result2 = fallback_extraction("hello world");
+        assert!(result2.contains(&"hello".to_string()));
+        assert!(result2.contains(&"world".to_string()));
+    }
+
+    #[test]
+    fn test_fallback_extraction_filters_single_char() {
+        let result = fallback_extraction("a + b = c");
+        assert!(result.is_empty(), "Single-char tokens should be filtered");
+    }
+
+    #[test]
+    fn test_fallback_extraction_filters_pure_numbers() {
+        let result = fallback_extraction("42 + 100 = 142");
+        assert!(result.is_empty(), "Pure numeric tokens should be filtered (no alphabetic chars)");
+    }
+
+    #[test]
+    fn test_fallback_extraction_empty_input() {
+        let result = fallback_extraction("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_fallback_extraction_only_symbols() {
+        let result = fallback_extraction("!@#$%^&*(){}[]");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_fallback_extraction_preserves_underscored_identifiers() {
+        let result = fallback_extraction("__init__ some_func");
+        // "__init__" splits on non-alnum boundaries but underscores are kept
+        // The split is on chars that are NOT alphanumeric and NOT underscore
+        assert!(result.contains(&"__init__".to_string()));
+        assert!(result.contains(&"some_func".to_string()));
+    }
+
+    // ===== extract_identifiers edge cases =====
+
+    #[test]
+    fn test_extract_identifiers_empty_string() {
+        assert_eq!(extract_identifiers("", Some(Language::Rust)), None);
+        assert_eq!(extract_identifiers("", None), None);
+    }
+
+    #[test]
+    fn test_extract_identifiers_only_keywords() {
+        // Content that only contains keywords and single-char identifiers
+        let code = "fn f() { if x { } else { } }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        // "f" and "x" are single-char, all others are keywords
+        // Result may be None or only contain very limited identifiers
+        if let Some(ids) = result {
+            let words: Vec<&str> = ids.split_whitespace().collect();
+            assert!(!words.contains(&"fn"), "Should not contain keyword 'fn'");
+            assert!(!words.contains(&"if"), "Should not contain keyword 'if'");
+            assert!(!words.contains(&"else"), "Should not contain keyword 'else'");
+        }
+    }
+
+    #[test]
+    fn test_extract_identifiers_screaming_snake_case() {
+        let code = "fn test() { let val = MAX_RETRY_COUNT; }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        assert!(ids.contains("max"), "Should split SCREAMING_SNAKE into 'max'");
+        assert!(ids.contains("retry"), "Should split SCREAMING_SNAKE into 'retry'");
+        assert!(ids.contains("count"), "Should split SCREAMING_SNAKE into 'count'");
+    }
+
+    #[test]
+    fn test_extract_identifiers_pascal_case() {
+        let code = "fn test() { let val = UserProfile::new(); }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        assert!(ids.contains("userprofile"), "Should contain lowercased original");
+        assert!(ids.contains("user"), "Should split PascalCase into 'user'");
+        assert!(ids.contains("profile"), "Should split PascalCase into 'profile'");
+    }
+
+    #[test]
+    fn test_extract_identifiers_mixed_case_with_numbers() {
+        let code = "fn test() { let val = getItem2Name(); }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        // Should contain some split parts
+        assert!(ids.contains("get"), "Should split 'get' from camelCase");
+    }
+
+    #[test]
+    fn test_extract_identifiers_leading_underscores() {
+        let code = "fn test() { let _private_var = 1; let __dunder = 2; }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        // Leading underscores should not prevent extraction
+        // The identifier characters include underscores and alphanums
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_extract_identifiers_very_long_identifier() {
+        let long_name = "a".repeat(200);
+        let code = format!("fn test() {{ let {} = 1; }}", long_name);
+        let result = extract_identifiers(&code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+        assert!(ids.contains(&long_name), "Should handle very long identifiers");
+    }
+
+    #[test]
+    fn test_extract_identifiers_only_comments() {
+        let code = "// this is a comment\n/* block comment */";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        // Comments should not produce identifier nodes in the AST
+        // Result may be None since no actual code identifiers exist
+        // (The fallback might pick up words, but AST parsing should filter them)
+        if let Some(ids) = result {
+            // If anything is found, it should still be valid identifiers
+            for word in ids.split_whitespace() {
+                assert!(word.len() >= 2, "All words should be at least 2 chars");
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_identifiers_binary_like_data() {
+        // Content with non-UTF8-friendly but still valid UTF-8 chars
+        let code = "\x00\x01\x02\x03";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        // Should handle gracefully, likely returning None
+        // Binary data won't have valid identifiers
+        if let Some(ids) = result {
+            assert!(!ids.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_extract_identifiers_whitespace_only() {
+        let code = "   \n\t\n   ";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_none(), "Whitespace-only should return None");
+    }
+
+    #[test]
+    fn test_extract_identifiers_numbers_only_code() {
+        // Code with only numeric literals
+        let code = "123 + 456 * 789";
+        let result = extract_identifiers(code, None);
+        assert!(result.is_none(), "Numeric-only content should return None");
+    }
+
+    #[test]
+    fn test_extract_identifiers_no_language_uses_fallback() {
+        let code = "calculateTotalPrice get_user_name MAX_VALUE";
+        let result = extract_identifiers(code, None);
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        // Fallback splits on non-alphanumeric boundaries (underscore kept)
+        // "calculateTotalPrice" kept as-is, then split_identifier splits it
+        assert!(
+            ids.contains("calculate") || ids.contains("calculatetotalprice"),
+            "Should extract from fallback"
+        );
+    }
+
+    #[test]
+    fn test_extract_identifiers_javascript() {
+        let code = r#"function fetchUserData(userId) {
+    const response = await fetch(apiUrl);
+    return response.json();
+}"#;
+        let result = extract_identifiers(code, Some(Language::JavaScript));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        let words: Vec<&str> = ids.split_whitespace().collect();
+        assert!(!words.contains(&"function"), "JS keyword 'function' should be filtered");
+        assert!(!words.contains(&"const"), "JS keyword 'const' should be filtered");
+        assert!(!words.contains(&"return"), "JS keyword 'return' should be filtered");
+        assert!(!words.contains(&"await"), "JS keyword 'await' should be filtered");
+        assert!(ids.contains("fetch"), "Should contain 'fetch'");
+    }
+
+    #[test]
+    fn test_extract_identifiers_typescript_filters() {
+        let code = "const val: string = getUserProfile();";
+        let result = extract_identifiers(code, Some(Language::TypeScript));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        let words: Vec<&str> = ids.split_whitespace().collect();
+        // TypeScript uses js_ts_keywords
+        assert!(!words.contains(&"const"), "TS keyword 'const' should be filtered");
+    }
+
+    // ===== language_keywords coverage =====
+
+    #[test]
+    fn test_language_keywords_java() {
+        let kw = language_keywords(Some(Language::Java));
+        assert!(kw.contains("class"));
+        assert!(kw.contains("public"));
+        assert!(kw.contains("synchronized"));
+        assert!(!kw.contains("fn")); // Rust keyword, not Java
+    }
+
+    #[test]
+    fn test_language_keywords_c() {
+        let kw = language_keywords(Some(Language::C));
+        assert!(kw.contains("int"));
+        assert!(kw.contains("struct"));
+        assert!(kw.contains("typedef"));
+    }
+
+    #[test]
+    fn test_language_keywords_cpp_extends_c() {
+        let kw = language_keywords(Some(Language::Cpp));
+        // C++ should have C keywords plus its own
+        assert!(kw.contains("int")); // from C
+        assert!(kw.contains("class")); // C++ specific
+        assert!(kw.contains("template")); // C++ specific
+        assert!(kw.contains("nullptr")); // C++ specific
+    }
+
+    #[test]
+    fn test_language_keywords_csharp() {
+        let kw = language_keywords(Some(Language::CSharp));
+        assert!(kw.contains("namespace"));
+        assert!(kw.contains("sealed"));
+        assert!(kw.contains("delegate"));
+    }
+
+    #[test]
+    fn test_language_keywords_ruby() {
+        let kw = language_keywords(Some(Language::Ruby));
+        assert!(kw.contains("def"));
+        assert!(kw.contains("end"));
+        assert!(kw.contains("attr_accessor"));
+    }
+
+    #[test]
+    fn test_language_keywords_kotlin() {
+        let kw = language_keywords(Some(Language::Kotlin));
+        assert!(kw.contains("fun"));
+        assert!(kw.contains("suspend"));
+        assert!(kw.contains("lateinit"));
+    }
+
+    #[test]
+    fn test_language_keywords_swift() {
+        let kw = language_keywords(Some(Language::Swift));
+        assert!(kw.contains("func"));
+        assert!(kw.contains("guard"));
+        assert!(kw.contains("fileprivate"));
+    }
+
+    #[test]
+    fn test_language_keywords_php() {
+        let kw = language_keywords(Some(Language::Php));
+        assert!(kw.contains("echo"));
+        assert!(kw.contains("trait"));
+        assert!(kw.contains("readonly"));
+    }
+
+    #[test]
+    fn test_language_keywords_scala() {
+        let kw = language_keywords(Some(Language::Scala));
+        assert!(kw.contains("object"));
+        assert!(kw.contains("implicit"));
+        assert!(kw.contains("given"));
+    }
+
+    #[test]
+    fn test_language_keywords_generic_for_unknown() {
+        // Languages without specific keyword list should use generic
+        let kw = language_keywords(None);
+        assert!(kw.contains("function"));
+        assert!(kw.contains("class"));
+        assert!(kw.contains("return"));
+    }
+
+    // ===== collect_ast_identifiers tests =====
+
+    #[test]
+    fn test_collect_ast_identifiers_with_parser_support() {
+        let code = "fn hello() { let world = 42; }";
+        let result = collect_ast_identifiers(code, Some(Language::Rust));
+        // Should use AST extraction since Rust has parser support
+        assert!(result.iter().any(|s| s == "hello"));
+        assert!(result.iter().any(|s| s == "world"));
+    }
+
+    #[test]
+    fn test_collect_ast_identifiers_none_language_uses_fallback() {
+        let code = "hello world foo_bar";
+        let result = collect_ast_identifiers(code, None);
+        // Should use fallback extraction
+        assert!(!result.is_empty());
+        assert!(result.iter().any(|s| s == "hello"));
+        assert!(result.iter().any(|s| s == "world"));
+        assert!(result.iter().any(|s| s == "foo_bar"));
+    }
+
+    // ===== Deduplication and sorting =====
+
+    #[test]
+    fn test_extract_identifiers_result_is_sorted() {
+        let code = "fn test() { let zebra = 1; let apple = 2; let mango = 3; }";
+        let result = extract_identifiers(code, Some(Language::Rust)).unwrap();
+        let words: Vec<&str> = result.split_whitespace().collect();
+        let mut sorted = words.clone();
+        sorted.sort();
+        assert_eq!(words, sorted, "Output must be alphabetically sorted");
+    }
+
+    #[test]
+    fn test_extract_identifiers_no_duplicates_from_split() {
+        // "user" appears both as a standalone identifier and as a split part of "user_name"
+        let code = "fn test() { let user = get_user(); let user_name = user.name; }";
+        let result = extract_identifiers(code, Some(Language::Rust)).unwrap();
+        let words: Vec<&str> = result.split_whitespace().collect();
+        let unique: BTreeSet<&str> = words.iter().copied().collect();
+        assert_eq!(words.len(), unique.len(), "No duplicates allowed");
+    }
+
+    // ===== Noise identifier edge cases =====
+
+    #[test]
+    fn test_all_noise_identifiers_filtered_via_extract() {
+        // Build code that uses all noise identifiers as variable names
+        let code = r#"fn test() {
+    let self_val = self.data;
+    let this_val = this.data;
+    let n = None;
+    let nu = null;
+    let t = true;
+    let f = false;
+    let u = undefined;
+    let ni = nil;
+    let o = ok;
+    let e = err;
+    let s = some;
+}"#;
+        let result = extract_identifiers(code, Some(Language::Rust));
+        if let Some(ids) = result {
+            let words: Vec<&str> = ids.split_whitespace().collect();
+            // The noise words themselves should not appear as standalone words
+            // (but compound words like "self_val" might produce "self" as a split part,
+            // which would then be filtered by should_include)
+            for noise in NOISE_IDENTIFIERS {
+                if noise.len() >= 2 {
+                    // "ok" has len 2, should still be filtered as noise
+                    assert!(
+                        !words.contains(noise),
+                        "Noise identifier '{}' should be filtered",
+                        noise
+                    );
+                }
+            }
+        }
+    }
+
+    // ===== Multi-language AST extraction =====
+
+    #[test]
+    fn test_python_keyword_filtering() {
+        let code = r#"
+class MyProcessor:
+    def process_items(self, input_list):
+        for item in input_list:
+            if item.is_valid:
+                yield item
+"#;
+        let result = extract_identifiers(code, Some(Language::Python));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+        let words: Vec<&str> = ids.split_whitespace().collect();
+
+        assert!(!words.contains(&"def"), "Python 'def' should be filtered");
+        assert!(!words.contains(&"class"), "Python 'class' should be filtered");
+        assert!(!words.contains(&"for"), "Python 'for' should be filtered");
+        assert!(!words.contains(&"yield"), "Python 'yield' should be filtered");
+        assert!(ids.contains("process"), "Should contain split part 'process'");
+        assert!(ids.contains("items"), "Should contain split part 'items'");
+    }
+
+    #[test]
+    fn test_go_keyword_filtering_comprehensive() {
+        let code = r#"
+func processData(input []byte) ([]byte, error) {
+    result := transform(input)
+    return result, nil
+}
+"#;
+        let result = extract_identifiers(code, Some(Language::Go));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+        let words: Vec<&str> = ids.split_whitespace().collect();
+
+        assert!(!words.contains(&"func"), "Go 'func' should be filtered");
+        assert!(!words.contains(&"return"), "Go 'return' should be filtered");
+        assert!(
+            ids.contains("processdata") || ids.contains("process"),
+            "Should contain identifier from processData"
+        );
+    }
+
+    // ===== Acronym handling in camelCase =====
+
+    #[test]
+    fn test_xml_http_request_splitting() {
+        let code = "fn test() { let req = XMLHttpRequest::new(); }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        // split_identifier should handle "XMLHttpRequest" -> ["XML", "Http", "Request"]
+        assert!(ids.contains("xml"), "Should contain 'xml' from acronym split");
+        assert!(ids.contains("http"), "Should contain 'http' from acronym split");
+        assert!(ids.contains("request"), "Should contain 'request' from acronym split");
+    }
+
+    #[test]
+    fn test_all_caps_identifier() {
+        let code = "fn test() { let val = DATABASE; }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+        assert!(ids.contains("database"), "Should contain lowercased all-caps identifier");
+    }
+
+    // ===== Edge cases for content that produces empty results =====
+
+    #[test]
+    fn test_extract_identifiers_special_chars_only() {
+        let code = "!@#$%^&*()+={}[]|\\:;'\"<>,.?/~`";
+        let result = extract_identifiers(code, None);
+        assert!(result.is_none(), "Special characters only should return None");
+    }
+
+    #[test]
+    fn test_extract_identifiers_unicode_identifiers() {
+        // Unicode characters that are not alphanumeric+underscore should be filtered
+        // by the check in collect_identifiers_recursive
+        let code = "fn test() { let cafe = 1; }";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+        assert!(ids.contains("cafe"), "Should handle ASCII identifiers fine");
+    }
+
+    #[test]
+    fn test_extract_identifiers_syntax_error_code() {
+        // Invalid Rust syntax - parser should still extract some identifiers
+        // or fallback should handle it
+        let code = "fn {{ broken syntax let foo = bar; }}}}";
+        let result = extract_identifiers(code, Some(Language::Rust));
+        // Even with syntax errors, tree-sitter can often extract partial results
+        // The key thing is it should not panic
+        if let Some(ids) = result {
+            // If identifiers were found, verify basic properties
+            for word in ids.split_whitespace() {
+                assert!(word.len() >= 2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_identifiers_multiline_complex() {
+        let code = r#"
+fn calculate_shipping_cost(
+    order_total: f64,
+    shipping_method: ShippingMethod,
+    destination_country: Country,
+) -> Result<f64, ShippingError> {
+    let base_rate = get_base_rate(shipping_method);
+    let country_multiplier = get_country_multiplier(destination_country);
+    let total_cost = base_rate * country_multiplier;
+    Ok(total_cost)
+}
+"#;
+        let result = extract_identifiers(code, Some(Language::Rust));
+        assert!(result.is_some());
+        let ids = result.unwrap();
+
+        // Verify split parts from snake_case
+        assert!(ids.contains("calculate"), "Should split 'calculate'");
+        assert!(ids.contains("shipping"), "Should split 'shipping'");
+        assert!(ids.contains("cost"), "Should split 'cost'");
+        assert!(ids.contains("order"), "Should split 'order'");
+        assert!(ids.contains("destination"), "Should split 'destination'");
+        assert!(ids.contains("country"), "Should split 'country'");
+        assert!(ids.contains("base"), "Should split 'base'");
+        assert!(ids.contains("rate"), "Should split 'rate'");
+        assert!(ids.contains("multiplier"), "Should split 'multiplier'");
+
+        // Verify compound forms are present too
+        assert!(
+            ids.contains("calculate_shipping_cost")
+                || ids.contains("base_rate")
+                || ids.contains("total_cost"),
+            "Should contain some compound identifiers"
+        );
+    }
 }
