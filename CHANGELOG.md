@@ -55,8 +55,38 @@ rm -rf .infiniloom/cache/
 
 These files are automatically versioned and will show helpful error messages suggesting regeneration if old formats are detected. (#130)
 
+### Added
+
+- **Embed: Streaming JSONL Output** - Memory-efficient streaming mode for processing large repositories without holding all chunks in memory. Use `--streaming` flag. (#173)
+- **Embed: SQLite Manifest Storage** - Enterprise-scale alternative to bincode manifests with WAL mode for concurrent reads, per-file updates, and query flexibility. Use `--sqlite-manifest` flag. (#177)
+- **Embed: Parent/Children Chunk Linking** - Hierarchical chunk relationships with parent-child linking and module path metadata. (#170)
+- **Embed: Type Signature Extraction** - Extract complete type signatures for functions, methods, and classes across 21 languages via Tree-sitter queries. (#168)
+- **Embed: Cross-Repository Identity** - Fully-qualified names (FQN) and repository identity metadata for cross-repo deduplication. (#171)
+- **Embed: Neptune-Compatible Graph Export** - Generate vertices and edges JSONL files for graph database ingestion. Use `--graph-export` flag. (#172)
+- **Embed: BM25-Friendly Identifiers** - Per-chunk identifier extraction optimized for keyword search and BM25 scoring. (#167)
+- **Embed: pgvector Schema Generation** - Generate PostgreSQL pgvector-compatible table schemas for embedding storage. (#176)
+- **Embed: Import-Aware Call Graph** - Improved call graph resolution using import statements for more accurate cross-file references. (#174)
+- **Embed: Cyclomatic Complexity Scoring** - Per-chunk cyclomatic complexity calculation for code quality metrics. (#166)
+- **Embed: Git-Diff Incremental Updates** - Automatically detect changed files via `git diff` for efficient re-indexing with `--since` flag. (#169)
+- **Embed: Heuristic NL Summary** - Auto-generated natural language summaries per chunk for improved retrieval. (#142)
+- **Embed: Git Metadata Enrichment** - Last commit hash, author, and date per chunk from git history. (#139)
+- **Embed: Signature-Only Chunks** - Generate lightweight signature-only chunks for function/class overviews. (#175)
+- **Embed: Periodic Flush** - Prevent memory buildup with periodic writer flushes during streaming. (#196)
+- **Embed: Atomic Manifest Writes** - Prevent corruption with write-to-temp-then-rename pattern. (#201)
+- **Analysis: Type Signature Extraction** - Comprehensive type signature extraction and testing across all supported languages. (#193)
+- **Languages: Zig and Dart Support** - Full Tree-sitter grammar support for Zig and Dart. (#86)
+- **Security: Extended Secret Detection** - Added patterns for GCP, Azure, HuggingFace, and additional cloud provider secrets. (#80)
+- **Security: International PII Detection** - Expanded PII patterns for international phone numbers and addresses. (#91)
+- **Tokenizer: Claude 4.6 and Grok 4 Models** - Added model aliases for latest Claude and Grok model families. (#77, #74)
+- **Tokenizer: Context Window API** - `context_window()` and `default_budget()` methods on `TokenModel`. (#78)
+- **Document: PDF Support** - PDF ingestion support in the document processing pipeline. (#88)
+- **Node.js: Complexity Bindings** - `calculateComplexity` and `checkComplexity` functions in Node.js bindings. (#92)
+
 ### Fixed
 
+- **Embed: Data Loss in Incremental Mode** - Prevent data loss when files are modified but generate no symbols in incremental mode. (#200)
+- **Embed: Race Condition in Chunk Limits** - Fix thread-safety issue in chunk count enforcement during parallel processing. (#195)
+- **Embed: SQLite Manifest Incremental Mode** - Fix data loss when using SQLite manifest with incremental updates (was incorrectly deleting all chunks instead of upserting changed files).
 - **Markdown Parser Formatting** - Fix formatting in markdown parser (PR #53)
 - **Critical Bug Fixes** - Address critical bugs, security issues and correctness problems across engine (PR #53)
   - Constant-time comparison for embedding manifest checksums

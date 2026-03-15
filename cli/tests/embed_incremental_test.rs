@@ -84,13 +84,9 @@ pub fn calculate(a: i32, b: i32) -> i32 {
 
     // Verify at least one chunk was generated (for the calculate function)
     let chunks1: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks1.json")).unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks1.json")).unwrap()).unwrap();
     let initial_chunks = chunks1["chunks"].as_array().unwrap();
-    assert!(
-        initial_chunks.len() > 0,
-        "Should have generated chunks for calculate function"
-    );
+    assert!(initial_chunks.len() > 0, "Should have generated chunks for calculate function");
 
     // Find chunk ID for the calculate function
     let calculate_chunk_id = initial_chunks
@@ -104,10 +100,7 @@ pub fn calculate(a: i32, b: i32) -> i32 {
         .and_then(|c| c["id"].as_str())
         .expect("Should have chunk for calculate function");
 
-    println!(
-        "Initial chunk ID for calculate: {}",
-        calculate_chunk_id
-    );
+    println!("Initial chunk ID for calculate: {}", calculate_chunk_id);
 
     // Step 3: Modify file to only have comments (no symbols)
     fs::write(
@@ -155,8 +148,7 @@ pub fn calculate(a: i32, b: i32) -> i32 {
 
     // Step 5: Verify the old chunk was removed
     let chunks2: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks2.json")).unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks2.json")).unwrap()).unwrap();
 
     // Check if diff output shows removed chunk
     if let Some(diff) = chunks2.get("diff") {
@@ -164,9 +156,9 @@ pub fn calculate(a: i32, b: i32) -> i32 {
         println!("Removed chunks: {:?}", removed);
 
         // The calculate chunk should be in the removed list
-        let found_removed = removed.iter().any(|c| {
-            c["id"].as_str().unwrap_or("") == calculate_chunk_id
-        });
+        let found_removed = removed
+            .iter()
+            .any(|c| c["id"].as_str().unwrap_or("") == calculate_chunk_id);
 
         assert!(
             found_removed,
@@ -185,8 +177,7 @@ pub fn calculate(a: i32, b: i32) -> i32 {
     let manifest_path = repo_path.join(".infiniloom-embed.bin");
 
     if manifest_path.exists() {
-        let manifest = EmbedManifest::load(&manifest_path)
-            .expect("Failed to load manifest");
+        let manifest = EmbedManifest::load(&manifest_path).expect("Failed to load manifest");
 
         // Manifest should have zero chunks now (file has only comments)
         assert_eq!(
@@ -212,17 +203,9 @@ fn test_incremental_mode_preserves_unchanged_files() {
     let repo_path = temp_dir.path();
 
     // Step 1: Create two files
-    fs::write(
-        repo_path.join("file1.rs"),
-        r#"pub fn func1() { println!("one"); }"#,
-    )
-    .unwrap();
+    fs::write(repo_path.join("file1.rs"), r#"pub fn func1() { println!("one"); }"#).unwrap();
 
-    fs::write(
-        repo_path.join("file2.rs"),
-        r#"pub fn func2() { println!("two"); }"#,
-    )
-    .unwrap();
+    fs::write(repo_path.join("file2.rs"), r#"pub fn func2() { println!("two"); }"#).unwrap();
 
     // Initialize git repo
     std::process::Command::new("git")
@@ -271,8 +254,7 @@ fn test_incremental_mode_preserves_unchanged_files() {
     assert!(output.status.success());
 
     let chunks1: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks1.json")).unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks1.json")).unwrap()).unwrap();
     let initial_count = chunks1["chunks"].as_array().unwrap().len();
     assert_eq!(initial_count, 2, "Should have 2 chunks initially");
 
@@ -327,16 +309,11 @@ fn test_incremental_mode_preserves_unchanged_files() {
     assert!(output.status.success());
 
     let chunks3: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks3.json")).unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_to_string(repo_path.join("chunks3.json")).unwrap()).unwrap();
     let final_chunks = chunks3["chunks"].as_array().unwrap();
 
     // Should still have 2 chunks (one from file1, one from unchanged file2)
-    assert_eq!(
-        final_chunks.len(),
-        2,
-        "Should preserve chunk from unchanged file2"
-    );
+    assert_eq!(final_chunks.len(), 2, "Should preserve chunk from unchanged file2");
 
     // Verify file2 chunk is unchanged
     let has_file2 = final_chunks.iter().any(|c| {

@@ -576,10 +576,9 @@ impl EmbedChunker {
 
             // Flush writer after each batch to prevent unbounded memory buildup
             // and ensure data is written even if processing fails later
-            writer.flush().map_err(|e| EmbedError::IoError {
-                path: repo_path.to_path_buf(),
-                source: e,
-            })?;
+            writer
+                .flush()
+                .map_err(|e| EmbedError::IoError { path: repo_path.to_path_buf(), source: e })?;
 
             // batch_chunks is dropped here, freeing memory
         }

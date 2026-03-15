@@ -264,12 +264,6 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         config.path.join(&config.manifest_path)
     };
 
-    // Branch: SQLite manifest or bincode manifest
-    #[cfg(feature = "sqlite-manifest")]
-    if use_sqlite {
-        return cmd_embed_sqlite(config, settings, chunks, elapsed, &manifest_path);
-    }
-
     let existing_manifest =
         EmbedManifest::load_if_exists(&manifest_path).context("Failed to load manifest")?;
 
@@ -373,6 +367,20 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
     let elapsed = start.elapsed();
 
+    // Branch: SQLite manifest or bincode manifest
+    #[cfg(feature = "sqlite-manifest")]
+    if use_sqlite {
+        return cmd_embed_sqlite(
+            config,
+            settings,
+            chunks,
+            elapsed,
+            &manifest_path,
+            since_ref.is_some(),
+            &deleted_files,
+        );
+    }
+
     // For incremental mode with --since: merge new chunks with unchanged chunks from manifest
     let (final_chunks, diff) = if since_ref.is_some() {
         if let Some(ref manifest) = existing_manifest {
@@ -387,7 +395,8 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
             // Instead, compute the diff against a virtual "current" that includes:
             // - New chunks for changed files
             // - Removal markers for deleted files
-            let diff = compute_incremental_diff(manifest, &chunks, &deleted_file_strs, &processed_files);
+            let diff =
+                compute_incremental_diff(manifest, &chunks, &deleted_file_strs, &processed_files);
 
             // The "final chunks" for manifest update = new chunks from changed files
             // + chunks from manifest for unchanged files (keep manifest as-is for those)
@@ -649,6 +658,8 @@ fn cmd_embed_sqlite(
     chunks: Vec<EmbedChunk>,
     elapsed: std::time::Duration,
     manifest_path: &std::path::Path,
+    is_incremental: bool,
+    deleted_files: &[PathBuf],
 ) -> Result<()> {
     use infiniloom_engine::embedding::SqliteManifest;
 
@@ -678,9 +689,23 @@ fn cmd_embed_sqlite(
     }
 
     // Update manifest with current chunks
-    sqlite_manifest
-        .save_chunks(&chunks)
-        .context("Failed to save chunks to SQLite manifest")?;
+    if is_incremental {
+        // Incremental mode: remove deleted file chunks, upsert changed file chunks
+        // This preserves chunks for unchanged files
+        for deleted in deleted_files {
+            sqlite_manifest
+                .remove_by_file(&deleted.to_string_lossy())
+                .context("Failed to remove chunks for deleted file")?;
+        }
+        sqlite_manifest
+            .upsert_chunks_for_files(&chunks)
+            .context("Failed to upsert chunks to SQLite manifest")?;
+    } else {
+        // Full mode: replace all chunks
+        sqlite_manifest
+            .save_chunks(&chunks)
+            .context("Failed to save chunks to SQLite manifest")?;
+    }
 
     // Print statistics if not quiet and (outputting to file or verbose mode)
     if !config.quiet && (config.output_file.is_some() || config.verbose) {
