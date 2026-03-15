@@ -236,14 +236,6 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
     // Non-streaming mode: collect all chunks, then output
 
-    // Load existing manifest for diff (needed for both --since-manifest and standard diff)
-    // Generate chunks
-    let chunks = chunker
-        .chunk_repository(&config.path, progress.as_ref())
-        .context("Failed to generate chunks")?;
-
-    let elapsed = start.elapsed();
-
     // Determine manifest path based on storage backend
     #[cfg(feature = "sqlite-manifest")]
     let use_sqlite = config.sqlite_manifest;
@@ -285,7 +277,9 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     let since_ref = resolve_since_ref(&config, existing_manifest.as_ref());
 
     // Generate chunks (full or filtered by git diff)
-    let (chunks, deleted_files) = if let Some(ref since) = since_ref {
+    // Returns: (chunks, deleted_files, processed_files)
+    // processed_files tracks ALL files that were scanned, even if they generated no chunks
+    let (chunks, deleted_files, processed_files) = if let Some(ref since) = since_ref {
         if !config.quiet {
             eprintln!(
                 "  {} Incremental mode: processing files changed since {}",
@@ -326,6 +320,12 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
                 let only_files: HashSet<PathBuf> = changed.into_iter().collect();
 
+                // Convert to string paths for tracking (same format as chunk.source.file)
+                let processed_file_strs: HashSet<String> = only_files
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+
                 // Use filtered chunking - only process changed files
                 let new_chunks = if only_files.is_empty() {
                     Vec::new()
@@ -346,7 +346,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
                         })
                 };
 
-                (new_chunks, deleted)
+                (new_chunks, deleted, processed_file_strs)
             },
             Err(e) => {
                 // Commit not found or other git error - fall back to full re-index
@@ -358,7 +358,8 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
                 let chunks = chunker
                     .chunk_repository(&config.path, progress.as_ref())
                     .context("Failed to generate chunks")?;
-                (chunks, Vec::new())
+                // No processed_files tracking for full re-index (not incremental)
+                (chunks, Vec::new(), HashSet::new())
             },
         }
     } else {
@@ -366,7 +367,8 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         let chunks = chunker
             .chunk_repository(&config.path, progress.as_ref())
             .context("Failed to generate chunks")?;
-        (chunks, Vec::new())
+        // No processed_files tracking for full re-index (not incremental)
+        (chunks, Vec::new(), HashSet::new())
     };
 
     let elapsed = start.elapsed();
@@ -374,9 +376,6 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     // For incremental mode with --since: merge new chunks with unchanged chunks from manifest
     let (final_chunks, diff) = if since_ref.is_some() {
         if let Some(ref manifest) = existing_manifest {
-            // Build a set of files that were changed or deleted
-            let changed_files: HashSet<&str> =
-                chunks.iter().map(|c| c.source.file.as_str()).collect();
             let deleted_file_strs: HashSet<String> = deleted_files
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
@@ -388,7 +387,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
             // Instead, compute the diff against a virtual "current" that includes:
             // - New chunks for changed files
             // - Removal markers for deleted files
-            let diff = compute_incremental_diff(manifest, &chunks, &deleted_file_strs);
+            let diff = compute_incremental_diff(manifest, &chunks, &deleted_file_strs, &processed_files);
 
             // The "final chunks" for manifest update = new chunks from changed files
             // + chunks from manifest for unchanged files (keep manifest as-is for those)
@@ -418,7 +417,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
     // Update and save manifest
     let mut manifest = if since_ref.is_some() {
         if let Some(mut m) = existing_manifest {
-            // Incremental update: remove deleted file chunks, update changed file chunks
+            // Incremental update: remove deleted file chunks, update processed file chunks
             let deleted_file_strs: HashSet<String> = deleted_files
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
@@ -431,14 +430,12 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
                 !deleted_file_strs.contains(file_part)
             });
 
-            // Remove entries for changed files (will be replaced by new chunks)
-            let changed_files: HashSet<&str> = final_chunks
-                .iter()
-                .map(|c| c.source.file.as_str())
-                .collect();
+            // Remove entries for processed files (will be replaced by new chunks)
+            // CRITICAL: Use processed_files (all scanned files) not just files that generated chunks
+            // This prevents data loss when a file is modified but generates no symbols
             m.chunks.retain(|key, _| {
                 let file_part = key.split("::").next().unwrap_or("");
-                !changed_files.contains(file_part)
+                !processed_files.contains(file_part)
             });
 
             // Add new chunks for changed files
@@ -525,18 +522,20 @@ fn resolve_since_ref(config: &EmbedConfig, manifest: Option<&EmbedManifest>) -> 
 ///
 /// Compares new chunks from changed files against the manifest, and marks
 /// chunks from deleted files as removed.
+///
+/// `processed_files` contains ALL files that were scanned (even if they generated no chunks).
+/// This is critical to prevent data loss: if a file was modified but now has no symbols,
+/// we must remove its old chunks from the manifest.
 fn compute_incremental_diff(
     manifest: &EmbedManifest,
     new_chunks: &[EmbedChunk],
     deleted_files: &HashSet<String>,
+    processed_files: &HashSet<String>,
 ) -> EmbedDiff {
     let mut added = Vec::new();
     let mut modified = Vec::new();
     let mut removed = Vec::new();
     let mut unchanged_count = 0usize;
-
-    // Files that were changed (have new chunks)
-    let changed_files: HashSet<&str> = new_chunks.iter().map(|c| c.source.file.as_str()).collect();
 
     // Check each manifest entry
     for (key, entry) in &manifest.chunks {
@@ -545,11 +544,12 @@ fn compute_incremental_diff(
         if deleted_files.contains(file_part) {
             // File was deleted - mark chunk as removed
             removed.push(RemovedChunk { id: entry.chunk_id.clone(), location_key: key.clone() });
-        } else if changed_files.contains(file_part) {
-            // File was changed - will be handled below when comparing new chunks
-            // (don't count as unchanged)
+        } else if processed_files.contains(file_part) {
+            // File was processed (scanned) - will be handled below when comparing new chunks
+            // If no new chunks exist for this file, old chunks will be marked as removed
+            // (don't count as unchanged here)
         } else {
-            // File was not changed - chunk is unchanged
+            // File was not processed - chunk is unchanged
             unchanged_count += 1;
         }
     }
@@ -573,17 +573,18 @@ fn compute_incremental_diff(
         }
     }
 
-    // Also find manifest entries for changed files that no longer exist in new chunks
-    // (e.g., a function was removed from a modified file)
+    // Also find manifest entries for processed files that no longer exist in new chunks
+    // (e.g., a function was removed from a modified file, or file now has only comments)
     for (key, entry) in &manifest.chunks {
         let file_part = key.split("::").next().unwrap_or("");
-        if changed_files.contains(file_part) && !deleted_files.contains(file_part) {
+        if processed_files.contains(file_part) && !deleted_files.contains(file_part) {
             // Check if this manifest entry has a corresponding new chunk
             let has_match = new_chunks.iter().any(|c| {
                 let new_key = EmbedManifest::location_key(&c.source.file, &c.source.symbol, c.kind);
                 new_key == *key
             });
             if !has_match {
+                // Old chunk no longer exists in processed file - mark as removed
                 removed
                     .push(RemovedChunk { id: entry.chunk_id.clone(), location_key: key.clone() });
             }
