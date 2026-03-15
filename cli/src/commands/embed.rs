@@ -231,6 +231,21 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
     // Streaming mode: write chunks as they are generated (JSONL only)
     if config.streaming {
+        // Streaming mode never saves manifests (chunks are not held in memory),
+        // so --since-manifest and --diff-only are incompatible with it.
+        if config.since_manifest {
+            anyhow::bail!(
+                "Cannot use --streaming with --since-manifest.\n\
+                 Streaming mode does not save manifests. Use --since <commit> instead, \
+                 or remove --streaming to use manifest-based incremental updates."
+            );
+        }
+        if config.diff_only {
+            anyhow::bail!(
+                "Cannot use --streaming with --diff-only.\n\
+                 Streaming mode writes chunks as they are generated and cannot compute diffs."
+            );
+        }
         return cmd_embed_streaming(config, settings, chunker, progress.as_ref(), start);
     }
 
@@ -378,6 +393,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
             &manifest_path,
             since_ref.is_some(),
             &deleted_files,
+            &processed_files,
         );
     }
 
@@ -660,6 +676,7 @@ fn cmd_embed_sqlite(
     manifest_path: &std::path::Path,
     is_incremental: bool,
     deleted_files: &[PathBuf],
+    processed_files: &HashSet<String>,
 ) -> Result<()> {
     use infiniloom_engine::embedding::SqliteManifest;
 
@@ -697,6 +714,17 @@ fn cmd_embed_sqlite(
                 .remove_by_file(&deleted.to_string_lossy())
                 .context("Failed to remove chunks for deleted file")?;
         }
+
+        // CRITICAL: Remove chunks for ALL processed files before upserting new ones.
+        // This prevents data loss when a file is modified but generates no symbols
+        // (e.g., file now contains only comments). Without this, old chunks remain
+        // in the database for files that were scanned but produced zero chunks.
+        for file in processed_files {
+            sqlite_manifest
+                .remove_by_file(file)
+                .context("Failed to remove old chunks for processed file")?;
+        }
+
         sqlite_manifest
             .upsert_chunks_for_files(&chunks)
             .context("Failed to upsert chunks to SQLite manifest")?;
@@ -827,9 +855,11 @@ fn output_jsonl(
     elapsed: std::time::Duration,
 ) -> Result<()> {
     let mut writer: Box<dyn Write> = if let Some(ref path) = config.output_file {
-        Box::new(std::fs::File::create(path).context("Failed to create output file")?)
+        Box::new(BufWriter::new(
+            std::fs::File::create(path).context("Failed to create output file")?,
+        ))
     } else {
-        Box::new(std::io::stdout())
+        Box::new(BufWriter::new(std::io::stdout()))
     };
 
     // Header
@@ -908,6 +938,7 @@ fn output_jsonl(
         })
     };
     writeln!(writer, "{}", serde_json::to_string(&summary)?)?;
+    writer.flush()?;
 
     Ok(())
 }
@@ -921,9 +952,11 @@ fn output_json(
     elapsed: std::time::Duration,
 ) -> Result<()> {
     let mut writer: Box<dyn Write> = if let Some(ref path) = config.output_file {
-        Box::new(std::fs::File::create(path).context("Failed to create output file")?)
+        Box::new(BufWriter::new(
+            std::fs::File::create(path).context("Failed to create output file")?,
+        ))
     } else {
-        Box::new(std::io::stdout())
+        Box::new(BufWriter::new(std::io::stdout()))
     };
 
     let output = if config.diff_only {
@@ -959,6 +992,7 @@ fn output_json(
     };
 
     writeln!(writer, "{}", serde_json::to_string_pretty(&output)?)?;
+    writer.flush()?;
 
     Ok(())
 }

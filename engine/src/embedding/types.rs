@@ -103,6 +103,7 @@ pub struct EmbedChunk {
     pub id: String,
 
     /// Full 256-bit hash for collision verification
+    #[serde(default)]
     pub full_hash: String,
 
     /// The actual code content (normalized)
@@ -141,7 +142,7 @@ pub struct EmbedChunk {
     pub code_chunk_id: Option<String>,
 
     /// For split chunks: part N of M
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<ChunkPart>,
 }
 
@@ -171,20 +172,21 @@ pub struct ChunkSource {
     pub symbol: String,
 
     /// Fully qualified name
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fqn: Option<String>,
 
     /// Programming language
     pub language: String,
 
     /// Parent symbol (for methods inside classes)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 
     /// Visibility modifier
     pub visibility: Visibility,
 
     /// Whether this is test code
+    #[serde(default)]
     pub is_test: bool,
 
     /// Module path derived from file path and language conventions

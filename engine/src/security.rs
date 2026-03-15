@@ -829,10 +829,19 @@ impl SecurityScanner {
                 }
             }
 
-            // Move to next line (+1 for newline character, if present)
+            // Move past the line content and its line ending.
+            // str::lines() strips both '\n' and '\r\n', so we must account for
+            // whichever terminator is actually present in the source content.
             current_byte_offset += line.len();
             if current_byte_offset < content.len() {
-                current_byte_offset += 1; // account for '\n'
+                if content.as_bytes()[current_byte_offset] == b'\r' {
+                    current_byte_offset += 1; // skip '\r' in '\r\n'
+                }
+                if current_byte_offset < content.len()
+                    && content.as_bytes()[current_byte_offset] == b'\n'
+                {
+                    current_byte_offset += 1; // skip '\n'
+                }
             }
         }
 
