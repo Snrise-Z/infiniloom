@@ -189,7 +189,13 @@ impl EmbedManifest {
         let bytes = serialize(self)
             .map_err(|e| EmbedError::SerializationError { reason: e.to_string() })?;
 
-        std::fs::write(path, bytes)
+        // Atomic write: write to temp file first, then rename
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, bytes)
+            .map_err(|e| EmbedError::IoError { path: tmp_path.clone(), source: e })?;
+
+        // Atomic rename (protects against corruption on crash)
+        std::fs::rename(&tmp_path, path)
             .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
 
         Ok(())
