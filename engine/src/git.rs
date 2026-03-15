@@ -6,12 +6,17 @@
 //! - Blame information for file importance
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use thiserror::Error;
+
+/// Default timeout for git operations (30 seconds)
+const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Git repository wrapper
 pub struct GitRepo {
     path: String,
+    timeout: Duration,
 }
 
 /// A git commit entry
@@ -131,19 +136,35 @@ pub enum GitError {
     NotAGitRepo,
     #[error("Git command failed: {0}")]
     CommandFailed(String),
+    #[error("Git command timed out after {0:?}: {1}")]
+    Timeout(Duration, String),
     #[error("Parse error: {0}")]
     ParseError(String),
 }
 
 impl GitRepo {
-    /// Open a git repository
+    /// Open a git repository with the default timeout (30 seconds)
     pub fn open(path: &Path) -> Result<Self, GitError> {
         let git_dir = path.join(".git");
         if !git_dir.exists() {
             return Err(GitError::NotAGitRepo);
         }
 
-        Ok(Self { path: path.to_string_lossy().to_string() })
+        Ok(Self { path: path.to_string_lossy().to_string(), timeout: DEFAULT_GIT_TIMEOUT })
+    }
+
+    /// Set a custom timeout for git operations
+    ///
+    /// Returns `self` for builder-style chaining.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let repo = GitRepo::open(Path::new("."))?.with_timeout(Duration::from_secs(60));
+    /// ```
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// Check if path is a git repository
@@ -541,19 +562,48 @@ impl GitRepo {
     }
 
     /// Run a git command and return output
+    ///
+    /// Uses `spawn()` + `try_wait()` polling with a deadline instead of blocking
+    /// `.output()`, so that hung git processes are killed after `self.timeout`.
     fn run_git(&self, args: &[&str]) -> Result<String, GitError> {
-        let output = Command::new("git")
+        let mut child = Command::new("git")
             .current_dir(&self.path)
             .args(args)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| GitError::CommandFailed(e.to_string()))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitError::CommandFailed(stderr.to_string()));
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_status)) => {
+                    // Process has exited; collect output
+                    let output = child
+                        .wait_with_output()
+                        .map_err(|e| GitError::CommandFailed(e.to_string()))?;
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(GitError::CommandFailed(stderr.to_string()));
+                    }
+                    return String::from_utf8(output.stdout)
+                        .map_err(|e| GitError::ParseError(e.to_string()));
+                },
+                Ok(None) => {
+                    // Process still running — check deadline
+                    if Instant::now() > deadline {
+                        let _kill = child.kill();
+                        let _reap = child.wait();
+                        return Err(GitError::Timeout(
+                            self.timeout,
+                            format!("git {}", args.join(" ")),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                },
+                Err(e) => return Err(GitError::CommandFailed(e.to_string())),
+            }
         }
-
-        String::from_utf8(output.stdout).map_err(|e| GitError::ParseError(e.to_string()))
     }
 }
 
