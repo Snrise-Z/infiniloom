@@ -19,7 +19,10 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
 
 use rayon::prelude::*;
 
@@ -245,7 +248,7 @@ impl EmbedChunker {
 
         // Phase 2: Process files in parallel
         progress.set_phase("Parsing and chunking...");
-        let chunk_count = AtomicUsize::new(0);
+        let chunk_count = Mutex::new(0usize);
         let processed = AtomicUsize::new(0);
 
         // Collect results AND errors (don't swallow errors)
@@ -261,36 +264,24 @@ impl EmbedChunker {
                 match result {
                     Ok(chunks) => {
                         // Atomically check and update chunk count to prevent race conditions
-                        // Use compare_exchange loop to ensure we don't exceed limits
+                        // Use Mutex to ensure thread-safe limit enforcement
                         let chunks_to_add = chunks.len();
-                        loop {
-                            // Use Acquire ordering for proper synchronization on ARM
-                            let current = chunk_count.load(Ordering::Acquire);
-                            let new_count = current + chunks_to_add;
+                        let mut count = chunk_count.lock().unwrap();
+                        let new_count = *count + chunks_to_add;
 
-                            // Check chunk limit BEFORE incrementing
-                            if !self.limits.check_chunk_count(new_count) {
-                                return Err((
-                                    file.clone(),
-                                    EmbedError::TooManyChunks {
-                                        count: new_count,
-                                        max: self.limits.max_total_chunks,
-                                    },
-                                ));
-                            }
-
-                            // Try to atomically update the counter
-                            // Use AcqRel/Acquire ordering for correctness on ARM architectures
-                            match chunk_count.compare_exchange(
-                                current,
-                                new_count,
-                                Ordering::AcqRel,
-                                Ordering::Acquire,
-                            ) {
-                                Ok(_) => break,     // Successfully updated
-                                Err(_) => continue, // Another thread updated, retry
-                            }
+                        // Check chunk limit BEFORE incrementing
+                        if !self.limits.check_chunk_count(new_count) {
+                            return Err((
+                                file.clone(),
+                                EmbedError::TooManyChunks {
+                                    count: new_count,
+                                    max: self.limits.max_total_chunks,
+                                },
+                            ));
                         }
+
+                        *count = new_count;
+                        drop(count); // Release lock before returning
 
                         Ok(chunks)
                     },
@@ -482,7 +473,7 @@ impl EmbedChunker {
 
         // Phase 2: Process files in batches
         progress.set_phase("Parsing and chunking (streaming)...");
-        let total_chunk_count = AtomicUsize::new(0);
+        let total_chunk_count = Mutex::new(0usize);
 
         for batch_files in files.chunks(batch_size) {
             let processed_in_batch = AtomicUsize::new(0);
@@ -499,31 +490,26 @@ impl EmbedChunker {
 
                     match result {
                         Ok(chunks) => {
+                            // Atomically check and update chunk count to prevent race conditions
+                            // Use Mutex to ensure thread-safe limit enforcement
                             let chunks_to_add = chunks.len();
-                            loop {
-                                let current = total_chunk_count.load(Ordering::Acquire);
-                                let new_count = current + chunks_to_add;
+                            let mut count = total_chunk_count.lock().unwrap();
+                            let new_count = *count + chunks_to_add;
 
-                                if !self.limits.check_chunk_count(new_count) {
-                                    return Err((
-                                        file.clone(),
-                                        EmbedError::TooManyChunks {
-                                            count: new_count,
-                                            max: self.limits.max_total_chunks,
-                                        },
-                                    ));
-                                }
-
-                                match total_chunk_count.compare_exchange(
-                                    current,
-                                    new_count,
-                                    Ordering::AcqRel,
-                                    Ordering::Acquire,
-                                ) {
-                                    Ok(_) => break,
-                                    Err(_) => continue,
-                                }
+                            // Check chunk limit BEFORE incrementing
+                            if !self.limits.check_chunk_count(new_count) {
+                                return Err((
+                                    file.clone(),
+                                    EmbedError::TooManyChunks {
+                                        count: new_count,
+                                        max: self.limits.max_total_chunks,
+                                    },
+                                ));
                             }
+
+                            *count = new_count;
+                            drop(count); // Release lock before returning
+
                             Ok(chunks)
                         },
                         Err(e) => Err((file.clone(), e)),
