@@ -1130,11 +1130,33 @@ pub fn r_super_query() -> Result<Query, ParserError> {
 
 pub fn hcl_query() -> Result<Query, ParserError> {
     let query_string = r#"
+        ; locals blocks (no label, identifier-only)
+        (block
+          (identifier) @name
+          (body)
+          (#eq? @name "locals")) @constant
+
+        ; module blocks
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @name)
+          (#eq? @_type "module")) @module
+
+        ; dynamic blocks
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @name)
+          (#eq? @_type "dynamic")) @function
+
+        ; Single-label blocks (variable, output, etc.)
         (block
           (identifier) @_type
           (string_lit
             (template_literal) @name)) @function
 
+        ; Double-label blocks (resource, data, etc.)
         (block
           (identifier) @_type
           (string_lit
@@ -1149,7 +1171,27 @@ pub fn hcl_query() -> Result<Query, ParserError> {
 
 pub fn hcl_super_query() -> Result<Query, ParserError> {
     let query_string = r#"
-        ; Single-label blocks (variable, output, module, etc.)
+        ; locals blocks (no label, identifier-only)
+        (block
+          (identifier) @name
+          (body)
+          (#eq? @name "locals")) @constant
+
+        ; module blocks
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @name)
+          (#eq? @_type "module")) @module
+
+        ; dynamic blocks
+        (block
+          (identifier) @_type
+          (string_lit
+            (template_literal) @name)
+          (#eq? @_type "dynamic")) @function
+
+        ; Single-label blocks (variable, output, etc.)
         (block
           (identifier) @_type
           (string_lit

@@ -1262,3 +1262,138 @@ resource "aws_instance" "web" {
     let symbols = parser.parse(code, Language::Hcl).unwrap();
     assert!(!symbols.is_empty(), "HCL parser should extract symbols from double-label blocks");
 }
+
+#[test]
+fn test_hcl_locals_block() {
+    let code = r#"
+locals {
+  region  = "us-east-1"
+  env     = "production"
+  app_name = "my-app"
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+    let locals = symbols
+        .iter()
+        .find(|s| s.name == "locals" && s.kind == SymbolKind::Constant);
+    assert!(locals.is_some(), "HCL parser should extract locals blocks as Constants");
+}
+
+#[test]
+fn test_hcl_module_block() {
+    let code = r#"
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "3.0.0"
+
+  cidr = "10.0.0.0/16"
+}
+
+module "ec2" {
+  source = "./modules/ec2"
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+    let vpc_module = symbols
+        .iter()
+        .find(|s| s.name == "vpc" && s.kind == SymbolKind::Module);
+    assert!(vpc_module.is_some(), "HCL parser should extract module 'vpc' as Module kind");
+    let ec2_module = symbols
+        .iter()
+        .find(|s| s.name == "ec2" && s.kind == SymbolKind::Module);
+    assert!(ec2_module.is_some(), "HCL parser should extract module 'ec2' as Module kind");
+}
+
+#[test]
+fn test_hcl_dynamic_block() {
+    let code = r#"
+resource "aws_security_group" "example" {
+  name = "example"
+
+  dynamic "ingress" {
+    for_each = var.ingress_rules
+    content {
+      from_port   = ingress.value.from_port
+      to_port     = ingress.value.to_port
+      protocol    = ingress.value.protocol
+      cidr_blocks = ingress.value.cidr_blocks
+    }
+  }
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+    let dynamic_sym = symbols
+        .iter()
+        .find(|s| s.name == "ingress" && s.kind == SymbolKind::Function);
+    assert!(dynamic_sym.is_some(), "HCL parser should extract dynamic 'ingress' block");
+}
+
+#[test]
+fn test_hcl_mixed_blocks() {
+    let code = r#"
+locals {
+  common_tags = {
+    Environment = "production"
+  }
+}
+
+variable "region" {
+  default = "us-east-1"
+}
+
+module "networking" {
+  source = "./modules/networking"
+}
+
+resource "aws_instance" "web" {
+  ami           = "ami-12345"
+  instance_type = "t2.micro"
+
+  dynamic "ebs_block_device" {
+    for_each = var.ebs_volumes
+    content {
+      device_name = ebs_block_device.value.device_name
+      volume_size = ebs_block_device.value.volume_size
+    }
+  }
+}
+
+output "instance_id" {
+  value = aws_instance.web.id
+}
+"#;
+    let mut parser = Parser::new();
+    let symbols = parser.parse(code, Language::Hcl).unwrap();
+
+    // Check locals block
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "locals" && s.kind == SymbolKind::Constant),
+        "Should find locals block"
+    );
+
+    // Check module block
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "networking" && s.kind == SymbolKind::Module),
+        "Should find module 'networking'"
+    );
+
+    // Check dynamic block
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "ebs_block_device" && s.kind == SymbolKind::Function),
+        "Should find dynamic 'ebs_block_device' block"
+    );
+
+    // Check that traditional blocks still work
+    assert!(symbols.iter().any(|s| s.name == "region"), "Should find variable 'region'");
+    assert!(symbols.iter().any(|s| s.name == "instance_id"), "Should find output 'instance_id'");
+    assert!(symbols.iter().any(|s| s.name == "web"), "Should find resource 'web'");
+}

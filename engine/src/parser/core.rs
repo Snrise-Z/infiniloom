@@ -284,7 +284,18 @@ impl Parser {
         // Find kind capture (function, class, method, etc.)
         let kind_capture = captures.iter().find(|c| {
             capture_names.get(c.index as usize).is_some_and(|n| {
-                ["function", "class", "method", "struct", "enum", "interface", "trait"].contains(n)
+                [
+                    "function",
+                    "class",
+                    "method",
+                    "struct",
+                    "enum",
+                    "interface",
+                    "trait",
+                    "constant",
+                    "module",
+                ]
+                .contains(n)
             })
         })?;
 

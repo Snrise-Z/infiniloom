@@ -382,11 +382,33 @@ pub const R: &str = r#"
 
 /// HCL/Terraform symbol extraction query
 pub const HCL: &str = r#"
+    ; locals blocks (no label, identifier-only)
+    (block
+      (identifier) @name
+      (body)
+      (#eq? @name "locals")) @constant
+
+    ; module blocks
+    (block
+      (identifier) @_type
+      (string_lit
+        (template_literal) @name)
+      (#eq? @_type "module")) @module
+
+    ; dynamic blocks
+    (block
+      (identifier) @_type
+      (string_lit
+        (template_literal) @name)
+      (#eq? @_type "dynamic")) @function
+
+    ; Single-label blocks (variable, output, etc.)
     (block
       (identifier) @_type
       (string_lit
         (template_literal) @name)) @function
 
+    ; Double-label blocks (resource, data, etc.)
     (block
       (identifier) @_type
       (string_lit

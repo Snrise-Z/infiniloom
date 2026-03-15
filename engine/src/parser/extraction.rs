@@ -1704,6 +1704,8 @@ pub fn map_symbol_kind(capture_name: &str) -> SymbolKind {
         "enum" => SymbolKind::Enum,
         "interface" => SymbolKind::Interface,
         "trait" => SymbolKind::Trait,
+        "constant" => SymbolKind::Constant,
+        "module" => SymbolKind::Module,
         _ => SymbolKind::Function,
     }
 }
