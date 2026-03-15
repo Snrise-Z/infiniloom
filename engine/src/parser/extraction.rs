@@ -1635,6 +1635,50 @@ pub fn extract_inheritance(
                 }
             }
         },
+        Language::Dart => {
+            // Dart: class Foo extends Bar with Mixin1, Mixin2 implements Baz, Qux
+            // AST structure:
+            //   class_definition
+            //     superclass              (contains extends type + optional nested mixins)
+            //       type_identifier       (the extended class)
+            //       mixins                (nested inside superclass)
+            //         type_identifier*    (mixin types)
+            //     interfaces              (direct child of class_definition)
+            //       type_identifier*      (implemented types)
+            if node.kind() == "class_definition" {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "superclass" {
+                        for sc_child in child.children(&mut child.walk()) {
+                            if sc_child.kind() == "type_identifier" {
+                                // Direct type_identifier in superclass = extends
+                                if let Ok(name) = sc_child.utf8_text(source_code.as_bytes()) {
+                                    extends = Some(name.to_owned());
+                                }
+                            } else if sc_child.kind() == "mixins" {
+                                // mixins node is nested inside superclass
+                                for mixin_type in sc_child.children(&mut sc_child.walk()) {
+                                    if mixin_type.kind() == "type_identifier" {
+                                        if let Ok(name) =
+                                            mixin_type.utf8_text(source_code.as_bytes())
+                                        {
+                                            implements.push(name.to_owned());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if child.kind() == "interfaces" {
+                        for type_node in child.children(&mut child.walk()) {
+                            if type_node.kind() == "type_identifier" {
+                                if let Ok(name) = type_node.utf8_text(source_code.as_bytes()) {
+                                    implements.push(name.to_owned());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         Language::Bash
         | Language::Haskell
         | Language::Elixir
@@ -1644,8 +1688,7 @@ pub fn extract_inheritance(
         | Language::Lua
         | Language::R
         | Language::Hcl
-        | Language::Zig
-        | Language::Dart => {},
+        | Language::Zig => {},
     }
 
     (extends, implements)
@@ -2855,5 +2898,136 @@ void main() {
             "Expected no calls from a simple variable declaration, got: {:?}",
             calls
         );
+    }
+
+    // ==========================================================================
+    // Dart inheritance extraction tests
+    // ==========================================================================
+
+    /// Helper: parse Dart code and return symbols
+    fn parse_dart_symbols(code: &str) -> Vec<crate::types::Symbol> {
+        let mut parser = super::super::core::Parser::new();
+        parser.parse(code, Language::Dart).unwrap_or_default()
+    }
+
+    #[test]
+    fn test_dart_inheritance_extends() {
+        let code = r#"
+class Animal {
+  void speak() {}
+}
+
+class Dog extends Animal {
+  void speak() {}
+}
+"#;
+        let symbols = parse_dart_symbols(code);
+        let dog = symbols
+            .iter()
+            .find(|s| s.name == "Dog")
+            .expect("Dog class not found");
+        assert_eq!(dog.extends.as_deref(), Some("Animal"));
+        assert!(dog.implements.is_empty());
+    }
+
+    #[test]
+    fn test_dart_inheritance_implements() {
+        let code = r#"
+class Serializable {
+  void serialize() {}
+}
+
+class Printable {
+  void print() {}
+}
+
+class Document implements Serializable, Printable {
+  void serialize() {}
+  void print() {}
+}
+"#;
+        let symbols = parse_dart_symbols(code);
+        let doc = symbols
+            .iter()
+            .find(|s| s.name == "Document")
+            .expect("Document class not found");
+        assert!(doc.extends.is_none());
+        assert!(doc.implements.contains(&"Serializable".to_owned()));
+        assert!(doc.implements.contains(&"Printable".to_owned()));
+        assert_eq!(doc.implements.len(), 2);
+    }
+
+    #[test]
+    fn test_dart_inheritance_with_mixins() {
+        let code = r#"
+mixin Swimming {
+  void swim() {}
+}
+
+mixin Flying {
+  void fly() {}
+}
+
+class Duck with Swimming, Flying {
+  void quack() {}
+}
+"#;
+        let symbols = parse_dart_symbols(code);
+        let duck = symbols
+            .iter()
+            .find(|s| s.name == "Duck")
+            .expect("Duck class not found");
+        assert!(duck.extends.is_none());
+        // Mixins are treated as implements
+        assert!(duck.implements.contains(&"Swimming".to_owned()));
+        assert!(duck.implements.contains(&"Flying".to_owned()));
+        assert_eq!(duck.implements.len(), 2);
+    }
+
+    #[test]
+    fn test_dart_inheritance_combined() {
+        let code = r#"
+class Animal {
+  void speak() {}
+}
+
+mixin Swimming {
+  void swim() {}
+}
+
+class Walkable {
+  void walk() {}
+}
+
+class Duck extends Animal with Swimming implements Walkable {
+  void quack() {}
+}
+"#;
+        let symbols = parse_dart_symbols(code);
+        let duck = symbols
+            .iter()
+            .find(|s| s.name == "Duck")
+            .expect("Duck class not found");
+        assert_eq!(duck.extends.as_deref(), Some("Animal"));
+        // Both mixins and implements are in the implements list
+        assert!(duck.implements.contains(&"Swimming".to_owned()));
+        assert!(duck.implements.contains(&"Walkable".to_owned()));
+        assert_eq!(duck.implements.len(), 2);
+    }
+
+    #[test]
+    fn test_dart_inheritance_no_inheritance() {
+        let code = r#"
+class SimpleClass {
+  void doSomething() {}
+}
+"#;
+        let symbols = parse_dart_symbols(code);
+        let cls = symbols
+            .iter()
+            .find(|s| s.name == "SimpleClass")
+            .expect("SimpleClass not found");
+        assert!(cls.extends.is_none());
+        assert!(cls.implements.is_empty());
     }
 }
