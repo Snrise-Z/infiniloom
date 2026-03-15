@@ -443,7 +443,10 @@ impl TokenModel {
             // Legacy OpenAI
             Self::Gpt4 => 128_000,
             Self::Gpt35Turbo => 16_000,
-            // Anthropic Claude - 200K (1M beta)
+            // Anthropic Claude - 200K stable default
+            // Note: 1M token context is available in beta (as of March 2026).
+            // Users can upgrade to Claude 1M when it reaches general availability.
+            // Current stable default remains 200K for compatibility.
             Self::Claude => 200_000,
             // Google Gemini - 1M+
             Self::Gemini => 1_000_000,

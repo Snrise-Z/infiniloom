@@ -1,6 +1,6 @@
 {
   "name": "infiniloom-node",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "description": "Node.js bindings for Infiniloom - AST-aware code context engine for RAG and vector databases. Tree-sitter parsing, PageRank ranking, BLAKE3 content-addressable chunks, 27+ tokenizers.",
   "main": "index.js",
   "types": "index.d.ts",

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "infiniloom"
-version = "0.6.3"
+version = "0.7.0"
 description = "Python bindings for Infiniloom - AST-aware code context engine for RAG and vector databases. Tree-sitter parsing, PageRank ranking, BLAKE3 content-addressable chunks, 27+ tokenizers."
 authors = [
     { name = "Topos Labs", email = "hello@toposlabs.ai" }

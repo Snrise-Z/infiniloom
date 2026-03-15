@@ -7,9 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-15
+
+### Breaking Changes
+
+This release formalizes breaking changes accumulated since v0.6.3 with a proper semver bump. Users upgrading from v0.6.3 should be aware:
+
+- **bincode 2.0 wire format** - All cached files (index, manifest, checkpoint) use incompatible bincode 2.0 format. Existing cache files will be automatically rebuilt on first use. (#133)
+- **ChunkContext expansion** - Added 13 new fields to `ChunkContext` struct for RAG enhancements (keywords, summary, type signatures, qualified calls, git metadata, complexity metrics). JSON/JSONL output remains backward compatible via `#[serde(default)]`, but bincode-serialized data is incompatible.
+- **Embed manifest v2 → v3** - Manifest format upgraded with new metadata fields. Old manifests trigger automatic rebuild.
+- **Embed checkpoint v1 → v2** - Checkpoint format upgraded. Old checkpoints are ignored and rebuilt.
+- **Language enum deprecations** - `Language::Clojure` and `Language::FSharp` marked as `#[deprecated]` (no parser support available). Files are still detected but receive text-only processing without AST symbols.
+
+**Note:** The bincode and manifest version changes were introduced in v0.6.3 but not properly reflected in the version number. This release corrects that with a proper minor version bump per semver guidelines for 0.x releases.
+
 ### Changed
 
 - **GPT Formatter Token Model** - The GPT output formatter (`OutputFormatter::gpt()`) now uses `Gpt4o` (o200k_base) for token counting instead of `Claude` estimation. This produces exact token counts but may report different numbers than previous versions. (PR #75)
+
+### Migration from v0.6.3
+
+**Important for users upgrading from v0.6.3 or earlier:**
+
+The bincode 1.3→2.0 upgrade in v0.6.3 changed the wire format for all serialized data. If you're upgrading from v0.6.3 or earlier and encounter deserialization errors, regenerate cached files:
+
+```bash
+# Rebuild symbol index (required for diff/impact commands)
+infiniloom index --force
+
+# Delete old embed manifest (will be auto-regenerated on next embed run)
+rm .infiniloom-embed.bin
+
+# Optional: Clear incremental cache (will be rebuilt automatically)
+rm -rf .infiniloom/cache/
+```
+
+**What changed:**
+- Symbol index files (`.infiniloom/index.bin`)
+- Embed manifests (`.infiniloom-embed.bin`) - v2→v3 format
+- Embed checkpoints (`.infiniloom/embed_checkpoint_*.bin`) - v1→v2 format
+- Incremental cache (`RepoCache`) - VERSION 3→4
+
+**Error symptoms:**
+- `Failed to deserialize index` when running `diff` or `impact`
+- `Failed to load manifest` when running `embed --diff-only`
+- Cryptic bincode deserialization errors
+
+These files are automatically versioned and will show helpful error messages suggesting regeneration if old formats are detected. (#130)
 
 ### Fixed
 
@@ -737,7 +781,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git context index for fast diff analysis
 - Configuration file support (YAML/TOML/JSON)
 
-[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/Topos-Labs/infiniloom/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Topos-Labs/infiniloom/compare/v0.6.0...v0.6.1
