@@ -826,6 +826,7 @@ fn print_streaming_statistics(
             "files_processed": stats.files_processed,
             "files_skipped": stats.files_skipped,
             "batches_processed": stats.batches_processed,
+            "orphaned_chunks": stats.orphaned_chunks,
             "elapsed_ms": elapsed.as_millis(),
             "streaming": true,
         });
@@ -841,6 +842,9 @@ fn print_streaming_statistics(
         eprintln!("  Processed:      {}", stats.files_processed);
         eprintln!("  Skipped:        {}", stats.files_skipped);
         eprintln!("  Batches:        {}", stats.batches_processed);
+        if stats.orphaned_chunks > 0 {
+            eprintln!("  Orphaned:       {}", stats.orphaned_chunks);
+        }
         eprintln!("  Elapsed:        {:?}", elapsed);
         eprintln!();
     }

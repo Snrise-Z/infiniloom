@@ -57,6 +57,8 @@ pub struct StreamingStats {
     pub total_chunks: usize,
     /// Number of batches processed
     pub batches_processed: usize,
+    /// Number of chunks with a parent name that could not be linked to a parent container
+    pub orphaned_chunks: u32,
 }
 
 /// Core chunker for generating embedding chunks
@@ -335,7 +337,7 @@ impl EmbedChunker {
 
         // Phase 3b: Link parent/children chunk IDs
         progress.set_phase("Linking parent/children chunks...");
-        self.link_parent_children(&mut all_chunks);
+        self.link_parent_children(&mut all_chunks, progress);
 
         // Phase 4: Build hierarchy summaries (if enabled)
         if self.settings.enable_hierarchy {
@@ -667,8 +669,11 @@ impl EmbedChunker {
     /// (Class/Struct/Enum/Trait/Interface) and set bidirectional links:
     /// - child's `source.parent_chunk_id` = parent's chunk ID
     /// - parent's `children_ids` includes child's chunk ID
-    fn link_parent_children(&self, chunks: &mut [EmbedChunk]) {
-        use std::collections::BTreeMap;
+    ///
+    /// Emits an aggregate warning via the progress reporter if any chunks reference
+    /// a parent container that was not found (orphaned chunks).
+    fn link_parent_children(&self, chunks: &mut [EmbedChunk], progress: &dyn ProgressReporter) {
+        use std::collections::{BTreeMap, BTreeSet};
 
         // Build map: (file, symbol_name) -> chunk index for container types
         let mut container_map: BTreeMap<(String, String), usize> = BTreeMap::new();
@@ -687,6 +692,8 @@ impl EmbedChunker {
 
         // First pass: set parent_chunk_id on children, collect children per parent
         let mut parent_children: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+        let mut orphaned_count: u32 = 0;
+        let mut orphaned_files: BTreeSet<String> = BTreeSet::new();
 
         for i in 0..chunks.len() {
             if let Some(ref parent_name) = chunks[i].source.parent {
@@ -699,8 +706,20 @@ impl EmbedChunker {
                         .entry(parent_idx)
                         .or_default()
                         .push(chunks[i].id.clone());
+                } else {
+                    orphaned_count += 1;
+                    orphaned_files.insert(chunks[i].source.file.clone());
                 }
             }
+        }
+
+        // Emit aggregate warning for orphaned chunks
+        if orphaned_count > 0 {
+            progress.warn(&format!(
+                "{} chunks have missing parent containers across {} files",
+                orphaned_count,
+                orphaned_files.len()
+            ));
         }
 
         // Second pass: set children_ids on parents (sorted for determinism)
