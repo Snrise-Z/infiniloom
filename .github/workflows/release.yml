@@ -291,7 +291,7 @@ jobs:
     if: ${{ !inputs.dry_run }}
     steps:
       - name: Download all wheels
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: python-*
           path: dist
@@ -323,7 +323,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Download all node artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: node-*
           path: bindings/node
@@ -389,7 +389,7 @@ jobs:
           fi
 
       - name: Download macOS binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: infiniloom-darwin-*
           path: binaries
@@ -497,7 +497,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
