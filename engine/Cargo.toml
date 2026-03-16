@@ -127,7 +127,7 @@ calamine = { version = "0.26", optional = true }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 
 # PDF text extraction
-pdf-extract = { version = "0.7", optional = true }
+pdf-extract = { version = "0.10", optional = true }
 
 # Optional: Local embeddings
 # Note: candle 0.9+ is required for compatibility with rand 0.9
