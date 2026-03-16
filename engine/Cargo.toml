@@ -100,7 +100,7 @@ notify = { version = "8.2", optional = true }
 blake3 = "1.5"
 
 # Configuration
-toml = "0.8"
+toml = "1.0"
 figment = { version = "0.10", features = ["yaml", "toml", "json", "env"] }
 
 # URL parsing for remote repos
