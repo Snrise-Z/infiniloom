@@ -379,6 +379,66 @@ jobs:
           retention-days: 7
 ```
 
+## RAG Pipeline Integration
+
+### Incremental Embed Updates
+
+Cache the embed manifest for efficient incremental processing:
+
+```yaml
+name: RAG Index Update
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  embed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for --since
+
+      - name: Install Infiniloom
+        run: npm install -g infiniloom
+
+      - name: Cache manifest
+        uses: actions/cache@v4
+        with:
+          path: .infiniloom-embed.bin
+          key: embed-manifest-${{ github.sha }}
+          restore-keys: embed-manifest-
+
+      - name: Generate incremental chunks
+        run: |
+          infiniloom embed . \
+            --streaming \
+            --since-manifest \
+            --diff \
+            --git-metadata \
+            -o updates.jsonl
+
+      - name: Upload chunks
+        uses: actions/upload-artifact@v4
+        with:
+          name: embed-updates
+          path: updates.jsonl
+```
+
+### SQLite Manifest for Concurrent Jobs
+
+For parallel processing in CI, use SQLite manifest with WAL mode:
+
+```yaml
+      - name: Generate chunks (concurrent-safe)
+        run: |
+          infiniloom embed . \
+            --sqlite-manifest \
+            --streaming \
+            -o chunks.jsonl
+```
+
 ## Troubleshooting CI
 
 ### "Command not found"

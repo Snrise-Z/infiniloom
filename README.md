@@ -305,18 +305,20 @@ Context quality beats context quantity. A smaller, well-structured context produ
 Infiniloom is **stable and actively maintained**.
 
 **What's solid today:**
-- Core packing workflow across 21 languages (including HCL/Terraform)
-- `embed` command for vector database chunking (v0.6.0+)
+- Core packing workflow across 21 languages (including HCL/Terraform, Zig, Dart)
+- `embed` command: production-ready for RAG pipelines at scale (v0.7.0)
+  - Streaming JSONL output, SQLite manifests, type signatures, complexity scoring
+  - Parent-child chunk linking, cross-repo FQN identity, BM25 identifiers
+  - Git-diff incremental updates, Neptune graph export, pgvector schemas
 - `ingest` command for document ingestion — Markdown, HTML, CSV, DOCX, XLSX (v0.6.3+)
 - All output formats (XML, Markdown, YAML, JSON, TOON)
-- Security scanning and secret redaction
-- PII detection and redaction for documents
+- Security scanning and secret redaction (15+ patterns including GCP, Azure, HuggingFace)
+- PII detection and redaction for documents (international patterns)
 - Git-aware diff context
 - Python and Node.js bindings
 
 **Coming next:**
 - MCP server integration for Claude Desktop and other MCP clients
-- Streaming output for very large repositories
 - GitHub Action for CI/CD workflows
 - VS Code extension
 

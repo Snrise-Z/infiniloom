@@ -1,13 +1,13 @@
 # Infiniloom Roadmap
 
-**Last Updated:** 2025-12-25
-**Current Version:** 0.4.9
+**Last Updated:** 2026-03-15
+**Current Version:** 0.7.0
 
 Features are prioritized by ROI (user impact / implementation effort). Checkboxes indicate progress.
 
 ---
 
-## v0.5.0 — Highest ROI (Next Release)
+## Next — High Priority
 
 ### MCP Server Integration
 > Native integration with Claude Desktop, Claude Code, Cursor, and other MCP clients.
@@ -21,19 +21,6 @@ Features are prioritized by ROI (user impact / implementation effort). Checkboxe
 - [ ] Automatic context selection based on conversation
 
 **Why Critical:** MCP is the standard for AI-tool integration. Small effort since core functionality exists.
-
----
-
-### Streaming Output
-> Handle massive repositories (100K+ files) with streaming output.
-
-- [ ] Chunked output generation
-- [ ] Memory-limited processing
-- [ ] Progress callbacks
-- [ ] Async iterator API for Python/Node bindings
-- [ ] Integration with MCP streaming
-
-**Why High:** Required for MCP integration with large repos. Current blocking I/O limits scalability.
 
 ---
 
@@ -59,7 +46,7 @@ Features are prioritized by ROI (user impact / implementation effort). Checkboxe
 
 ---
 
-## v0.6.0 — High ROI
+## Planned — Medium Priority
 
 ### Smart Context Selection
 > Given a task description, automatically select the most relevant files.
@@ -70,6 +57,20 @@ Features are prioritized by ROI (user impact / implementation effort). Checkboxe
 - [ ] Relevance scoring output
 
 **Why Valuable:** Solves the "what files should I include?" problem. Leverages existing infrastructure.
+
+---
+
+### VS Code Extension
+> Native VS Code integration.
+
+- [ ] Command: "Infiniloom: Pack Repository"
+- [ ] Command: "Infiniloom: Pack Selected Files"
+- [ ] Status bar token count
+- [ ] Right-click context menu
+- [ ] Configuration UI
+- [ ] Publish to VS Code Marketplace
+
+**Note:** MCP integration may reduce the need for this, as Claude Code integrates via MCP.
 
 ---
 
@@ -100,21 +101,7 @@ Features are prioritized by ROI (user impact / implementation effort). Checkboxe
 
 ---
 
-### VS Code Extension
-> Native VS Code integration.
-
-- [ ] Command: "Infiniloom: Pack Repository"
-- [ ] Command: "Infiniloom: Pack Selected Files"
-- [ ] Status bar token count
-- [ ] Right-click context menu
-- [ ] Configuration UI
-- [ ] Publish to VS Code Marketplace
-
-**Note:** MCP integration may reduce the need for this, as Claude Code integrates via MCP.
-
----
-
-## v0.7.0 — Medium ROI
+## Backlog — Low ROI
 
 ### Direct LLM Integration
 > Built-in LLM querying with automatic context management.
@@ -151,8 +138,6 @@ infiniloom ask "find security issues" --staged
 - [ ] Publish to JetBrains Marketplace
 
 ---
-
-## Backlog — Low ROI
 
 ### Semantic Code Embeddings
 > Neural embeddings for semantic search.
@@ -197,6 +182,37 @@ infiniloom ask "find security issues" --staged
 ---
 
 ## Completed
+
+### v0.7.0
+- [x] Streaming JSONL output for embed command (`--streaming`)
+- [x] SQLite manifest storage (`--sqlite-manifest`)
+- [x] Parent/children chunk linking with hierarchy
+- [x] Type signature extraction across 21 languages
+- [x] Cross-repository identity (FQN metadata)
+- [x] BM25-friendly identifier extraction
+- [x] Cyclomatic complexity scoring per chunk
+- [x] Heuristic NL summaries per chunk
+- [x] Git metadata enrichment per chunk
+- [x] Signature-only chunks for tiered retrieval
+- [x] Import-aware call graph
+- [x] Neptune graph export (`--graph-export`)
+- [x] pgvector schema generation (`--generate-schema pgvector`)
+- [x] Git-diff incremental updates (`--since`)
+- [x] Zig language support (full Tree-sitter)
+- [x] Dart language support (full Tree-sitter, including inheritance)
+- [x] HCL extended queries (locals, dynamic blocks, modules)
+- [x] Extended secret detection (GCP, Azure, HuggingFace)
+- [x] International PII detection patterns
+- [x] Atomic manifest writes (PID-unique temp files)
+- [x] Poison-recovery on Mutex/RwLock operations
+- [x] Document ingestion (Markdown, HTML, CSV, DOCX, XLSX)
+
+### v0.6.x
+- [x] Embed command for vector database chunking
+- [x] Ingest command for document processing
+- [x] PDF ingestion support
+- [x] ZIP bomb protection in DOCX parser
+- [x] HTML parser DoS limits
 
 ### v0.4.x
 - [x] AST-based symbol extraction (21 languages)
@@ -243,6 +259,6 @@ infiniloom ask "find security issues" --staged
 **Most Wanted:**
 1. MCP Server implementation
 2. GitHub Action wrapper
-3. Prompt templates
+3. Smart Context Selection
 
 See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.

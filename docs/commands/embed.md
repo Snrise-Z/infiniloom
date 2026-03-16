@@ -130,6 +130,36 @@ AST-aware chunking ensures:
 | `--manifest <PATH>` | `-m` | Custom manifest file location | `.infiniloom-embed.bin` |
 | `--diff` | | Only output changed chunks (added + modified) | `false` |
 
+### Streaming & Storage Options (v0.7.0)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--streaming` | Enable streaming JSONL output (lower memory usage for large repos) | `false` |
+| `--batch-size <N>` | Files per batch in streaming mode | `50` |
+| `--sqlite-manifest` | Use SQLite for manifest storage (WAL mode, concurrent reads) | `false` |
+| `--since <COMMIT>` | Only process files changed since this git commit | none |
+| `--since-manifest` | Use commit hash from manifest for `--since` | `false` |
+
+### Enrichment Options (v0.7.0)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--include-signatures` | Generate signature-only chunks alongside code chunks | `false` |
+| `--enable-hierarchy` | Enable parent/children chunk linking | `false` |
+| `--hierarchy-min-children <N>` | Minimum children for hierarchy summary | `2` |
+| `--git-metadata` | Enrich chunks with git commit metadata | `false` |
+| `--repo-namespace <NS>` | Repository namespace for cross-repo identity | none |
+| `--repo-name <NAME>` | Repository name override | auto-detected |
+
+### Export Options (v0.7.0)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--graph-export` | Generate Neptune-compatible vertices/edges JSONL | `false` |
+| `--graph-dir <DIR>` | Output directory for graph files | `.` |
+| `--generate-schema <TYPE>` | Generate database schema and exit (e.g., `pgvector`) | none |
+| `--embedding-dims <N>` | Embedding vector dimensions for schema generation | `1536` |
+
 ### Token Options
 
 | Option | Short | Description | Default |
@@ -186,17 +216,30 @@ Each chunk contains:
     "fqn": "src::math::calculate",
     "language": "Rust",
     "parent": null,
+    "parent_chunk_id": null,
+    "children_chunk_ids": [],
     "visibility": "public",
-    "is_test": false
+    "is_test": false,
+    "module_path": "src/math"
   },
   "context": {
     "docstring": "Adds two numbers together",
     "signature": "fn calculate(a: i32, b: i32) -> i32",
+    "type_signature": "fn(i32, i32) -> i32",
+    "parameter_types": ["i32", "i32"],
+    "return_type": "i32",
     "calls": ["add", "validate"],
+    "qualified_calls": ["math::add", "util::validate"],
     "called_by": ["main", "process"],
+    "keywords": ["calculate", "add", "validate"],
     "tags": ["public-api"],
+    "summary": "Public function `calculate` in src/math.rs (3 lines, 2 calls)",
     "lines_of_code": 3,
-    "max_nesting_depth": 1
+    "max_nesting_depth": 1,
+    "cyclomatic_complexity": 1,
+    "git_last_commit": "abc1234",
+    "git_last_author": "dev@example.com",
+    "git_last_date": "2026-03-10"
   }
 }
 ```
@@ -337,6 +380,63 @@ infiniloom embed --no-security-scan -o chunks.json
 infiniloom embed -m .cache/embed-manifest.bin -o chunks.json
 ```
 
+### Streaming Mode (Large Repos)
+
+```bash
+# Stream chunks for memory-efficient processing of large monorepos
+infiniloom embed . --streaming --batch-size 100 -o chunks.jsonl
+
+# Streaming with SQLite manifest for concurrent CI/CD
+infiniloom embed . --streaming --sqlite-manifest -o chunks.jsonl
+```
+
+### Git-Diff Incremental Updates
+
+```bash
+# Only process files changed since last commit
+infiniloom embed . --since HEAD~1 -o updates.jsonl
+
+# Use the commit stored in manifest for automatic tracking
+infiniloom embed . --since-manifest -o updates.jsonl
+```
+
+### Graph Database Export
+
+```bash
+# Generate Neptune-compatible graph files
+infiniloom embed . --graph-export --graph-dir ./graph-output/
+
+# Generates: vertices.jsonl and edges.jsonl
+```
+
+### pgvector Schema Generation
+
+```bash
+# Generate PostgreSQL pgvector schema
+infiniloom embed . --generate-schema pgvector --embedding-dims 1536
+```
+
+### Cross-Repository Identity
+
+```bash
+# Set namespace for cross-repo deduplication
+infiniloom embed . --repo-namespace "myorg" --repo-name "backend"
+```
+
+### Signature-Only Chunks
+
+```bash
+# Generate lightweight signature chunks for tiered retrieval
+infiniloom embed . --include-signatures -o chunks.jsonl
+```
+
+### Hierarchical Chunking
+
+```bash
+# Enable parent-child chunk relationships
+infiniloom embed . --enable-hierarchy --hierarchy-min-children 3
+```
+
 ### Vector Database Integration
 
 ```bash
@@ -410,22 +510,20 @@ The scanner uses NFKC Unicode normalization to detect obfuscated secrets using l
 
 ## Language Support
 
-Embedding chunk generation supports all 21 languages with full Tree-sitter AST support:
+Embedding chunk generation supports all 24 languages with full Tree-sitter AST support:
 
-- **Systems**: Rust, C, C++, Go
+- **Systems**: Rust, C, C++, Go, Zig
 - **Web**: JavaScript, TypeScript, JSX, TSX
 - **Enterprise**: Java, C#, Kotlin, Scala
 - **Scripting**: Python, Ruby, PHP, Bash
 - **Functional**: Haskell, Elixir
-- **Mobile**: Swift
+- **Mobile**: Swift, Dart
+- **Infrastructure**: HCL/Terraform
 - **Data**: YAML, TOML
 
-### Known Limitations
+**Deprecated Languages**: Clojure and F# are deprecated as of v0.7.0 (no compatible tree-sitter grammars). Files are detected but receive text-only processing without AST symbols.
 
-**F# (.fs, .fsx)**: F# files are detected by extension but have limited Tree-sitter support. Symbol extraction may be incomplete compared to other .NET languages like C#. For F# projects, consider:
-- Using `--include "*.fs"` to ensure F# files are included
-- Reviewing generated chunks for completeness
-- Falling back to file-level chunking if symbol extraction is insufficient
+### Known Limitations
 
 **OCaml**: Similar ML-family syntax challenges apply. Symbol boundaries may not be perfectly detected for complex pattern matching expressions.
 
@@ -477,6 +575,26 @@ print(f"Generated {len(result.chunks)} chunks")
 for chunk in result.chunks:
     print(f"{chunk.id}: {chunk.source.symbol} ({chunk.tokens} tokens)")
 ```
+
+## Auto-Generated Chunk Context (v0.7.0)
+
+Each chunk is automatically enriched with semantic metadata:
+
+| Field | Description |
+|-------|-------------|
+| `type_signature` | Complete type signature (e.g., `fn(i32, i32) -> i32`) |
+| `parameter_types` | List of parameter types |
+| `return_type` | Return type |
+| `keywords` | BM25-friendly identifiers extracted from content |
+| `qualified_calls` | Import-resolved call targets with module paths |
+| `summary` | Auto-generated natural language description |
+| `cyclomatic_complexity` | McCabe complexity score |
+| `git_last_commit` | Last commit hash touching this code |
+| `git_last_author` | Author of last commit |
+| `git_last_date` | Date of last commit |
+| `parent_chunk_id` | ID of parent container chunk |
+| `children_chunk_ids` | IDs of child member chunks |
+| `module_path` | Module/directory path for the symbol |
 
 ## Determinism Guarantees
 

@@ -1,7 +1,7 @@
 # Infiniloom Architecture
 
-**Last Updated**: 2026-01-02
-**Version**: 0.6.0
+**Last Updated**: 2026-03-15
+**Version**: 0.7.0
 
 This document provides a comprehensive overview of Infiniloom's architecture, design patterns, and data flow.
 
@@ -136,6 +136,20 @@ engine/src/
 ├── budget.rs                  # Token budget enforcement
 ├── semantic.rs                # Character-frequency compression (heuristic)
 ├── chunking/                  # Semantic code chunking
+├── embedding/                 # Embedding chunks for vector DBs
+│   ├── mod.rs                 # Module exports
+│   ├── chunker.rs             # EmbedChunker with parallel processing
+│   ├── types.rs               # EmbedChunk, EmbedSettings, ChunkKind
+│   ├── manifest.rs            # Manifest for incremental updates
+│   ├── streaming.rs           # Streaming JSONL output mode
+│   ├── hasher.rs              # BLAKE3 content-addressable hashing
+│   ├── normalizer.rs          # Cross-platform content normalization
+│   ├── limits.rs              # Resource limits (DoS protection)
+│   ├── progress.rs            # Progress reporting
+│   ├── complexity.rs          # Cyclomatic complexity scoring
+│   ├── identifiers.rs         # BM25-friendly identifier extraction
+│   ├── type_extraction.rs     # Type signature extraction
+│   └── error.rs               # Embedding-specific errors
 ├── filtering.rs               # File pattern matching with caching
 ├── content_processing.rs      # Base64 truncation utilities
 ├── content_transformation.rs  # Code compression functions
@@ -164,6 +178,7 @@ cli/src/
     ├── diff.rs                # Diff command (context-aware diffs)
     ├── index.rs               # Index command (build symbol index)
     ├── impact.rs              # Impact command (change analysis)
+    ├── embed.rs               # Embed command (vector DB chunks)
     ├── init.rs                # Init command (config creation)
     └── info.rs                # Info command (version/config display)
 ```
@@ -481,11 +496,16 @@ Symbol struct
 | Bash       | .sh, .bash        | ✅ Yes             | ✅ Full           |
 | Haskell    | .hs               | ✅ Yes             | ✅ Full           |
 | Elixir     | .ex, .exs         | ✅ Yes             | ✅ Full           |
-| Clojure    | .clj, .cljs       | ✅ Yes             | ✅ Full           |
+| Clojure    | .clj, .cljs       | ⚠️ Deprecated      | ⚠️ Limited        |
 | OCaml      | .ml, .mli         | ✅ Yes             | ✅ Full           |
 | Lua        | .lua              | ✅ Yes             | ✅ Full           |
 | R          | .r, .R            | ✅ Yes             | ✅ Full           |
+| HCL        | .tf, .hcl             | ✅ Yes             | ✅ Full           |
+| Zig        | .zig                  | ✅ Yes             | ✅ Full           |
+| Dart       | .dart                 | ✅ Yes             | ✅ Full           |
 | F#         | .fs, .fsx         | ❌ Not yet         | ⚠️ Basic          |
+
+**Note:** Clojure and F# are deprecated as of v0.7.0 (no compatible tree-sitter grammars). Files are still detected but receive text-only processing.
 
 **Extension Strategy**: If no parser available, fall back to basic regex-based extraction for common patterns.
 

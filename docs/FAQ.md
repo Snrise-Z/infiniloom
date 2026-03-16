@@ -25,17 +25,18 @@ Yes! Infiniloom is open source under the MIT license. Use it freely for personal
 
 Infiniloom detects 23 languages and provides full AST-based symbol extraction for 21 using Tree-sitter:
 
-- **Systems**: Rust, C, C++, Go
+- **Systems**: Rust, C, C++, Go, Zig
 - **Web**: JavaScript, TypeScript
 - **Backend**: Python, Java, Kotlin, C#, Ruby, PHP, Swift
 - **Functional**: Haskell, Elixir, OCaml, Scala
 - **Scripting**: Lua, R, Bash
+- **Mobile**: Dart
 - **Infrastructure**: HCL/Terraform
-- **Detected Only (no AST support)**: Clojure, F#
+- **Deprecated (no AST support)**: Clojure, F#
 
 All text files are included regardless of language; symbol extraction is language-dependent.
 
-**Note**: F# files are recognized by extension but have limited symbol extraction support.
+**Note**: Clojure and F# are deprecated as of v0.7.0 (no compatible tree-sitter grammars). Files are still detected but receive text-only processing without AST symbols.
 
 ---
 

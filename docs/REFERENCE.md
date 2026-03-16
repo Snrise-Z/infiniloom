@@ -195,6 +195,21 @@ infiniloom embed -e "tests/*" -e "docs/*"      # Exclude patterns
 infiniloom embed --include-tests               # Include test files
 infiniloom embed --no-imports                  # Exclude import chunks
 infiniloom embed --no-top-level                # Exclude top-level code
+
+# v0.7.0: Streaming mode for large repos
+infiniloom embed . --streaming -o chunks.jsonl
+
+# v0.7.0: Git-diff incremental updates
+infiniloom embed . --since HEAD~1 -o updates.jsonl
+
+# v0.7.0: Cross-repo identity
+infiniloom embed . --repo-namespace myorg --repo-name backend
+
+# v0.7.0: Graph export for Neptune
+infiniloom embed . --graph-export --graph-dir ./graph/
+
+# v0.7.0: pgvector schema generation
+infiniloom embed . --generate-schema pgvector
 ```
 
 ### Chunk Output Format
@@ -214,9 +229,16 @@ infiniloom embed --no-top-level                # Exclude top-level code
   },
   "context": {
     "docstring": "Does something...",
+    "signature": "fn foo() {...}",
+    "type_signature": "fn() -> ()",
     "calls": ["bar", "baz"],
+    "qualified_calls": ["mod::bar", "util::baz"],
     "called_by": ["main"],
-    "tags": ["async", "public-api"]
+    "keywords": ["foo", "bar", "baz"],
+    "tags": ["async", "public-api"],
+    "summary": "Public function `foo` in src/main.rs",
+    "lines_of_code": 5,
+    "cyclomatic_complexity": 2
   }
 }
 ```
