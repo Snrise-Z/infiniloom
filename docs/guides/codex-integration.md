@@ -167,6 +167,70 @@ infiniloom ingest api-spec.md -f markdown -o api-context.md
 infiniloom ingest report.docx --redact-pii -f markdown -o safe-report.md
 ```
 
+## Using the Node.js Binding with Vercel AI SDK / Mastra
+
+Instead of CLI commands, use the Node.js binding directly for programmatic workflows:
+
+```typescript
+import { pack, scan, embed, buildIndex, analyzeImpact, getDiffContext } from 'infiniloom-node';
+import { streamText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+// Pack with the binding — native Rust speed, no child process
+const context = pack('.', {
+  format: 'markdown',
+  model: 'gpt4o',
+  compression: 'balanced',
+  tokenBudget: 80000,
+});
+
+// Stream to GPT via Vercel AI SDK
+const result = streamText({
+  model: openai('gpt-4o'),
+  system: `Codebase context:\n${context}`,
+  messages: [{ role: 'user', content: 'Explain the main architecture.' }],
+});
+
+// Impact analysis via binding
+buildIndex('.');
+const impact = analyzeImpact('.', ['src/auth.ts']);
+console.log(`Impact: ${impact.impactLevel} — ${impact.summary}`);
+
+// Diff context via binding
+const diff = getDiffContext('.', { fromRef: 'main', toRef: 'HEAD', includeDiff: true });
+console.log(`Changed ${diff.changedFiles.length} files`);
+
+// Generate RAG chunks via binding
+const chunks = embed('.', { maxTokens: 1000, format: 'jsonl' });
+```
+
+Install: `npm install infiniloom-node ai @ai-sdk/openai`
+
+**Mastra example:**
+```typescript
+import { pack, embed } from 'infiniloom-node';
+import { Agent, createTool } from '@mastra/core';
+
+const repoContextTool = createTool({
+  id: 'repo-context',
+  description: 'Get structured codebase context',
+  inputSchema: z.object({ path: z.string(), budget: z.number().default(40000) }),
+  execute: async ({ context }) => pack(context.path, {
+    format: 'markdown',
+    model: 'gpt4o',
+    tokenBudget: context.budget,
+  }),
+});
+
+const codeAgent = new Agent({
+  name: 'code-analyst',
+  model: openai('gpt-4o'),
+  tools: { 'repo-context': repoContextTool },
+});
+```
+
+Install: `npm install infiniloom-node @mastra/core`
+
 ## Configuration for GPT Workflows
 
 Create a config file for consistent team usage:

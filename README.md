@@ -93,13 +93,13 @@ infiniloom impact . src/core/parser.rs --depth 3 --call-graph
 
 ### With AI SDKs
 
-**Anthropic Claude SDK:**
+**Anthropic Claude SDK** (`pip install infiniloom anthropic`):
 ```python
+import infiniloom
 from anthropic import Anthropic
-import subprocess
 
-context = subprocess.run(["infiniloom", "pack", ".", "-f", "xml", "--redact-secrets",
-                          "--max-tokens", "80000"], capture_output=True, text=True).stdout
+# Use the Python binding directly — no subprocess needed
+context = infiniloom.pack(".", format="xml", model="claude", compression="balanced")
 
 client = Anthropic()
 response = client.messages.create(
@@ -109,12 +109,13 @@ response = client.messages.create(
 )
 ```
 
-**Vercel AI SDK / Mastra / any TypeScript agent framework:**
+**Vercel AI SDK / Mastra** (`npm install infiniloom-node ai @ai-sdk/anthropic`):
 ```typescript
-import { pack } from 'infiniloom-node';
+import { pack, scan, embed } from 'infiniloom-node';
 import { streamText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 
+// Use the Node.js binding — native Rust speed, no child process
 const context = pack('.', { format: 'xml', model: 'claude', tokenBudget: 60000 });
 const result = streamText({
   model: anthropic('claude-sonnet-4-20250514'),
@@ -123,11 +124,19 @@ const result = streamText({
 });
 ```
 
-**LangChain / LlamaIndex (RAG):**
-```bash
-infiniloom embed . -o chunks.jsonl --max-tokens 1000
-# → Load chunks.jsonl into Pinecone/Weaviate/Qdrant/ChromaDB
-# Each chunk has: id, content, symbol, signature, calls, called_by, tags
+**LangChain / LlamaIndex** (`pip install infiniloom`):
+```python
+import infiniloom
+import json
+
+# Generate chunks using the Python binding
+chunks_jsonl = infiniloom.embed(".", max_tokens=1000)
+
+# Parse and load into your vector DB
+for line in chunks_jsonl.strip().split("\n"):
+    chunk = json.loads(line)
+    # chunk has: id, content, kind, source.symbol, context.calls, context.tags
+    upsert_to_vector_db(chunk["id"], chunk["content"], chunk)
 ```
 
 ### As an MCP Server (Coming Soon)

@@ -273,6 +273,40 @@ alias il-stats='infiniloom scan . -v'
 il-impact() { infiniloom index . && infiniloom impact . "$1" --depth 2; }
 ```
 
+## Using the Python Binding with Claude SDK
+
+Instead of CLI commands, you can use the Python binding directly with the Anthropic SDK for programmatic workflows:
+
+```python
+import infiniloom
+from anthropic import Anthropic
+
+# Pack with the binding — no subprocess, native Rust speed
+context = infiniloom.pack(".", format="xml", model="claude", compression="balanced")
+
+# Send to Claude API
+client = Anthropic()
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=4096,
+    messages=[{"role": "user", "content": f"{context}\n\nReview this codebase for security issues."}]
+)
+
+# Impact analysis via binding
+infiniloom.build_index(".")
+impact = infiniloom.analyze_impact(".", ["src/auth.py"])
+print(f"Impact: {impact['impact_level']} — {impact['summary']}")
+
+# Diff context via binding
+diff = infiniloom.get_diff_context(".", from_ref="main", to_ref="HEAD", include_diff=True)
+print(f"Changed {len(diff['changed_files'])} files, {len(diff['context_symbols'])} related symbols")
+
+# Embedding chunks for RAG
+chunks = infiniloom.embed(".", max_tokens=1000)
+```
+
+Install: `pip install infiniloom anthropic`
+
 ## Tips
 
 1. **Use XML format for Claude** - Claude processes structured XML more accurately than plain text or Markdown.
