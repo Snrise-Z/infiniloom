@@ -135,8 +135,8 @@ AST-aware chunking ensures:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--streaming` | Enable streaming JSONL output (lower memory usage for large repos) | `false` |
-| `--batch-size <N>` | Files per batch in streaming mode | `50` |
-| `--sqlite-manifest` | Use SQLite for manifest storage (WAL mode, concurrent reads) | `false` |
+| `--batch-size <N>` | Files per batch in streaming mode | `500` |
+| `--sqlite-manifest` | Use SQLite for manifest storage (faster incremental updates, queryable) | `false` |
 | `--since <COMMIT>` | Only process files changed since this git commit | none |
 | `--since-manifest` | Use commit hash from manifest for `--since` | `false` |
 
@@ -145,7 +145,7 @@ AST-aware chunking ensures:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--include-signatures` | Generate signature-only chunks alongside code chunks | `false` |
-| `--enable-hierarchy` | Enable parent/children chunk linking | `false` |
+| `--hierarchy` | Enable parent/children chunk linking (hierarchical chunking) | `false` |
 | `--hierarchy-min-children <N>` | Minimum children for hierarchy summary | `2` |
 | `--git-metadata` | Enrich chunks with git commit metadata | `false` |
 | `--repo-namespace <NS>` | Repository namespace for cross-repo identity | none |
@@ -183,9 +183,9 @@ AST-aware chunking ensures:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--no-security-scan` | Disable secret detection (enabled by default) | `false` |
+| `--no-security-scan` | Disable secret detection and redaction (enabled by default) | `false` |
 
-Note: Secret redaction is automatic when security scanning is enabled.
+Note: When security scanning is enabled (the default), detected secrets are automatically redacted in chunk output. Use `--no-security-scan` to disable both detection and redaction (not recommended for production use).
 
 ### Output Control
 
@@ -434,7 +434,7 @@ infiniloom embed . --include-signatures -o chunks.jsonl
 
 ```bash
 # Enable parent-child chunk relationships
-infiniloom embed . --enable-hierarchy --hierarchy-min-children 3
+infiniloom embed . --hierarchy --hierarchy-min-children 3
 ```
 
 ### Vector Database Integration
@@ -477,7 +477,9 @@ rm .infiniloom-embed.bin
 infiniloom embed
 
 # Use custom manifest location
-infiniloom embed --manifest-path my-manifest.bin
+infiniloom embed --manifest my-manifest.bin
+# Or shorthand:
+infiniloom embed -m my-manifest.bin
 ```
 
 ## Security Features
@@ -495,7 +497,7 @@ The embed command scans for:
 
 ### Redaction
 
-When `--redact-secrets` is enabled (default), detected secrets are replaced:
+When security scanning is enabled (the default), detected secrets are automatically redacted:
 
 ```
 Original: const API_KEY = "sk-proj-abc123xyz789"
@@ -510,14 +512,15 @@ The scanner uses NFKC Unicode normalization to detect obfuscated secrets using l
 
 ## Language Support
 
-Embedding chunk generation supports all 24 languages with full Tree-sitter AST support:
+Embedding chunk generation supports all 23 languages with full Tree-sitter AST support, plus additional file types:
 
 - **Systems**: Rust, C, C++, Go, Zig
 - **Web**: JavaScript, TypeScript, JSX, TSX
 - **Enterprise**: Java, C#, Kotlin, Scala
 - **Scripting**: Python, Ruby, PHP, Bash
-- **Functional**: Haskell, Elixir
+- **Functional**: Haskell, Elixir, OCaml
 - **Mobile**: Swift, Dart
+- **Other**: Lua, R
 - **Infrastructure**: HCL/Terraform
 - **Data**: YAML, TOML
 
@@ -621,7 +624,6 @@ The embed command provides strong determinism:
 |------|-------------|
 | 0 | Success |
 | 1 | Error (invalid path, I/O error, etc.) |
-| 1 | Secrets detected with `--fail-on-secrets` |
 
 ## See Also
 

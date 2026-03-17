@@ -23,7 +23,7 @@ infiniloom ingest spreadsheet.xlsx -f json      # XLSX → JSON (requires docume
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--format` | `-f` | `xml` | Output format: `xml`, `markdown`, `json` |
-| `--distillation` | `-d` | `balanced` | Distillation level: `minimal`, `balanced`, `aggressive` |
+| `--distillation` | `-d` | `balanced` | Distillation level: `none`, `minimal`, `balanced`, `aggressive`, `full` |
 | `--output` | `-o` | stdout | Output file path |
 | `--model` | `-m` | — | Target model for token counting display |
 | `--max-tokens` | — | — | Token budget warning threshold |
@@ -50,9 +50,11 @@ Distillation compresses document content by removing filler phrases and low-info
 
 | Level | Description | Use Case |
 |-------|-------------|----------|
-| `minimal` | Light cleanup, preserves most content | When full fidelity is needed |
-| `balanced` | Removes filler phrases, moderate compression | Default, good for most use cases |
-| `aggressive` | Heavy compression, keeps only high-density content | Tight token budgets |
+| `none` | No distillation, preserve original content exactly | When bit-perfect fidelity is required |
+| `minimal` | Strip page numbers and boilerplate, preserves most content | When full fidelity is needed |
+| `balanced` | Strip + deduplicate, removes filler phrases (default) | Good for most use cases |
+| `aggressive` | Strip + dedup + compress filler language | Tight token budgets |
+| `full` | All stages including scoring and attention-optimized arrangement | Maximum compression, smallest output |
 
 ## PII Detection
 

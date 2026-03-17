@@ -1,14 +1,56 @@
 # Infiniloom Quick Start Guide
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-03-16
 **Version**: 0.7.0
 
-This guide will get you started with Infiniloom in 10 minutes. Perfect for first-time users!
+---
+
+## 2-Minute Quick Start
+
+If you just want to get going immediately:
+
+```bash
+# Install
+npm install -g infiniloom
+
+# Go to your project
+cd /path/to/your/project
+
+# Generate AI-ready context (XML for Claude, Markdown for GPT)
+infiniloom pack . -o context.xml
+
+# That's it! Paste context.xml into your AI assistant.
+```
+
+**Want more control?**
+
+```bash
+# See project stats first
+infiniloom scan .
+
+# Markdown for GPT/Codex (with token budget)
+infiniloom pack . -f markdown -m gpt4o --max-tokens 80000 -o context.md
+
+# Build symbol index for diff and impact commands
+infiniloom index .
+
+# Generate review context for staged changes
+infiniloom diff --staged --include-diff -o review.xml
+
+# Create a config file for your project
+infiniloom init
+```
+
+**Want to learn more?** Continue reading the tutorials below, or jump to:
+- [Claude Code Integration](guides/claude-code-integration.md) - Workflows for Claude Code users
+- [Codex Integration](guides/codex-integration.md) - Workflows for OpenAI Codex users
+- [Configuration Guide](CONFIGURATION.md) - Set up `infiniloom init` and `.infiniloom.yaml`
 
 ---
 
 ## Table of Contents
 
+- [2-Minute Quick Start](#2-minute-quick-start)
 - [Installation](#installation)
 - [Your First Command](#your-first-command)
 - [Common Workflows](#common-workflows)

@@ -53,8 +53,10 @@ jobs:
         run: npm install -g infiniloom
 
       - name: Scan for secrets
-        run: infiniloom pack . --security-check --fail-on-secrets
+        run: infiniloom pack . --security-check
 ```
+
+> **Note**: `--security-check` scans and reports detected secrets. To make CI **fail** when secrets are found, set `fail_on_secrets: true` in your `.infiniloom.yaml` config file (under `security:`). See [Configuration Guide](../CONFIGURATION.md) for details.
 
 ### PR Context Generation
 
@@ -153,7 +155,7 @@ security-scan:
   image: node:20
   script:
     - npm install -g infiniloom
-    - infiniloom pack . --security-check --fail-on-secrets
+    - infiniloom pack . --security-check
   allow_failure: false
 ```
 
@@ -205,7 +207,7 @@ jobs:
           command: npm install -g infiniloom
       - run:
           name: Scan for secrets
-          command: infiniloom pack . --security-check --fail-on-secrets
+          command: infiniloom pack . --security-check
 
 workflows:
   main:
@@ -233,7 +235,7 @@ pipeline {
 
         stage('Security Scan') {
             steps {
-                sh 'infiniloom pack . --security-check --fail-on-secrets'
+                sh 'infiniloom pack . --security-check'
             }
         }
 
@@ -258,7 +260,7 @@ repos:
     hooks:
       - id: infiniloom-secrets
         name: Scan for secrets
-        entry: infiniloom pack . --security-check --fail-on-secrets
+        entry: infiniloom pack . --security-check
         language: system
         pass_filenames: false
         always_run: true
@@ -271,7 +273,7 @@ repos:
 #!/bin/bash
 
 echo "Scanning for secrets..."
-if ! infiniloom pack . --security-check --fail-on-secrets 2>/dev/null; then
+if ! infiniloom pack . --security-check 2>/dev/null; then
     echo "ERROR: Secrets detected. Please remove them before committing."
     exit 1
 fi

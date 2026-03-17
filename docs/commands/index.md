@@ -51,9 +51,13 @@ The `index` command:
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--force` | | Force full rebuild (ignore existing index) | `false` |
+| `--incremental` | | Only re-index changed files (faster for large repos) | `false` |
 | `--status` | | Show index status without rebuilding | `false` |
 | `--verbose` | `-v` | Show detailed progress | `false` |
 | `--watch` | | Watch for file changes and auto-rebuild | `false` |
+| `--include <PATTERN>` | `-i` | Include only files matching glob pattern (repeatable) | all |
+| `--exclude <PATTERN>` | `-e` | Exclude directories/patterns from indexing (comma-separated) | none |
+| `--include-tests` | | Include test files in the index (excluded by default) | `false` |
 
 ## Index Contents
 
@@ -147,6 +151,15 @@ infiniloom index /path/to/repo
 
 # Force full rebuild
 infiniloom index --force
+
+# Incremental update (only re-index changed files)
+infiniloom index --incremental
+
+# Index only specific files
+infiniloom index -i "src/**" -e "vendor,generated"
+
+# Include test files in the index
+infiniloom index --include-tests
 ```
 
 ### Check Status
