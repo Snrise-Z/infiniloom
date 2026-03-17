@@ -296,27 +296,6 @@ call_counts = Counter(edge['callee'] for edge in graph['edges'])
 print("Most called:", call_counts.most_common(5))
 ```
 
-#### Async versions
-
-All call graph functions have async versions:
-- `find_symbol_async(path, name)`
-- `get_callers_async(path, symbol_name)`
-- `get_callees_async(path, symbol_name)`
-- `get_references_async(path, symbol_name)`
-- `get_call_graph_async(path, max_nodes=None, max_edges=None)`
-
-```python
-import asyncio
-import infiniloom
-
-async def analyze_codebase():
-    await infiniloom.build_index_async("/path/to/repo")
-    callers = await infiniloom.get_callers_async("/path/to/repo", "authenticate")
-    print(f"Found {len(callers)} callers")
-
-asyncio.run(analyze_codebase())
-```
-
 #### `index_status(path)`
 
 Get the status of an existing index.
@@ -738,41 +717,225 @@ if is_git_repo("/path/to/repo"):
         print(diff)
 ```
 
-### Async Functions
+### Embedding API
 
-Infiniloom provides async versions of the main functions for use in async/await contexts.
-These use a thread pool executor to avoid blocking the event loop.
+Generate content-addressable chunks for vector databases and RAG pipelines.
+
+#### `embed(path, format="jsonl", max_tokens=1000, min_tokens=50, context_lines=5, token_model="claude", no_imports=False, no_top_level=False, no_security_scan=False, include=None, exclude=None, include_tests=False, diff_only=False, manifest_path=None, streaming=False, batch_size=500, hierarchy=False, hierarchy_min_children=2, include_signatures=False, git_metadata=False, repo_namespace=None, repo_name=None)`
+
+Generate embedding chunks for a repository.
+
+**Parameters:**
+- `path` (str): Path to the repository
+- `format` (str): Output format - "jsonl" or "json"
+- `max_tokens` (int): Maximum tokens per chunk (default: 1000)
+- `min_tokens` (int): Minimum tokens per chunk (default: 50)
+- `diff_only` (bool): Only output changed chunks (default: False)
+- `hierarchy` (bool): Enable parent-child chunk linking (default: False)
+- `include_signatures` (bool): Generate signature-only chunks (default: False)
+- `git_metadata` (bool): Enrich chunks with git commit metadata (default: False)
+- `streaming` (bool): Enable streaming mode for large repos (default: False)
+
+**Returns:** str - JSONL or JSON formatted chunks
 
 ```python
-import asyncio
 import infiniloom
 
-async def main():
-    # Pack repository asynchronously
-    context = await infiniloom.pack_async("/path/to/repo", format="xml", model="claude")
+# Generate chunks for vector DB
+chunks = infiniloom.embed("/path/to/repo")
 
-    # Scan repository asynchronously
-    stats = await infiniloom.scan_async("/path/to/repo")
+# With incremental updates
+chunks = infiniloom.embed("/path/to/repo", diff_only=True)
 
-    # Count tokens asynchronously
-    tokens = await infiniloom.count_tokens_async("Hello, world!", model="claude")
-
-    # Scan security asynchronously
-    findings = await infiniloom.scan_security_async("/path/to/repo")
-
-    # Semantic compress asynchronously
-    compressed = await infiniloom.semantic_compress_async(long_text, budget_ratio=0.3)
-
-asyncio.run(main())
+# With hierarchy and signatures for tiered retrieval
+chunks = infiniloom.embed("/path/to/repo", hierarchy=True, include_signatures=True)
 ```
 
-#### Available Async Functions
+#### `load_embed_manifest(path)`
 
-- `pack_async(path, format="xml", model="claude", compression="balanced", ...)` - Async pack
-- `scan_async(path, include_hidden=False, respect_gitignore=True)` - Async scan
-- `count_tokens_async(text, model="claude")` - Async token counting
-- `scan_security_async(path)` - Async security scanning
-- `semantic_compress_async(text, similarity_threshold=0.7, budget_ratio=0.5)` - Async compression
+Load an existing embed manifest file.
+
+**Returns:** dict - Manifest metadata or None if not found
+
+#### `delete_embed_manifest(path)`
+
+Delete an embed manifest file.
+
+**Returns:** bool - True if deleted, False if not found
+
+### Analysis API
+
+Advanced code analysis functions for detecting issues and understanding code structure.
+
+#### `extract_documentation(raw_doc, language="javascript")`
+
+Extract and parse documentation from a raw docstring/comment.
+
+**Parameters:**
+- `raw_doc` (str): Raw documentation string
+- `language` (str): Source language (default: "javascript")
+
+**Returns:** dict - Parsed documentation with description, params, returns, etc.
+
+#### `detect_dead_code(path, languages=None)`
+
+Detect potentially unused/dead code in a repository.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `languages` (list[str], optional): Filter to specific languages
+
+**Returns:** list[dict] - List of potentially dead symbols with name, kind, file, line, reason
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+dead = infiniloom.detect_dead_code("/path/to/repo")
+for d in dead:
+    print(f"Possibly unused: {d['name']} ({d['kind']}) in {d['file']}:{d['line']}")
+```
+
+#### `detect_breaking_changes(path, old_ref, new_ref)`
+
+Detect breaking API changes between two git refs.
+
+**Parameters:**
+- `path` (str): Path to repository root
+- `old_ref` (str): Old git ref (e.g., "v1.0.0", "HEAD~10")
+- `new_ref` (str): New git ref (e.g., "HEAD", "v2.0.0")
+
+**Returns:** list[dict] - List of breaking changes with kind, symbol, file, description
+
+```python
+import infiniloom
+
+changes = infiniloom.detect_breaking_changes("/path/to/repo", "v1.0.0", "v2.0.0")
+for c in changes:
+    print(f"BREAKING: {c['kind']} - {c['symbol']} in {c['file']}: {c['description']}")
+```
+
+### Type Hierarchy API
+
+Navigate inheritance and implementation relationships.
+
+#### `get_type_hierarchy(path, symbol_name)`
+
+Get the full type hierarchy (ancestors and descendants) for a symbol.
+
+**Returns:** dict - Hierarchy with ancestors, descendants, and implementations
+
+#### `get_type_ancestors(path, symbol_name)`
+
+Get parent types/interfaces of a symbol.
+
+**Returns:** list[dict] - List of ancestor symbols
+
+#### `get_type_descendants(path, symbol_name)`
+
+Get child types that extend a symbol.
+
+**Returns:** list[dict] - List of descendant symbols
+
+#### `get_implementors(path, interface_name)`
+
+Get all types that implement an interface/trait.
+
+**Returns:** list[dict] - List of implementing symbols
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+
+# Full hierarchy
+hierarchy = infiniloom.get_type_hierarchy("/path/to/repo", "BaseHandler")
+print(f"Ancestors: {len(hierarchy['ancestors'])}")
+print(f"Descendants: {len(hierarchy['descendants'])}")
+
+# Who implements an interface?
+impls = infiniloom.get_implementors("/path/to/repo", "Serializable")
+for impl in impls:
+    print(f"  {impl['name']} in {impl['file']}")
+```
+
+### Complexity Metrics API
+
+Analyze code complexity for quality assessment.
+
+#### `calculate_complexity(source, language="javascript")`
+
+Calculate complexity metrics for source code.
+
+**Returns:** dict - Metrics including cyclomatic complexity, cognitive complexity, nesting depth, lines of code
+
+#### `check_complexity(source, language="javascript", max_cyclomatic=10, max_cognitive=15, max_nesting=4)`
+
+Check if code exceeds complexity thresholds.
+
+**Returns:** dict - Check results with passed/failed status and violations
+
+```python
+import infiniloom
+
+source = open("src/complex_function.py").read()
+metrics = infiniloom.calculate_complexity(source, language="python")
+print(f"Cyclomatic: {metrics['cyclomatic']}, Cognitive: {metrics['cognitive']}")
+
+check = infiniloom.check_complexity(source, language="python", max_cyclomatic=10)
+if not check['passed']:
+    for v in check['violations']:
+        print(f"  Exceeded: {v}")
+```
+
+### Filtered Query API
+
+Query symbols with kind filtering for more precise results.
+
+#### `find_symbol_filtered(path, name, kinds=None, exclude_kinds=None)`
+#### `get_callers_filtered(path, symbol_name, kinds=None, exclude_kinds=None)`
+#### `get_callees_filtered(path, symbol_name, kinds=None, exclude_kinds=None)`
+#### `get_references_filtered(path, symbol_name, kinds=None, exclude_kinds=None)`
+
+Same as their unfiltered counterparts but with optional kind filtering.
+
+**Additional Parameters:**
+- `kinds` (list[str], optional): Only include symbols of these kinds (e.g., ["function", "method"])
+- `exclude_kinds` (list[str], optional): Exclude symbols of these kinds
+
+```python
+import infiniloom
+
+infiniloom.build_index("/path/to/repo")
+
+# Find only function symbols named "process"
+fns = infiniloom.find_symbol_filtered("/path/to/repo", "process", kinds=["function"])
+
+# Get callers, excluding imports
+callers = infiniloom.get_callers_filtered("/path/to/repo", "auth", exclude_kinds=["import"])
+```
+
+### Additional Symbol Analysis
+
+#### `get_changed_symbols_filtered(path, from_ref="", to_ref="HEAD", kinds=None, exclude_kinds=None)`
+
+Get symbols that changed between two git refs, with optional kind filtering.
+
+#### `get_transitive_callers(path, symbol_name, max_depth=3, max_results=100)`
+
+Get all transitive callers of a symbol (callers of callers, recursively).
+
+#### `get_call_sites_with_context(path, symbol_name, lines_before=3, lines_after=3)`
+
+Get call sites with surrounding source code context.
+
+#### `find_circular_dependencies(path)`
+
+Detect circular dependencies in the codebase.
+
+#### `get_exported_symbols(path, file_path=None)`
+
+Get all exported/public symbols, optionally filtered to a specific file.
 
 ## Formats
 

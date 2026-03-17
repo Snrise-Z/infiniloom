@@ -952,6 +952,161 @@ if (isGitRepo('./my-project')) {
 }
 ```
 
+### Embedding API
+
+Generate content-addressable chunks for vector databases and RAG.
+
+#### `embed(path: string, options?: EmbedOptions): string`
+
+Generate embedding chunks for a repository.
+
+```javascript
+const { embed } = require('infiniloom-node');
+
+// Generate chunks for vector DB
+const chunks = embed('./my-repo');
+
+// With incremental updates
+const updates = embed('./my-repo', { diffOnly: true });
+
+// With hierarchy
+const hierarchical = embed('./my-repo', { hierarchy: true, includeSignatures: true });
+```
+
+**EmbedOptions:**
+```typescript
+interface EmbedOptions {
+  format?: string;         // "jsonl" or "json" (default: "jsonl")
+  maxTokens?: number;      // Max tokens per chunk (default: 1000)
+  minTokens?: number;      // Min tokens per chunk (default: 50)
+  contextLines?: number;   // Context lines around symbols (default: 5)
+  tokenModel?: string;     // Token counting model (default: "claude")
+  diffOnly?: boolean;      // Only output changed chunks (default: false)
+  hierarchy?: boolean;     // Enable parent-child chunk linking (default: false)
+  includeSignatures?: boolean; // Generate signature chunks (default: false)
+  gitMetadata?: boolean;   // Enrich with git metadata (default: false)
+  streaming?: boolean;     // Streaming mode for large repos (default: false)
+  batchSize?: number;      // Files per batch in streaming (default: 500)
+  noSecurityScan?: boolean; // Disable secret scanning (default: false)
+  include?: string[];      // Glob patterns to include
+  exclude?: string[];      // Glob patterns to exclude
+  includeTests?: boolean;  // Include test files (default: false)
+  manifest?: string;       // Custom manifest path
+  repoNamespace?: string;  // Namespace for cross-repo identity
+  repoName?: string;       // Repository name override
+}
+```
+
+Async version: `embedAsync(path, options)`
+
+#### `loadEmbedManifest(path: string): object | null`
+#### `deleteEmbedManifest(path: string): boolean`
+
+### Analysis API
+
+Advanced code analysis functions.
+
+#### `extractDocumentation(rawDoc: string, language?: string): object`
+
+Extract and parse documentation from a raw docstring/comment.
+
+#### `detectDeadCode(path: string, languages?: string[]): DeadCodeResult[]`
+
+Detect potentially unused/dead code.
+
+```javascript
+const { detectDeadCode, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+const dead = detectDeadCode('./my-repo');
+for (const d of dead) {
+  console.log(`Possibly unused: ${d.name} (${d.kind}) in ${d.file}:${d.line}`);
+}
+```
+
+#### `detectBreakingChanges(path: string, oldRef: string, newRef: string): BreakingChange[]`
+
+Detect breaking API changes between two git refs.
+
+```javascript
+const { detectBreakingChanges } = require('infiniloom-node');
+
+const changes = detectBreakingChanges('./my-repo', 'v1.0.0', 'v2.0.0');
+for (const c of changes) {
+  console.log(`BREAKING: ${c.kind} - ${c.symbol}: ${c.description}`);
+}
+```
+
+Async versions: `extractDocumentationAsync`, `detectDeadCodeAsync`, `detectBreakingChangesAsync`
+
+### Type Hierarchy API
+
+Navigate inheritance and implementation relationships.
+
+#### `getTypeHierarchy(path: string, symbolName: string): TypeHierarchy`
+#### `getTypeAncestors(path: string, symbolName: string): SymbolInfo[]`
+#### `getTypeDescendants(path: string, symbolName: string): SymbolInfo[]`
+#### `getImplementors(path: string, interfaceName: string): SymbolInfo[]`
+
+```javascript
+const { getTypeHierarchy, getImplementors, buildIndex } = require('infiniloom-node');
+
+buildIndex('./my-repo');
+
+const hierarchy = getTypeHierarchy('./my-repo', 'BaseHandler');
+console.log(`Ancestors: ${hierarchy.ancestors.length}, Descendants: ${hierarchy.descendants.length}`);
+
+const impls = getImplementors('./my-repo', 'Serializable');
+for (const impl of impls) {
+  console.log(`  ${impl.name} in ${impl.file}`);
+}
+```
+
+Async versions: `getTypeHierarchyAsync`, `getTypeAncestorsAsync`, `getTypeDescendantsAsync`, `getImplementorsAsync`
+
+### Complexity Metrics API
+
+#### `calculateComplexity(source: string, language?: string): ComplexityMetrics`
+#### `checkComplexity(source: string, language?: string, maxCyclomatic?: number, maxCognitive?: number, maxNesting?: number): ComplexityCheck`
+
+```javascript
+const { calculateComplexity, checkComplexity } = require('infiniloom-node');
+
+const source = fs.readFileSync('src/complex.js', 'utf8');
+const metrics = calculateComplexity(source, 'javascript');
+console.log(`Cyclomatic: ${metrics.cyclomatic}, Cognitive: ${metrics.cognitive}`);
+
+const check = checkComplexity(source, 'javascript', 10, 15, 4);
+if (!check.passed) {
+  for (const v of check.violations) console.log(`  Exceeded: ${v}`);
+}
+```
+
+Async versions: `calculateComplexityAsync`, `checkComplexityAsync`
+
+### Filtered Query API
+
+All call graph query functions have filtered variants:
+
+- `findSymbolFiltered(path, name, kinds?, excludeKinds?)`
+- `getCallersFiltered(path, symbolName, kinds?, excludeKinds?)`
+- `getCalleesFiltered(path, symbolName, kinds?, excludeKinds?)`
+- `getReferencesFiltered(path, symbolName, kinds?, excludeKinds?)`
+
+Plus async variants of each.
+
+### Additional Symbol Analysis
+
+- `getChangedSymbolsFiltered(path, fromRef?, toRef?, kinds?, excludeKinds?)` - Changed symbols between refs
+- `getTransitiveCallers(path, symbolName, maxDepth?, maxResults?)` - Recursive caller traversal
+- `getCallSitesWithContext(path, symbolName, linesBefore?, linesAfter?)` - Call sites with source context
+- `findCircularDependencies(path)` - Detect circular dependencies
+- `getExportedSymbols(path, filePath?)` - Get public/exported symbols
+
+All have async variants (append `Async` to function name).
+
+---
+
 ## Supported Models
 
 ### OpenAI GPT-5.x Series (Latest)
