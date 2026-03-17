@@ -6,7 +6,7 @@ Based on extensive analysis of:
 - Anthropic's XML tag recommendations & prompt caching
 - OpenAI's input format guidelines & tokenizers
 - Google's long context best practices
-- Aider's repository map (PageRank-based)
+- PageRank-based repository map design
 - Contextual retrieval research (35-67% improvement)
 - PR-Agent's context handling
 - Instructor's structured output patterns
@@ -138,7 +138,7 @@ Phase 2 (not implemented intentionally): query-optimized mode depends on embeddi
     </stats>
   </metadata>
 
-  <!-- Repository Map (Aider-style with PageRank ranking) -->
+  <!-- Repository Map (PageRank ranking) -->
   <repository_map token_budget="2000">
     <summary>
       Core modules: auth (user management), payments (Stripe), inventory (products)
@@ -1983,17 +1983,16 @@ Note: `diff` and `impact` require the repository path first; any commit/range or
 
 ---
 
-## Summary: What Makes Infiniloom 10x Better
+## Summary: Key Capabilities
 
-| Innovation | Benefit | vs. Repomix | vs. Gitingest |
-|------------|---------|-------------|---------------|
-| **Model-specific formats** | Optimal parsing per LLM | +50% accuracy | +80% accuracy |
-| **Prompt cache structure** | 90% cost reduction | Not available | Not available |
-| **Aider-style repo map** | 5x better orientation | Not available | Not available |
-| **Semantic chunking** | Coherent context splits | Basic truncation | No chunking |
-| **6 compression levels** | Flexible token control | 1 level | None |
-| **Multi-tokenizer** | Accurate counts | Single | Single |
-| **Contextual retrieval** | 67% better relevance | Not available | Not available |
-| **Diff-aware format** | PR review optimized | Not available | Not available |
-| **Security multi-engine** | Better secret detection | Basic | None |
-| **Rust performance** | 10-100x faster | JS (slow) | Python (slow) |
+| Capability | Benefit |
+|------------|---------|
+| **Model-specific formats** | XML for Claude, Markdown for GPT, YAML for Gemini — optimized for how each model parses input |
+| **Prompt cache structure** | Cacheable prefix sections enable up to 90% cost reduction with Claude |
+| **PageRank symbol map** | Ranked overview of the most important symbols in the codebase |
+| **Semantic chunking** | AST-aware splitting that never breaks mid-function or mid-class |
+| **6 compression levels** | None through Extreme — flexible control over token budget |
+| **27 tokenizer models** | Exact counts for OpenAI (tiktoken), calibrated estimation for Claude/Gemini/others |
+| **Diff-aware format** | Context expansion that includes callers, callees, and related tests |
+| **Security scanning** | 30+ patterns with NFKC normalization to catch homoglyph attacks |
+| **Rust performance** | Parallel processing with thread-local parsers, zero mutex contention |

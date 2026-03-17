@@ -76,9 +76,9 @@ infiniloom/
 
 ## Part 2: Advanced Features Deep Dive
 
-### 2.1 Aider-Style Repository Map
+### 2.1 PageRank Repository Map
 
-Inspired by Aider's repository mapping, implement a **semantic code graph**:
+Implement a **semantic code graph** with PageRank-based symbol ranking:
 
 ```python
 from infiniloom import Infiniloom
