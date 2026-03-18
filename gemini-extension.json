@@ -1,0 +1,6 @@
+{
+  "name": "infiniloom",
+  "version": "latest",
+  "description": "High-performance repository context generator for LLMs. Transforms codebases into optimized formats using Tree-sitter AST parsing and PageRank symbol ranking.",
+  "contextFileName": "CONTEXT.md"
+}

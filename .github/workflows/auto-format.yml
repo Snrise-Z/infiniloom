@@ -1,0 +1,40 @@
+name: Auto Format
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - "**/*.rs"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    name: Auto-format Rust code
+    runs-on: ubuntu-latest
+    steps:
+      # Note: Commits made with GITHUB_TOKEN don't trigger new workflow runs,
+      # preventing infinite loops. See: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt --all
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No formatting changes needed"
+          else
+            git commit -m "style: cargo fmt"
+            git push
+          fi

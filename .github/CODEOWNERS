@@ -1,0 +1,13 @@
+# Core engine — requires careful review
+/engine/src/lib.rs @Topos-Labs/core
+/engine/src/types.rs @Topos-Labs/core
+/engine/src/parser/ @Topos-Labs/core
+/engine/src/tokenizer/ @Topos-Labs/core
+/engine/src/error.rs @Topos-Labs/core
+/engine/src/exit_codes.rs @Topos-Labs/core
+
+# CLI entry point
+/cli/src/main.rs @Topos-Labs/core
+
+# CI/CD
+/.github/workflows/ @Topos-Labs/core

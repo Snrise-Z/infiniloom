@@ -1009,16 +1009,32 @@ fn main() {
     let result = run_command(cli);
 
     if let Err(e) = result {
-        // Check if it's a CliError with a semantic exit code
+        // Check if it's a CliError with a structured exit code
         if let Some(cli_err) = e.downcast_ref::<error::CliError>() {
             let exit_code = cli_err.exit_code();
             eprintln!("Error: {cli_err}");
             std::process::exit(exit_code);
         }
 
-        // For other errors, use generic exit code 1
+        // Check if it's an InfiniloomError from the engine
+        if let Some(engine_err) = e.downcast_ref::<infiniloom_engine::InfiniloomError>() {
+            use infiniloom_engine::ToExitCode;
+            let exit_code: i32 = engine_err.to_exit_code().into();
+            eprintln!("Error: {engine_err}");
+            std::process::exit(exit_code);
+        }
+
+        // Check if it's an I/O error
+        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            use infiniloom_engine::ToExitCode;
+            let exit_code: i32 = io_err.to_exit_code().into();
+            eprintln!("Error: {io_err}");
+            std::process::exit(exit_code);
+        }
+
+        // Fallback: use GENERAL_ERROR (1) for unrecognized errors
         eprintln!("Error: {e:?}");
-        std::process::exit(1);
+        std::process::exit(i32::from(infiniloom_engine::ExitCode::GeneralError));
     }
 }
 

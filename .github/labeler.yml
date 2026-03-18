@@ -1,0 +1,45 @@
+"area: parser":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/parser/**
+
+"area: tokenizer":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/tokenizer/**
+
+"area: embedding":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/embedding/**
+
+"area: security":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/security.rs
+
+"area: output":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/output/**
+
+"area: cli":
+  - changed-files:
+    - any-glob-to-any-file: cli/src/**
+
+"area: bindings":
+  - changed-files:
+    - any-glob-to-any-file: bindings/**
+
+"area: docs":
+  - changed-files:
+    - any-glob-to-any-file:
+      - docs/**
+      - "*.md"
+
+"area: ci":
+  - changed-files:
+    - any-glob-to-any-file: .github/**
+
+"area: ingest":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/document/**
+
+"area: index":
+  - changed-files:
+    - any-glob-to-any-file: engine/src/index/**

@@ -3,6 +3,7 @@
 //! This module provides CLI-specific error types that extend the engine's
 //! error handling with command-specific error variants.
 
+use infiniloom_engine::exit_codes::ExitCode;
 use thiserror::Error;
 
 /// CLI-specific error type
@@ -229,70 +230,82 @@ impl CliError {
         matches!(self, Self::Engine(_) | Self::Io(_) | Self::GitNotAvailable)
     }
 
-    /// Get the exit code for this error
+    /// Get the structured exit code for this error.
     ///
-    /// Different error types map to different exit codes for shell scripting.
+    /// Maps CLI errors to the engine's [`ExitCode`] enum, which provides
+    /// stable, documented exit codes for scripting and CI/CD integration.
     ///
-    /// # Exit Code Ranges
-    ///
-    /// | Range | Category |
-    /// |-------|----------|
-    /// | 1-9 | General CLI errors |
-    /// | 10-19 | Engine/system errors |
-    /// | 20-99 | Embed command errors (see EmbedError::exit_code for details) |
-    ///
-    /// # Embed Command Exit Codes
-    ///
-    /// The embed command uses semantic exit codes (20-99 range) for shell scripting:
-    ///
-    /// | Code | Category | Description |
-    /// |------|----------|-------------|
-    /// | 21 | User Error | Invalid settings, patterns, or arguments |
-    /// | 22 | Input Error | No chunks generated, no data to process |
-    /// | 23 | Security | Secrets detected (use --redact-secrets) |
-    /// | 24 | Security | Path traversal attempt blocked |
-    /// | 30 | Manifest | Version mismatch, corruption |
-    /// | 31 | Resource | Too many chunks/files, recursion limit |
-    /// | 32 | System | I/O errors, serialization failures |
-    /// | 33 | Internal | Hash collision (extremely rare) |
-    /// | 34 | Parse | Source code parse errors |
-    /// | 35 | Multiple | Multiple errors encountered |
-    pub(crate) fn exit_code(&self) -> i32 {
-        match self {
-            // Embed errors: use semantic exit codes in 20-99 range
-            // Add 20 to avoid conflicts with general CLI exit codes
-            Self::Embed(e) => 20 + e.exit_code(),
+    /// See [`infiniloom_engine::exit_codes::ExitCode`] for the full exit code
+    /// reference with ranges and categories.
+    pub(crate) fn structured_exit_code(&self) -> ExitCode {
+        use infiniloom_engine::exit_codes::ToExitCode;
 
-            // User errors: exit code 1
+        match self {
+            // Engine errors: delegate to InfiniloomError's ToExitCode impl
+            Self::Engine(e) => e.to_exit_code(),
+
+            // Embed errors: map to appropriate structured codes
+            Self::Embed(e) => match e.exit_code() {
+                1 => ExitCode::ArgumentError,          // Invalid settings
+                2 => ExitCode::NoChunksGenerated,      // No chunks generated
+                3 => ExitCode::SecretsDetected,        // Secrets detected
+                4 => ExitCode::PathTraversalBlocked,   // Path traversal
+                10 => ExitCode::ManifestCorrupted,     // Manifest version mismatch
+                11 => ExitCode::ResourceLimitExceeded, // Too many chunks/files
+                12 => ExitCode::NotFound,              // I/O errors
+                13 => ExitCode::InternalError,         // Hash collision
+                14 => ExitCode::GeneralError,          // Parse errors
+                15 => ExitCode::GeneralError,          // Multiple errors
+                _ => ExitCode::GeneralError,
+            },
+
+            // I/O errors: delegate to std::io::Error's ToExitCode impl
+            Self::Io(e) => e.to_exit_code(),
+
+            // User/argument errors
             Self::InvalidArgument(_)
             | Self::MissingArgument(_)
-            | Self::InvalidPath { .. }
-            | Self::PathNotFound(_)
             | Self::InvalidFormat(_)
-            | Self::InvalidModel(_)
-            | Self::Config(_) => 1,
+            | Self::InvalidModel(_) => ExitCode::ArgumentError,
 
-            // Git errors: exit code 2
-            Self::NotGitRepo(_) | Self::GitNotAvailable | Self::NoChanges => 2,
+            // Path errors
+            Self::InvalidPath { .. } | Self::PathNotFound(_) => ExitCode::NotFound,
 
-            // Index errors: exit code 3
-            Self::IndexNotFound { .. } | Self::IndexStale => 3,
+            // Git errors
+            Self::NotGitRepo(_) | Self::GitNotAvailable => ExitCode::GeneralError,
 
-            // Security errors: exit code 4
-            Self::SecurityIssues { .. } => 4,
+            // No changes is a validation issue, not a hard error
+            Self::NoChanges => ExitCode::NoFilesMatched,
 
-            // Budget errors: exit code 5
-            Self::BudgetExceeded { .. } => 5,
+            // Index errors
+            Self::IndexNotFound { .. } | Self::IndexStale => ExitCode::NotFound,
 
-            // System/internal errors: exit code 10
-            Self::Engine(_) | Self::Io(_) | Self::CommandFailed { .. } => 10,
+            // Security errors
+            Self::SecurityIssues { .. } => ExitCode::SecretsDetected,
 
-            // Feature unavailable: exit code 6
-            Self::FeatureUnavailable { .. } => 6,
+            // Budget errors
+            Self::BudgetExceeded { .. } => ExitCode::BudgetExceeded,
 
-            // Generic errors: exit code 1
-            Self::Other(_) => 1,
+            // Config errors
+            Self::Config(_) => ExitCode::ConfigInvalid,
+
+            // System/command errors
+            Self::CommandFailed { .. } => ExitCode::GeneralError,
+
+            // Feature unavailable
+            Self::FeatureUnavailable { .. } => ExitCode::GeneralError,
+
+            // Generic errors
+            Self::Other(_) => ExitCode::GeneralError,
         }
+    }
+
+    /// Get the numeric exit code for this error.
+    ///
+    /// This is a convenience wrapper around [`structured_exit_code()`] that
+    /// returns the integer value suitable for `std::process::exit()`.
+    pub(crate) fn exit_code(&self) -> i32 {
+        self.structured_exit_code().code() as i32
     }
 }
 
@@ -421,31 +434,55 @@ mod tests {
 
     #[test]
     fn test_exit_codes() {
-        // User errors: exit code 1
-        assert_eq!(CliError::invalid_argument("test").exit_code(), 1);
-        assert_eq!(CliError::missing_argument("path").exit_code(), 1);
-        assert_eq!(CliError::InvalidFormat("bad".to_owned()).exit_code(), 1);
+        // Argument errors: exit code 2 (ARGUMENT_ERROR)
+        assert_eq!(CliError::invalid_argument("test").exit_code(), 2);
+        assert_eq!(CliError::missing_argument("path").exit_code(), 2);
+        assert_eq!(CliError::InvalidFormat("bad".to_owned()).exit_code(), 2);
 
-        // Git errors: exit code 2
-        assert_eq!(CliError::not_git_repo("/tmp").exit_code(), 2);
-        assert_eq!(CliError::GitNotAvailable.exit_code(), 2);
-        assert_eq!(CliError::NoChanges.exit_code(), 2);
+        // Git errors: exit code 1 (GENERAL_ERROR)
+        assert_eq!(CliError::not_git_repo("/tmp").exit_code(), 1);
+        assert_eq!(CliError::GitNotAvailable.exit_code(), 1);
 
-        // Index errors: exit code 3
-        assert_eq!(CliError::index_not_found("/repo").exit_code(), 3);
-        assert_eq!(CliError::IndexStale.exit_code(), 3);
+        // No changes: exit code 40 (NO_FILES_MATCHED)
+        assert_eq!(CliError::NoChanges.exit_code(), 40);
 
-        // Security errors: exit code 4
-        assert_eq!(CliError::security_issues(1, 0).exit_code(), 4);
+        // Index/path errors: exit code 30 (NOT_FOUND)
+        assert_eq!(CliError::index_not_found("/repo").exit_code(), 30);
+        assert_eq!(CliError::IndexStale.exit_code(), 30);
 
-        // Budget errors: exit code 5
-        assert_eq!(CliError::budget_exceeded(100, 50).exit_code(), 5);
+        // Security errors: exit code 10 (SECRETS_DETECTED)
+        assert_eq!(CliError::security_issues(1, 0).exit_code(), 10);
 
-        // Feature unavailable: exit code 6
-        assert_eq!(CliError::feature_unavailable("test", "hint").exit_code(), 6);
+        // Budget errors: exit code 45 (BUDGET_EXCEEDED)
+        assert_eq!(CliError::budget_exceeded(100, 50).exit_code(), 45);
 
-        // System errors: exit code 10
-        assert_eq!(CliError::command_failed("git", "failed").exit_code(), 10);
+        // Feature unavailable: exit code 1 (GENERAL_ERROR)
+        assert_eq!(CliError::feature_unavailable("test", "hint").exit_code(), 1);
+
+        // System errors: exit code 1 (GENERAL_ERROR)
+        assert_eq!(CliError::command_failed("git", "failed").exit_code(), 1);
+    }
+
+    #[test]
+    fn test_structured_exit_codes() {
+        // Verify structured_exit_code returns proper ExitCode variants
+        assert_eq!(
+            CliError::invalid_argument("test").structured_exit_code(),
+            ExitCode::ArgumentError,
+        );
+        assert_eq!(
+            CliError::security_issues(1, 0).structured_exit_code(),
+            ExitCode::SecretsDetected,
+        );
+        assert_eq!(
+            CliError::budget_exceeded(100, 50).structured_exit_code(),
+            ExitCode::BudgetExceeded,
+        );
+        assert_eq!(CliError::path_not_found("/missing").structured_exit_code(), ExitCode::NotFound,);
+        assert_eq!(
+            CliError::Config("bad".to_owned()).structured_exit_code(),
+            ExitCode::ConfigInvalid,
+        );
     }
 
     // ============================================
@@ -472,73 +509,73 @@ mod tests {
         use infiniloom_engine::embedding::EmbedError;
         use std::path::PathBuf;
 
-        // User error: 21 (20 + 1)
+        // User error -> ARGUMENT_ERROR (2)
         let err: CliError = EmbedError::InvalidSettings {
             field: "max_tokens".to_owned(),
             reason: "too high".to_owned(),
         }
         .into();
-        assert_eq!(err.exit_code(), 21);
+        assert_eq!(err.exit_code(), 2);
 
-        // Input error: 22 (20 + 2)
+        // Input error -> NO_CHUNKS_GENERATED (41)
         let err: CliError = EmbedError::NoChunksGenerated {
             include_patterns: "*.xyz".to_owned(),
             exclude_patterns: "".to_owned(),
         }
         .into();
-        assert_eq!(err.exit_code(), 22);
+        assert_eq!(err.exit_code(), 41);
 
-        // Security - secrets: 23 (20 + 3)
+        // Security - secrets -> SECRETS_DETECTED (10)
         let err: CliError =
             EmbedError::SecretsDetected { count: 5, files: "config.py".to_owned() }.into();
-        assert_eq!(err.exit_code(), 23);
+        assert_eq!(err.exit_code(), 10);
 
-        // Security - path traversal: 24 (20 + 4)
+        // Security - path traversal -> PATH_TRAVERSAL_BLOCKED (13)
         let err: CliError = EmbedError::PathTraversal {
             path: PathBuf::from("../../../etc/passwd"),
             repo_root: PathBuf::from("/repo"),
         }
         .into();
-        assert_eq!(err.exit_code(), 24);
+        assert_eq!(err.exit_code(), 13);
 
-        // Manifest error: 30 (20 + 10)
+        // Manifest error -> MANIFEST_CORRUPTED (44)
         let err: CliError =
             EmbedError::ManifestVersionTooNew { found: 99, max_supported: 2 }.into();
-        assert_eq!(err.exit_code(), 30);
+        assert_eq!(err.exit_code(), 44);
 
-        // Resource limit: 31 (20 + 11)
+        // Resource limit -> RESOURCE_LIMIT_EXCEEDED (34)
         let err: CliError = EmbedError::TooManyChunks { count: 100000, max: 50000 }.into();
-        assert_eq!(err.exit_code(), 31);
+        assert_eq!(err.exit_code(), 34);
 
-        // System error: 32 (20 + 12)
+        // System error -> NOT_FOUND (30)
         let err: CliError = EmbedError::IoError {
             path: PathBuf::from("/tmp"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         }
         .into();
-        assert_eq!(err.exit_code(), 32);
+        assert_eq!(err.exit_code(), 30);
 
-        // Internal error: 33 (20 + 13)
+        // Internal error -> INTERNAL_ERROR (3)
         let err: CliError = EmbedError::HashCollision {
             id: "ec_123".to_owned(),
             hash1: "abc".to_owned(),
             hash2: "def".to_owned(),
         }
         .into();
-        assert_eq!(err.exit_code(), 33);
+        assert_eq!(err.exit_code(), 3);
 
-        // Parse error: 34 (20 + 14)
+        // Parse error -> GENERAL_ERROR (1)
         let err: CliError = EmbedError::ParseError {
             file: "bad.rs".to_owned(),
             line: 42,
             message: "syntax error".to_owned(),
         }
         .into();
-        assert_eq!(err.exit_code(), 34);
+        assert_eq!(err.exit_code(), 1);
 
-        // Multiple errors: 35 (20 + 15)
+        // Multiple errors -> GENERAL_ERROR (1)
         let err: CliError =
             EmbedError::MultipleErrors { errors: "error1\nerror2".to_owned() }.into();
-        assert_eq!(err.exit_code(), 35);
+        assert_eq!(err.exit_code(), 1);
     }
 }

@@ -157,6 +157,9 @@ pub mod bincode_safe;
 // Unified error types
 pub mod error;
 
+// Path validation utilities
+pub mod validate;
+
 // Embedding chunk generation for vector databases
 #[allow(dead_code)]
 pub mod embedding;
@@ -400,6 +403,7 @@ pub use license::{
     LicenseScanner,
     LicenseSummary,
 };
+pub use validate::validate_safe_output_path;
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

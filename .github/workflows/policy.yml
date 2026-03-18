@@ -1,0 +1,70 @@
+name: Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  policy:
+    name: Enforce project policies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: "Policy: No println! in engine crate"
+        run: |
+          # Engine library should use proper error handling, not print macros
+          # Allow in tests and comments
+          VIOLATIONS=$(grep -rn 'println!\|eprintln!' engine/src/ --include='*.rs' \
+            | grep -v '#\[cfg(test)\]' \
+            | grep -v '#\[test\]' \
+            | grep -v '// ' \
+            | grep -v '//!' \
+            || true)
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::warning::Found print macros in engine crate (prefer returning errors or using tracing):"
+            echo "$VIOLATIONS"
+            # Warning only, not blocking (for now)
+          fi
+
+      - name: "Policy: No .unwrap() in new code"
+        run: |
+          # Check only changed files for unwrap() usage
+          BASE="${{ github.event.pull_request.base.sha }}"
+          CHANGED_RS=$(git diff --name-only "$BASE"...HEAD -- '*.rs' || true)
+
+          if [ -z "$CHANGED_RS" ]; then
+            echo "No Rust files changed"
+            exit 0
+          fi
+
+          VIOLATIONS=""
+          for f in $CHANGED_RS; do
+            if [ -f "$f" ]; then
+              # Check added lines only
+              ADDED=$(git diff "$BASE"...HEAD -- "$f" | grep '^+' | grep -v '^+++' | grep '\.unwrap()' || true)
+              if [ -n "$ADDED" ]; then
+                VIOLATIONS="$VIOLATIONS\n$f:\n$ADDED"
+              fi
+            fi
+          done
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::warning::New code contains .unwrap() — prefer proper error handling:"
+            echo -e "$VIOLATIONS"
+          fi
+
+      - name: "Policy: No generated google-* style crates"
+        run: |
+          # Ensure no auto-generated API binding crates are added
+          # Infiniloom uses dynamic Tree-sitter parsing, not codegen
+          if grep -qE '^(tree-sitter-[a-z]+)\s*=\s*\{.*path' engine/Cargo.toml 2>/dev/null; then
+            echo "::warning::Found local tree-sitter path dependencies — consider publishing to crates.io"
+          fi

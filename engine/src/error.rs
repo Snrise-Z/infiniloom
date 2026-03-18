@@ -73,6 +73,23 @@ pub enum InfiniloomError {
 /// Convenience type alias for Results using InfiniloomError
 pub type Result<T> = std::result::Result<T, InfiniloomError>;
 
+impl crate::exit_codes::ToExitCode for InfiniloomError {
+    fn to_exit_code(&self) -> crate::exit_codes::ExitCode {
+        use crate::exit_codes::ExitCode;
+        match self {
+            Self::Parser(_) | Self::Semantic(_) => ExitCode::GeneralError,
+            Self::Git(_) | Self::Remote(_) => ExitCode::NetworkError,
+            Self::Config(_) => ExitCode::ConfigInvalid,
+            Self::Cache(_) => ExitCode::GeneralError,
+            Self::Io(e) => e.to_exit_code(),
+            Self::SecurityIssues { .. } => ExitCode::SecretsDetected,
+            Self::BudgetExceeded { .. } => ExitCode::BudgetExceeded,
+            Self::InvalidInput(_) => ExitCode::ArgumentError,
+            Self::NotSupported(_) => ExitCode::GeneralError,
+        }
+    }
+}
+
 impl InfiniloomError {
     /// Create a security issues error
     pub fn security_issues(count: usize, critical: usize) -> Self {
@@ -137,5 +154,29 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: InfiniloomError = io_err.into();
         assert!(matches!(err, InfiniloomError::Io(_)));
+    }
+
+    #[test]
+    fn test_to_exit_code() {
+        use crate::exit_codes::{ExitCode, ToExitCode};
+
+        let err = InfiniloomError::security_issues(5, 2);
+        assert_eq!(err.to_exit_code(), ExitCode::SecretsDetected);
+
+        let err = InfiniloomError::budget_exceeded(150000, 100000);
+        assert_eq!(err.to_exit_code(), ExitCode::BudgetExceeded);
+
+        let err = InfiniloomError::invalid_input("bad value");
+        assert_eq!(err.to_exit_code(), ExitCode::ArgumentError);
+
+        let err =
+            InfiniloomError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "not found"));
+        assert_eq!(err.to_exit_code(), ExitCode::NotFound);
+
+        let err = InfiniloomError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied",
+        ));
+        assert_eq!(err.to_exit_code(), ExitCode::PermissionDenied);
     }
 }

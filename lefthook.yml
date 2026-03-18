@@ -1,0 +1,27 @@
+# Lefthook git hooks configuration
+# Install: lefthook install
+# See: https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: false
+  commands:
+    fmt:
+      glob: "**/*.rs"
+      run: cargo fmt --all -- --check
+      fail_text: "Code is not formatted. Run 'cargo fmt --all' to fix."
+    clippy:
+      glob: "**/*.rs"
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      fail_text: "Clippy found warnings. Fix them before committing."
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      glob: "**/*.rs"
+      run: cargo test --workspace
+      fail_text: "Tests failed."
+    check:
+      glob: "**/*.rs"
+      run: cargo check --workspace --all-features
+      fail_text: "Cargo check failed."

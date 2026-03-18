@@ -88,6 +88,28 @@ pub(crate) fn cmd_info(path: Option<PathBuf>) -> Result<()> {
     println!("    focused   - Key symbols with context (~75%)");
     println!("    semantic  - Heuristic chunking (~65%, NOT neural)");
     println!();
+    println!("  {}:", "Exit Codes".yellow());
+    println!("    {:>2}        - {}", 0, "Success");
+    println!("    {:>2}        - {}", 1, "General error");
+    println!("    {:>2}        - {}", 2, "Invalid command-line arguments");
+    println!("    {:>2}        - {}", 3, "Internal error (bug)");
+    println!("    {:>2}        - {}", 4, "Operation interrupted");
+    println!("    {:>2}        - {}", 5, "Operation timed out");
+    println!("    {:>2}       - {}", 10, "Secrets detected");
+    println!("    {:>2}       - {}", 11, "PII detected");
+    println!("    {:>2}       - {}", 12, "License violation");
+    println!("    {:>2}       - {}", 13, "Path traversal blocked");
+    println!("    {:>2}       - {}", 14, "Security scan failed");
+    println!("    {:>2}       - {}", 20, "Configuration not found");
+    println!("    {:>2}       - {}", 21, "Invalid configuration");
+    println!("    {:>2}       - {}", 30, "File or directory not found");
+    println!("    {:>2}       - {}", 31, "Permission denied");
+    println!("    {:>2}       - {}", 34, "Resource limit exceeded");
+    println!("    {:>2}       - {}", 40, "No files matched patterns");
+    println!("    {:>2}       - {}", 41, "No chunks generated");
+    println!("    {:>2}       - {}", 44, "Manifest corrupted");
+    println!("    {:>2}       - {}", 45, "Token budget exceeded");
+    println!();
 
     Ok(())
 }

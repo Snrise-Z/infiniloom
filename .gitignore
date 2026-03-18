@@ -95,3 +95,7 @@ bindings/*/BUILD.md
 bindings/*/QUICK_START.md
 bindings/*/BUILD_INSTRUCTIONS.md
 bindings/*/FILE_MANIFEST.md
+
+# Nix
+result
+result-*
