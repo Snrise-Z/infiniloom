@@ -264,6 +264,9 @@ impl LazyContextBuilder {
             Language::Zig => Some(ParserLanguage::Zig),
             Language::Dart => Some(ParserLanguage::Dart),
             Language::Hcl => Some(ParserLanguage::Hcl),
+            Language::Puppet => Some(ParserLanguage::Puppet),
+            Language::Yaml => Some(ParserLanguage::Yaml),
+            Language::Dockerfile => Some(ParserLanguage::Dockerfile),
             Language::FSharp => None,
             Language::Unknown => None,
         };

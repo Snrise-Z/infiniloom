@@ -113,6 +113,11 @@
 #[cfg(feature = "document")]
 pub mod document;
 
+// Force-link tree-sitter-dockerfile native code (we bypass its Rust wrapper
+// due to tree-sitter version incompatibility, but still need the C symbols).
+#[allow(unused_extern_crates)]
+extern crate tree_sitter_dockerfile;
+
 // Core modules
 pub mod chunking;
 pub mod constants;

@@ -246,6 +246,9 @@ pub enum Language {
     Dart,
     Hcl,
     FSharp,
+    Puppet,
+    Yaml,
+    Dockerfile,
     #[default]
     Unknown,
 }
@@ -279,6 +282,9 @@ impl Language {
             "dart" => Self::Dart,
             "tf" | "hcl" | "tfvars" => Self::Hcl,
             "fs" | "fsi" | "fsx" | "fsscript" => Self::FSharp,
+            "pp" => Self::Puppet,
+            "yaml" | "yml" => Self::Yaml,
+            "dockerfile" => Self::Dockerfile,
             _ => Self::Unknown,
         }
     }
@@ -310,6 +316,9 @@ impl Language {
             Self::Dart => "dart",
             Self::Hcl => "hcl",
             Self::FSharp => "fsharp",
+            Self::Puppet => "puppet",
+            Self::Yaml => "yaml",
+            Self::Dockerfile => "dockerfile",
             Self::Unknown => "unknown",
         }
     }

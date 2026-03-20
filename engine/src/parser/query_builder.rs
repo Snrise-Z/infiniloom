@@ -1307,6 +1307,88 @@ pub fn dart_super_query() -> Result<Query, ParserError> {
         .map_err(|e| ParserError::QueryError(e.to_string()))
 }
 
+// ==========================================================================
+// Puppet
+// ==========================================================================
+
+pub fn puppet_query() -> Result<Query, ParserError> {
+    let query_string = super::queries::PUPPET;
+    Query::new(&tree_sitter_puppet::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn puppet_super_query() -> Result<Query, ParserError> {
+    let query_string = r#"
+        (class_definition
+          (identifier) @name) @class
+
+        (class_definition
+          (class_identifier
+            (identifier) @name)) @class
+
+        (defined_resource_type
+          (identifier) @name) @function
+
+        (defined_resource_type
+          (class_identifier
+            (identifier) @name)) @function
+
+        (node_definition
+          (node_name
+            (identifier) @name)) @function
+
+        (function_declaration
+          (identifier) @name) @function
+
+        (resource_declaration
+          (identifier) @name) @function
+
+        (type_declaration
+          (identifier) @name) @type
+
+        ; Imports
+        (include_statement
+          (identifier) @name) @import
+
+        (require_statement
+          (identifier) @name) @import
+    "#;
+    Query::new(&tree_sitter_puppet::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+// ==========================================================================
+// YAML
+// ==========================================================================
+
+pub fn yaml_query() -> Result<Query, ParserError> {
+    let query_string = super::queries::YAML;
+    Query::new(&tree_sitter_yaml::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn yaml_super_query() -> Result<Query, ParserError> {
+    let query_string = super::queries::YAML;
+    Query::new(&tree_sitter_yaml::LANGUAGE.into(), query_string)
+        .map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+// ==========================================================================
+// Dockerfile
+// ==========================================================================
+
+pub fn dockerfile_query() -> Result<Query, ParserError> {
+    let query_string = super::queries::DOCKERFILE;
+    let lang = super::language::dockerfile_ts_language();
+    Query::new(&lang, query_string).map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
+pub fn dockerfile_super_query() -> Result<Query, ParserError> {
+    let query_string = super::queries::DOCKERFILE;
+    let lang = super::language::dockerfile_ts_language();
+    Query::new(&lang, query_string).map_err(|e| ParserError::QueryError(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,6 +7,24 @@ use super::core::ParserError;
 use super::queries;
 use tree_sitter::{Language as TSLanguage, Parser as TSParser, Query};
 
+// tree-sitter-dockerfile 0.2.0 depends on tree-sitter 0.20, which is
+// incompatible with our tree-sitter 0.26.  The C grammar compiles fine;
+// we just bypass the crate's Rust wrapper and call the C symbol directly
+// through tree-sitter-language, exactly as modern grammar crates do.
+extern "C" {
+    pub fn tree_sitter_dockerfile() -> *const ();
+}
+
+/// Get the tree-sitter [`TSLanguage`] for Dockerfile using the raw C symbol.
+///
+/// # Safety
+/// This is safe because `tree_sitter_dockerfile` is a well-formed
+/// tree-sitter grammar symbol compiled by the `tree-sitter-dockerfile` crate.
+#[allow(unsafe_code)]
+pub fn dockerfile_ts_language() -> TSLanguage {
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_dockerfile).into() }
+}
+
 /// Supported programming languages
 ///
 /// Note: [`Language::Clojure`] and [`Language::FSharp`] are detection-only
@@ -45,6 +63,9 @@ pub enum Language {
     Hcl,
     Zig,
     Dart,
+    Puppet,
+    Yaml,
+    Dockerfile,
 }
 
 #[allow(deprecated)]
@@ -78,6 +99,9 @@ impl Language {
             "tf" | "hcl" | "tfvars" => Some(Self::Hcl),
             "zig" | "zon" => Some(Self::Zig),
             "dart" => Some(Self::Dart),
+            "pp" => Some(Self::Puppet),
+            "yaml" | "yml" => Some(Self::Yaml),
+            "dockerfile" => Some(Self::Dockerfile),
             _ => None,
         }
     }
@@ -111,6 +135,9 @@ impl Language {
             Self::Hcl => "hcl",
             Self::Zig => "zig",
             Self::Dart => "dart",
+            Self::Puppet => "puppet",
+            Self::Yaml => "yaml",
+            Self::Dockerfile => "dockerfile",
         }
     }
 
@@ -143,6 +170,9 @@ impl Language {
             Self::Hcl => "HCL",
             Self::Zig => "Zig",
             Self::Dart => "Dart",
+            Self::Puppet => "Puppet",
+            Self::Yaml => "YAML",
+            Self::Dockerfile => "Dockerfile",
         }
     }
 
@@ -181,6 +211,9 @@ impl Language {
             Self::Hcl => tree_sitter_hcl::LANGUAGE.into(),
             Self::Zig => tree_sitter_zig::LANGUAGE.into(),
             Self::Dart => tree_sitter_dart_orchard::LANGUAGE.into(),
+            Self::Puppet => tree_sitter_puppet::LANGUAGE.into(),
+            Self::Yaml => tree_sitter_yaml::LANGUAGE.into(),
+            Self::Dockerfile => dockerfile_ts_language(),
             Self::FSharp => return None,
         })
     }
@@ -213,6 +246,9 @@ impl Language {
             Self::Hcl => queries::HCL,
             Self::Zig => queries::ZIG,
             Self::Dart => queries::DART,
+            Self::Puppet => queries::PUPPET,
+            Self::Yaml => queries::YAML,
+            Self::Dockerfile => queries::DOCKERFILE,
             Self::FSharp => return None,
         })
     }
@@ -272,6 +308,9 @@ impl Language {
             Self::Hcl,
             Self::Zig,
             Self::Dart,
+            Self::Puppet,
+            Self::Yaml,
+            Self::Dockerfile,
         ]
     }
 
@@ -450,6 +489,8 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
         // Makefile-like
         "makefile" | "mk" => "make",
         "cmake" => "cmake",
+        // Puppet
+        "pp" => "puppet",
         // Nix
         "nix" => "nix",
         // Julia
@@ -501,6 +542,9 @@ impl std::str::FromStr for Language {
             "hcl" | "terraform" | "tf" => Ok(Self::Hcl),
             "zig" => Ok(Self::Zig),
             "dart" => Ok(Self::Dart),
+            "puppet" | "pp" => Ok(Self::Puppet),
+            "yaml" | "yml" => Ok(Self::Yaml),
+            "dockerfile" | "docker" => Ok(Self::Dockerfile),
             _ => Err(ParserError::UnsupportedLanguage(s.to_owned())),
         }
     }
@@ -552,7 +596,7 @@ mod tests {
     #[test]
     fn test_all_languages() {
         let all = Language::all();
-        assert_eq!(all.len(), 25);
+        assert_eq!(all.len(), 28);
         assert!(all.contains(&Language::Python));
         assert!(all.contains(&Language::Rust));
     }
@@ -612,5 +656,45 @@ mod tests {
         assert_eq!("hcl".parse::<Language>().unwrap(), Language::Hcl);
         assert_eq!("terraform".parse::<Language>().unwrap(), Language::Hcl);
         assert_eq!("tf".parse::<Language>().unwrap(), Language::Hcl);
+    }
+
+    #[test]
+    fn test_puppet_language() {
+        assert_eq!(Language::from_extension("pp"), Some(Language::Puppet));
+        assert_eq!(Language::Puppet.name(), "puppet");
+        assert_eq!(Language::Puppet.display_name(), "Puppet");
+        assert!(Language::Puppet.has_parser_support());
+        assert!(Language::Puppet.tree_sitter_language().is_some());
+        assert!(Language::Puppet.query_string().is_some());
+        assert!(Language::Puppet.init_parser().is_ok());
+        assert!(Language::Puppet.create_query().is_ok());
+        assert_eq!("puppet".parse::<Language>().unwrap(), Language::Puppet);
+    }
+
+    #[test]
+    fn test_yaml_language() {
+        assert_eq!(Language::from_extension("yaml"), Some(Language::Yaml));
+        assert_eq!(Language::from_extension("yml"), Some(Language::Yaml));
+        assert_eq!(Language::Yaml.name(), "yaml");
+        assert_eq!(Language::Yaml.display_name(), "YAML");
+        assert!(Language::Yaml.has_parser_support());
+        assert!(Language::Yaml.tree_sitter_language().is_some());
+        assert!(Language::Yaml.query_string().is_some());
+        assert!(Language::Yaml.init_parser().is_ok());
+        assert!(Language::Yaml.create_query().is_ok());
+        assert_eq!("yaml".parse::<Language>().unwrap(), Language::Yaml);
+    }
+
+    #[test]
+    fn test_dockerfile_language() {
+        assert_eq!(Language::from_extension("dockerfile"), Some(Language::Dockerfile));
+        assert_eq!(Language::Dockerfile.name(), "dockerfile");
+        assert_eq!(Language::Dockerfile.display_name(), "Dockerfile");
+        assert!(Language::Dockerfile.has_parser_support());
+        assert!(Language::Dockerfile.tree_sitter_language().is_some());
+        assert!(Language::Dockerfile.query_string().is_some());
+        assert!(Language::Dockerfile.init_parser().is_ok());
+        assert!(Language::Dockerfile.create_query().is_ok());
+        assert_eq!("dockerfile".parse::<Language>().unwrap(), Language::Dockerfile);
     }
 }

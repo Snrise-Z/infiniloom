@@ -1545,12 +1545,14 @@ impl EmbedChunker {
                 continue;
             }
 
-            // Only process supported languages
-            let ext = match path.extension().and_then(|e| e.to_str()) {
-                Some(e) => e,
-                None => continue,
-            };
-            if Language::from_extension(ext).is_none() {
+            // Only process supported languages (by extension or filename)
+            let has_language = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .and_then(Language::from_extension)
+                .is_some()
+                || Self::is_supported_filename(path);
+            if !has_language {
                 continue;
             }
 
@@ -1597,19 +1599,42 @@ impl EmbedChunker {
             || filename.ends_with("_spec.rb")
     }
 
-    /// Detect language from file path
+    /// Check if a filename (without extension) maps to a supported language.
+    /// Handles files like `Dockerfile`, `Dockerfile.prod`, etc.
+    fn is_supported_filename(path: &Path) -> bool {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            let lower = name.to_lowercase();
+            return lower == "dockerfile" || lower.starts_with("dockerfile.");
+        }
+        false
+    }
+
+    /// Detect language from file path (by extension or filename)
     fn detect_language(&self, path: &Path) -> String {
-        path.extension()
-            .and_then(|e| e.to_str())
-            .and_then(Language::from_extension)
+        Self::detect_language_enum_static(path)
             .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
     }
 
-    /// Detect the Language enum for a file path (returns None for unsupported extensions)
+    /// Detect the Language enum for a file path (returns None for unsupported)
     fn detect_language_enum(&self, path: &Path) -> Option<Language> {
-        path.extension()
+        Self::detect_language_enum_static(path)
+    }
+
+    /// Static helper for language detection by extension or filename
+    fn detect_language_enum_static(path: &Path) -> Option<Language> {
+        // Try extension first
+        if let Some(lang) = path
+            .extension()
             .and_then(|e| e.to_str())
             .and_then(Language::from_extension)
+        {
+            return Some(lang);
+        }
+        // Fallback: check filename for Dockerfile
+        if Self::is_supported_filename(path) {
+            return Some(Language::Dockerfile);
+        }
+        None
     }
 
     /// Parse token model string

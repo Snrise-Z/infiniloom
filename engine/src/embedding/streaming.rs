@@ -323,13 +323,14 @@ impl ChunkStream {
                 continue;
             }
 
-            // Check for supported language
-            let ext = match path.extension().and_then(|e| e.to_str()) {
-                Some(e) => e,
-                None => continue,
-            };
-
-            if Language::from_extension(ext).is_none() {
+            // Check for supported language (by extension or filename)
+            let has_language = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .and_then(Language::from_extension)
+                .is_some()
+                || self.is_supported_filename(path);
+            if !has_language {
                 continue;
             }
 
@@ -629,12 +630,28 @@ impl ChunkStream {
             .replace('\\', "/"))
     }
 
-    /// Detect language from file path
+    /// Check if a filename (without extension) maps to a supported language
+    fn is_supported_filename(&self, path: &Path) -> bool {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            let lower = name.to_lowercase();
+            return lower == "dockerfile" || lower.starts_with("dockerfile.");
+        }
+        false
+    }
+
+    /// Detect language from file path (by extension or filename)
     fn detect_language(&self, path: &Path) -> String {
-        path.extension()
+        if let Some(lang) = path
+            .extension()
             .and_then(|e| e.to_str())
             .and_then(Language::from_extension)
-            .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
+        {
+            return lang.display_name().to_owned();
+        }
+        if self.is_supported_filename(path) {
+            return Language::Dockerfile.display_name().to_owned();
+        }
+        "unknown".to_owned()
     }
 
     /// Compute fully qualified name

@@ -426,6 +426,73 @@ pub const ZIG: &str = r#"
       (string) @name) @function
 "#;
 
+/// Puppet symbol extraction query
+pub const PUPPET: &str = r#"
+    (class_definition
+      (identifier) @name) @class
+
+    (class_definition
+      (class_identifier
+        (identifier) @name)) @class
+
+    (defined_resource_type
+      (identifier) @name) @function
+
+    (defined_resource_type
+      (class_identifier
+        (identifier) @name)) @function
+
+    (node_definition
+      (node_name
+        (identifier) @name)) @function
+
+    (function_declaration
+      (identifier) @name) @function
+
+    (resource_declaration
+      (identifier) @name) @function
+
+    (type_declaration
+      (identifier) @name) @type
+"#;
+
+/// YAML symbol extraction query
+/// Extracts top-level and nested mapping keys — useful for Helm values,
+/// K8s manifests, Spinnaker pipelines, and Ansible playbooks.
+pub const YAML: &str = r#"
+    (block_mapping_pair
+      key: (flow_node
+        (plain_scalar
+          (string_scalar) @name))) @function
+
+    (block_mapping_pair
+      key: (flow_node
+        (double_quote_scalar) @name)) @function
+
+    (block_mapping_pair
+      key: (flow_node
+        (single_quote_scalar) @name)) @function
+"#;
+
+/// Dockerfile symbol extraction query
+/// Extracts FROM stages, ARG/ENV definitions, and EXPOSE ports.
+pub const DOCKERFILE: &str = r#"
+    (from_instruction
+      (image_spec
+        (image_name) @name)) @function
+
+    (from_instruction
+      (image_spec)
+      (image_alias) @name) @function
+
+    (arg_instruction
+      name: (unquoted_string) @name) @function
+
+    (label_instruction
+      (label_pair
+        key: (_) @name)) @function
+"#;
+
 /// Dart symbol extraction query
 pub const DART: &str = r#"
     (function_signature
@@ -478,5 +545,8 @@ mod tests {
         assert!(!HCL.is_empty());
         assert!(!ZIG.is_empty());
         assert!(!DART.is_empty());
+        assert!(!PUPPET.is_empty());
+        assert!(!YAML.is_empty());
+        assert!(!DOCKERFILE.is_empty());
     }
 }

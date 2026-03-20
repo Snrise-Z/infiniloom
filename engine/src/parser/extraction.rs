@@ -161,7 +161,10 @@ pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) 
         | Language::Clojure
         | Language::R
         | Language::Hcl
-        | Language::Zig => {
+        | Language::Zig
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => {
             let start = node.start_byte();
             let mut end = start;
             for byte in &source_code.as_bytes()[start..] {
@@ -412,7 +415,18 @@ pub fn extract_docstring(node: Node<'_>, source_code: &str, language: Language) 
             }
             None
         },
-        Language::Hcl => None,
+        Language::Hcl | Language::Yaml | Language::Dockerfile => None,
+        Language::Puppet => {
+            // Puppet uses # comments
+            if let Some(prev_sibling) = node.prev_sibling() {
+                if prev_sibling.kind() == "comment" {
+                    if let Ok(text) = prev_sibling.utf8_text(source_code.as_bytes()) {
+                        return Some(text.trim_start_matches('#').trim().to_owned());
+                    }
+                }
+            }
+            None
+        },
         // Zig and Dart both use /// doc comments (same style as Rust)
         Language::Zig | Language::Dart => {
             let start_byte = node.start_byte();
@@ -608,7 +622,10 @@ pub fn extract_visibility(node: Node<'_>, source_code: &str, language: Language)
         | Language::Lua
         | Language::R
         | Language::Hcl
-        | Language::Zig => Visibility::Public,
+        | Language::Zig
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => Visibility::Public,
         Language::Dart => {
             // Dart uses _ prefix for private members
             if let Some(name_node) = node.child_by_field_name("name") {
@@ -736,7 +753,10 @@ pub fn find_body_node(node: Node<'_>, language: Language) -> Option<Node<'_>> {
         | Language::R
         | Language::Hcl
         | Language::Zig
-        | Language::Dart => {
+        | Language::Dart
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => {
             return Some(node);
         },
         Language::Lua => {
@@ -980,7 +1000,10 @@ fn collect_calls_recursive_with_depth(
         | Language::FSharp
         | Language::Lua
         | Language::R
-        | Language::Hcl => {
+        | Language::Hcl
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => {
             if kind == "function_call" || kind == "call" || kind == "application" {
                 node.children(&mut node.walk())
                     .find(|child| child.kind() == "identifier" || child.kind() == "variable")
@@ -1315,7 +1338,10 @@ pub fn is_builtin(name: &str, language: Language) -> bool {
         | Language::R
         | Language::Hcl
         | Language::Zig
-        | Language::Dart => false,
+        | Language::Dart
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => false,
     }
 }
 
@@ -1688,7 +1714,10 @@ pub fn extract_inheritance(
         | Language::Lua
         | Language::R
         | Language::Hcl
-        | Language::Zig => {},
+        | Language::Zig
+        | Language::Puppet
+        | Language::Yaml
+        | Language::Dockerfile => {},
     }
 
     (extends, implements)

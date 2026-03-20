@@ -224,6 +224,33 @@ pub fn dart() -> Result<TSParser, ParserError> {
     Ok(parser)
 }
 
+/// Initialize Puppet parser
+pub fn puppet() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&tree_sitter_puppet::LANGUAGE.into())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
+/// Initialize YAML parser
+pub fn yaml() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&tree_sitter_yaml::LANGUAGE.into())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
+/// Initialize Dockerfile parser
+pub fn dockerfile() -> Result<TSParser, ParserError> {
+    let mut parser = TSParser::new();
+    parser
+        .set_language(&super::language::dockerfile_ts_language())
+        .map_err(|e| ParserError::ParseError(e.to_string()))?;
+    Ok(parser)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

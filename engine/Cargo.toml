@@ -83,6 +83,10 @@ tree-sitter-r = "1.2"
 tree-sitter-hcl = "1.1"
 tree-sitter-zig = "1.1"
 tree-sitter-dart-orchard = "0.3"
+tree-sitter-language = "0.1"
+tree-sitter-puppet = "1.3"
+tree-sitter-yaml = "0.7"
+tree-sitter-dockerfile = "0.2"
 
 # Accurate token counting
 tiktoken-rs = "0.9"

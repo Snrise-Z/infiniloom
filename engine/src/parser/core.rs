@@ -164,6 +164,21 @@ impl Parser {
                     query_builder::dart_query()?,
                     query_builder::dart_super_query()?,
                 ),
+                Language::Puppet => (
+                    init::puppet()?,
+                    query_builder::puppet_query()?,
+                    query_builder::puppet_super_query()?,
+                ),
+                Language::Yaml => (
+                    init::yaml()?,
+                    query_builder::yaml_query()?,
+                    query_builder::yaml_super_query()?,
+                ),
+                Language::Dockerfile => (
+                    init::dockerfile()?,
+                    query_builder::dockerfile_query()?,
+                    query_builder::dockerfile_super_query()?,
+                ),
             };
             parser_entry.insert(parser);
             self.queries.insert(language, query);

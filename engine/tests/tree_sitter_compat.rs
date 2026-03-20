@@ -48,6 +48,14 @@ fn test_tree_sitter_abi_compatibility() {
     assert_abi_compatible("lua", tree_sitter_lua::LANGUAGE.into());
     assert_abi_compatible("r", tree_sitter_r::LANGUAGE.into());
     assert_abi_compatible("hcl", tree_sitter_hcl::LANGUAGE.into());
+    assert_abi_compatible("puppet", tree_sitter_puppet::LANGUAGE.into());
+    assert_abi_compatible("yaml", tree_sitter_yaml::LANGUAGE.into());
+    // Dockerfile uses tree-sitter 0.20 internally; we access it via the raw
+    // C symbol + tree-sitter-language bridge (see language.rs).
+    assert_abi_compatible(
+        "dockerfile",
+        infiniloom_engine::parser::language::dockerfile_ts_language(),
+    );
 }
 
 #[test]
@@ -57,5 +65,12 @@ fn test_single_tree_sitter_version_in_lockfile() {
     let contents =
         std::fs::read_to_string(&lock_path).expect("Cargo.lock should be readable in workspace");
     let count = contents.matches("name = \"tree-sitter\"").count();
-    assert_eq!(count, 1, "Expected a single tree-sitter version in Cargo.lock, found {}", count);
+    // We expect 2 tree-sitter versions: 0.26 (primary) and 0.20 (transitive
+    // dep of tree-sitter-dockerfile 0.2.0, which hasn't been updated).
+    // We bypass dockerfile's Rust bindings via extern "C" + tree-sitter-language.
+    assert!(
+        count <= 2,
+        "Expected at most 2 tree-sitter versions in Cargo.lock (0.26 + 0.20 for dockerfile), found {}",
+        count
+    );
 }
