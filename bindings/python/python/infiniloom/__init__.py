@@ -209,6 +209,8 @@ from ._infiniloom import (
     get_callers,
     get_callees,
     get_references,
+    get_reference_counts,
+    get_call_graph_and_reference_counts,
     get_call_graph,
     # Chunk API
     chunk,
@@ -312,6 +314,8 @@ __all__ = [
     "get_callers",
     "get_callees",
     "get_references",
+    "get_reference_counts",
+    "get_call_graph_and_reference_counts",
     "get_call_graph",
     # Chunk API
     "chunk",

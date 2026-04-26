@@ -701,6 +701,33 @@ def get_references(path: str, symbol_name: str) -> List[ReferenceInfo]:
     """
     ...
 
+def get_reference_counts(path: str, symbol_names: List[str]) -> Dict[str, int]:
+    """Get reference counts for many symbols with one index/graph load.
+
+    Args:
+        path: Path to repository root.
+        symbol_names: Symbol names to count references for.
+
+    Returns:
+        Mapping from symbol name to reference count.
+    """
+    ...
+
+def get_call_graph_and_reference_counts(
+    path: str,
+    symbol_names: List[str],
+) -> Dict[str, Any]:
+    """Get call graph and reference counts with one index/graph load.
+
+    Args:
+        path: Path to repository root.
+        symbol_names: Symbol names to count references for.
+
+    Returns:
+        Dictionary with ``call_graph`` and ``reference_counts`` keys.
+    """
+    ...
+
 def get_call_graph(
     path: str,
     max_nodes: Optional[int] = None,

@@ -1459,10 +1459,7 @@ fn reference_info_to_py<'py>(py: Python<'py>, r: &EngineReferenceInfo) -> Bound<
 }
 
 /// Convert an engine CallGraph to a Python dict
-fn call_graph_to_py<'py>(
-    py: Python<'py>,
-    g: &EngineCallGraph,
-) -> PyResult<Bound<'py, PyDict>> {
+fn call_graph_to_py<'py>(py: Python<'py>, g: &EngineCallGraph) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
 
     // Convert nodes
@@ -1641,6 +1638,65 @@ fn get_references(py: Python, path: &str, symbol_name: &str) -> PyResult<Py<PyAn
     let list = PyList::new(py, results.iter().map(|r| reference_info_to_py(py, r)))?;
 
     Ok(list.into())
+}
+
+/// Return reference counts for many symbols after loading the index and graph once.
+///
+/// This is equivalent to calling `len(get_references(path, symbol_name))` for
+/// each symbol name, but avoids repeated index/graph deserialization.
+#[pyfunction]
+fn get_reference_counts(py: Python, path: &str, symbol_names: Vec<String>) -> PyResult<Py<PyAny>> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let counts = PyDict::new(py);
+    for symbol_name in symbol_names {
+        let results = get_references_by_name(&index, &graph, &symbol_name);
+        counts.set_item(symbol_name, results.len())?;
+    }
+
+    Ok(counts.into())
+}
+
+/// Return the complete call graph and reference counts after one index/graph load.
+///
+/// This preserves the semantics of `get_call_graph(path)` plus
+/// `get_reference_counts(path, symbol_names)` while avoiding duplicate
+/// deserialization of the stored index and graph.
+#[pyfunction]
+fn get_call_graph_and_reference_counts(
+    py: Python,
+    path: &str,
+    symbol_names: Vec<String>,
+) -> PyResult<Py<PyAny>> {
+    let path_buf = PathBuf::from(path);
+    let storage = IndexStorage::new(&path_buf);
+
+    let index = storage
+        .load_index()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load index: {}", e)))?;
+    let graph = storage
+        .load_graph()
+        .map_err(|e| PyIOError::new_err(format!("Failed to load graph: {}", e)))?;
+
+    let call_graph = engine_get_call_graph(&index, &graph);
+    let counts = PyDict::new(py);
+    for symbol_name in symbol_names {
+        let results = get_references_by_name(&index, &graph, &symbol_name);
+        counts.set_item(symbol_name, results.len())?;
+    }
+
+    let result = PyDict::new(py);
+    result.set_item("call_graph", call_graph_to_py(py, &call_graph)?)?;
+    result.set_item("reference_counts", counts)?;
+    Ok(result.into())
 }
 
 /// Get the complete call graph
@@ -4234,6 +4290,8 @@ fn _infiniloom(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_callers, m)?)?;
     m.add_function(wrap_pyfunction!(get_callees, m)?)?;
     m.add_function(wrap_pyfunction!(get_references, m)?)?;
+    m.add_function(wrap_pyfunction!(get_reference_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(get_call_graph_and_reference_counts, m)?)?;
     m.add_function(wrap_pyfunction!(get_call_graph, m)?)?;
     m.add_function(wrap_pyfunction!(find_circular_dependencies, m)?)?;
     m.add_function(wrap_pyfunction!(get_exported_symbols, m)?)?;
