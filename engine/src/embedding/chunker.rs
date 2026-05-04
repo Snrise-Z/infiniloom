@@ -2071,10 +2071,26 @@ fn extract_first_sentence(text: &str) -> String {
 
     let result = first_line[..end].trim();
     if result.len() > 400 {
-        format!("{}...", &result[..397])
+        truncate_with_ellipsis(result, 400)
     } else {
         result.to_owned()
     }
+}
+
+/// Truncate a UTF-8 string to a byte budget without splitting a code point.
+fn truncate_with_ellipsis(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        return text.to_owned();
+    }
+    if max_len <= 3 {
+        return ".".repeat(max_len);
+    }
+
+    let mut end = max_len - 3;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &text[..end])
 }
 
 /// Convert a file path to a module-like notation.
@@ -2129,7 +2145,7 @@ fn truncate_signature(sig: &str, max_len: usize) -> String {
     if oneliner.len() <= max_len {
         oneliner
     } else {
-        format!("{}...", &oneliner[..max_len.saturating_sub(3)])
+        truncate_with_ellipsis(&oneliner, max_len)
     }
 }
 
@@ -3061,6 +3077,55 @@ impl User {
         // The signature part should be truncated to ~200 chars
         assert!(summary.contains("..."), "Long signature should be truncated with ellipsis");
         // The total summary should still be reasonable length
+        assert!(summary.len() < 350, "Summary should be concise, got len={}", summary.len());
+    }
+
+    #[test]
+    fn test_summary_unicode_docstring_truncated_on_char_boundary() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "src/audio.c".to_owned(),
+            lines: (1, 100),
+            symbol: "pcm_RotateByte".to_owned(),
+            fqn: None,
+            language: "C".to_owned(),
+            parent: None,
+            visibility: Visibility::Private,
+            is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
+        };
+        let docstring = format!(
+            "/** {} */",
+            "【機　能】 bsize_shift 分のバッファ中のデータの回転。".repeat(30)
+        );
+        let context = ChunkContext { docstring: Some(docstring), ..Default::default() };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context).unwrap();
+        assert!(summary.ends_with("..."));
+        assert!(summary.len() <= 400);
+    }
+
+    #[test]
+    fn test_summary_unicode_signature_truncated_on_char_boundary() {
+        let source = ChunkSource {
+            repo: RepoIdentifier::default(),
+            file: "characters/characterUtilite.c".to_owned(),
+            lines: (1, 100),
+            symbol: "CheckItemInBox".to_owned(),
+            fqn: None,
+            language: "C".to_owned(),
+            parent: None,
+            visibility: Visibility::Private,
+            is_test: false,
+            module_path: None,
+            parent_chunk_id: None,
+        };
+        let signature = "int CheckItemInBox(string _itemID, string _locationID, string _box) // Addon 2016-1 Jason подсчет указанных предметов в конкретном сундуке конкретной локации".repeat(4);
+        let context = ChunkContext { signature: Some(signature), ..Default::default() };
+
+        let summary = generate_summary(ChunkKind::Function, &source, &context).unwrap();
+        assert!(summary.contains("..."));
         assert!(summary.len() < 350, "Summary should be concise, got len={}", summary.len());
     }
 
