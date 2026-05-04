@@ -475,18 +475,22 @@ pub const YAML: &str = r#"
 "#;
 
 /// Dockerfile symbol extraction query
-/// Extracts FROM stages, ARG/ENV definitions, and EXPOSE ports.
+/// Extracts FROM stages, ARG/ENV definitions, and LABEL keys.
 pub const DOCKERFILE: &str = r#"
     (from_instruction
       (image_spec
-        (image_name) @name)) @function
+        name: (image_name) @name)) @function
 
     (from_instruction
-      (image_spec)
-      (image_alias) @name) @function
+      as: (image_alias) @name) @function
 
     (arg_instruction
-      name: (unquoted_string) @name) @function
+      (arg_pair
+        name: (unquoted_string) @name)) @function
+
+    (env_instruction
+      (env_pair
+        name: (unquoted_string) @name)) @function
 
     (label_instruction
       (label_pair

@@ -1546,12 +1546,7 @@ impl EmbedChunker {
             }
 
             // Only process supported languages (by extension or filename)
-            let has_language = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .and_then(Language::from_extension)
-                .is_some()
-                || Self::is_supported_filename(path);
+            let has_language = Language::from_path(path).is_some();
             if !has_language {
                 continue;
             }
@@ -1599,16 +1594,6 @@ impl EmbedChunker {
             || filename.ends_with("_spec.rb")
     }
 
-    /// Check if a filename (without extension) maps to a supported language.
-    /// Handles files like `Dockerfile`, `Dockerfile.prod`, etc.
-    fn is_supported_filename(path: &Path) -> bool {
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            let lower = name.to_lowercase();
-            return lower == "dockerfile" || lower.starts_with("dockerfile.");
-        }
-        false
-    }
-
     /// Detect language from file path (by extension or filename)
     fn detect_language(&self, path: &Path) -> String {
         Self::detect_language_enum_static(path)
@@ -1622,19 +1607,7 @@ impl EmbedChunker {
 
     /// Static helper for language detection by extension or filename
     fn detect_language_enum_static(path: &Path) -> Option<Language> {
-        // Try extension first
-        if let Some(lang) = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .and_then(Language::from_extension)
-        {
-            return Some(lang);
-        }
-        // Fallback: check filename for Dockerfile
-        if Self::is_supported_filename(path) {
-            return Some(Language::Dockerfile);
-        }
-        None
+        Language::from_path(path)
     }
 
     /// Parse token model string

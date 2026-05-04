@@ -7,22 +7,9 @@ use super::core::ParserError;
 use super::queries;
 use tree_sitter::{Language as TSLanguage, Parser as TSParser, Query};
 
-// tree-sitter-dockerfile 0.2.0 depends on tree-sitter 0.20, which is
-// incompatible with our tree-sitter 0.26.  The C grammar compiles fine;
-// we just bypass the crate's Rust wrapper and call the C symbol directly
-// through tree-sitter-language, exactly as modern grammar crates do.
-extern "C" {
-    pub fn tree_sitter_dockerfile() -> *const ();
-}
-
-/// Get the tree-sitter [`TSLanguage`] for Dockerfile using the raw C symbol.
-///
-/// # Safety
-/// This is safe because `tree_sitter_dockerfile` is a well-formed
-/// tree-sitter grammar symbol compiled by the `tree-sitter-dockerfile` crate.
-#[allow(unsafe_code)]
+/// Get the tree-sitter [`TSLanguage`] for Dockerfile/Containerfile.
 pub fn dockerfile_ts_language() -> TSLanguage {
-    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_dockerfile).into() }
+    tree_sitter_containerfile::LANGUAGE.into()
 }
 
 /// Supported programming languages
@@ -101,9 +88,32 @@ impl Language {
             "dart" => Some(Self::Dart),
             "pp" => Some(Self::Puppet),
             "yaml" | "yml" => Some(Self::Yaml),
-            "dockerfile" => Some(Self::Dockerfile),
+            "dockerfile" | "containerfile" => Some(Self::Dockerfile),
             _ => None,
         }
+    }
+
+    /// Detect language from file path, including supported extensionless filenames.
+    #[must_use]
+    pub fn from_path(path: &std::path::Path) -> Option<Self> {
+        if let Some(lang) = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(Self::from_extension)
+        {
+            return Some(lang);
+        }
+
+        let filename = path.file_name()?.to_str()?.to_lowercase();
+        if filename == "dockerfile"
+            || filename.starts_with("dockerfile.")
+            || filename == "containerfile"
+            || filename.starts_with("containerfile.")
+        {
+            return Some(Self::Dockerfile);
+        }
+
+        None
     }
 
     /// Get language name as string
@@ -376,9 +386,9 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
         let lang =
             match lower.as_str() {
                 // Docker
-                "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test" => {
-                    Some("dockerfile")
-                },
+                "dockerfile" | "dockerfile.dev" | "dockerfile.prod" | "dockerfile.test"
+                | "containerfile" | "containerfile.dev" | "containerfile.prod"
+                | "containerfile.test" => Some("dockerfile"),
                 // Make
                 "makefile" | "gnumakefile" | "bsdmakefile" => Some("make"),
                 // Ruby
@@ -404,7 +414,7 @@ pub fn detect_file_language(path: &std::path::Path) -> Option<String> {
             return lang.map(|s| s.to_owned());
         }
         // Check for patterns like Dockerfile.something
-        if lower.starts_with("dockerfile") {
+        if lower.starts_with("dockerfile") || lower.starts_with("containerfile") {
             return Some("dockerfile".to_owned());
         }
         if lower.starts_with("makefile") {
@@ -688,6 +698,15 @@ mod tests {
     #[test]
     fn test_dockerfile_language() {
         assert_eq!(Language::from_extension("dockerfile"), Some(Language::Dockerfile));
+        assert_eq!(Language::from_extension("containerfile"), Some(Language::Dockerfile));
+        assert_eq!(
+            Language::from_path(std::path::Path::new("Dockerfile")),
+            Some(Language::Dockerfile)
+        );
+        assert_eq!(
+            Language::from_path(std::path::Path::new("Containerfile.prod")),
+            Some(Language::Dockerfile)
+        );
         assert_eq!(Language::Dockerfile.name(), "dockerfile");
         assert_eq!(Language::Dockerfile.display_name(), "Dockerfile");
         assert!(Language::Dockerfile.has_parser_support());

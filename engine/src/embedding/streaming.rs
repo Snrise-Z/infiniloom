@@ -327,12 +327,7 @@ impl ChunkStream {
             }
 
             // Check for supported language (by extension or filename)
-            let has_language = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .and_then(Language::from_extension)
-                .is_some()
-                || self.is_supported_filename(path);
+            let has_language = Language::from_path(path).is_some();
             if !has_language {
                 continue;
             }
@@ -528,8 +523,7 @@ impl ChunkStream {
             );
 
             // Extract enrichments: identifiers, type signatures, complexity, tags
-            let lang_enum =
-                Language::from_extension(path.extension().and_then(|e| e.to_str()).unwrap_or(""));
+            let lang_enum = Language::from_path(path);
             let identifiers = extract_identifiers(&chunk_content, lang_enum);
             let (type_signature, parameter_types, return_type, error_types) =
                 if let Some(lang) = lang_enum {
@@ -626,28 +620,10 @@ impl ChunkStream {
             .replace('\\', "/"))
     }
 
-    /// Check if a filename (without extension) maps to a supported language
-    fn is_supported_filename(&self, path: &Path) -> bool {
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            let lower = name.to_lowercase();
-            return lower == "dockerfile" || lower.starts_with("dockerfile.");
-        }
-        false
-    }
-
     /// Detect language from file path (by extension or filename)
     fn detect_language(&self, path: &Path) -> String {
-        if let Some(lang) = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .and_then(Language::from_extension)
-        {
-            return lang.display_name().to_owned();
-        }
-        if self.is_supported_filename(path) {
-            return Language::Dockerfile.display_name().to_owned();
-        }
-        "unknown".to_owned()
+        Language::from_path(path)
+            .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
     }
 
     /// Compute fully qualified name

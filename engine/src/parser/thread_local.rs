@@ -6,7 +6,7 @@
 //! # Performance Optimizations
 //!
 //! 1. **OnceLock initialization** - Parser created once per thread, not on every call
-//! 2. **Direct language detection** - Uses Language::from_extension directly
+//! 2. **Direct language detection** - Uses Language::from_path directly
 //! 3. **Reduced RefCell overhead** - Single borrow per parse operation
 //! 4. **Centralized API** - Eliminates code duplication across CLI commands
 //!
@@ -73,13 +73,12 @@ thread_local! {
 /// # Arguments
 ///
 /// * `content` - Source code content to parse
-/// * `path` - File path (used for language detection via extension)
+/// * `path` - File path (used for language detection via extension or supported filename)
 ///
 /// # Returns
 ///
 /// Vector of extracted symbols, or empty vector if:
-/// - File has no extension
-/// - Extension is not a supported language
+/// - Path is not a supported language
 /// - Parsing fails
 ///
 /// # Performance
@@ -103,14 +102,8 @@ thread_local! {
 /// assert!(!symbols.is_empty());
 /// ```
 pub fn parse_file_symbols(content: &str, path: &Path) -> Vec<Symbol> {
-    // Fast path: return early if no extension
-    let ext = match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => ext,
-        None => return Vec::new(),
-    };
-
     // Fast path: return early if unsupported language
-    let lang = match Language::from_extension(ext) {
+    let lang = match Language::from_path(path) {
         Some(lang) => lang,
         None => return Vec::new(),
     };
@@ -196,8 +189,29 @@ mod tests {
         let path = PathBuf::from("Makefile");
         let symbols = parse_file_symbols(content, &path);
 
-        // No extension, should return empty
+        // Unsupported filename without extension should return empty
         assert!(symbols.is_empty());
+    }
+
+    #[test]
+    fn test_parse_file_symbols_dockerfile_filename() {
+        let content = "FROM python:3.11 AS runtime\nARG APP_HOME=/app\nENV PYTHONUNBUFFERED=1";
+        let path = PathBuf::from("Dockerfile");
+        let symbols = parse_file_symbols(content, &path);
+
+        assert!(!symbols.is_empty());
+        assert!(symbols.iter().any(|s| s.name == "python"));
+        assert!(symbols.iter().any(|s| s.name == "APP_HOME"));
+    }
+
+    #[test]
+    fn test_parse_file_symbols_containerfile_filename() {
+        let content = "FROM quay.io/fedora/fedora:latest";
+        let path = PathBuf::from("Containerfile");
+        let symbols = parse_file_symbols(content, &path);
+
+        assert!(!symbols.is_empty());
+        assert!(symbols.iter().any(|s| s.name.contains("fedora")));
     }
 
     #[test]
@@ -243,7 +257,7 @@ mod tests {
     fn test_parse_file_symbols_invalid_syntax() {
         let content = "fn main( {{{{{"; // Invalid Rust
         let path = PathBuf::from("test.rs");
-        let symbols = parse_file_symbols(content, &path);
+        let _symbols = parse_file_symbols(content, &path);
 
         // Invalid syntax should return empty (parse error)
         // Tree-sitter is error-tolerant, so this might return partial symbols
