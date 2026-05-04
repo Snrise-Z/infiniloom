@@ -134,7 +134,7 @@ AST-aware chunking ensures:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--streaming` | Enable streaming JSONL output (lower memory usage for large repos) | `false` |
+| `--streaming` | Enable batched JSONL output with global dependency finalization | `false` |
 | `--batch-size <N>` | Files per batch in streaming mode | `500` |
 | `--sqlite-manifest` | Use SQLite for manifest storage (faster incremental updates, queryable) | `false` |
 | `--since <COMMIT>` | Only process files changed since this git commit | none |
@@ -616,7 +616,7 @@ The embed command provides strong determinism:
 - **Thread-local parsers**: Eliminates mutex contention
 - **ASCII fast path**: Skips NFKC normalization for ASCII-only content (~99% of code)
 - **Incremental updates**: Only re-processes changed files
-- **Memory-efficient**: Streams chunks instead of loading all into memory
+- **Batched streaming**: Parses files in batches, then applies global dependency finalization
 
 ## Exit Codes
 

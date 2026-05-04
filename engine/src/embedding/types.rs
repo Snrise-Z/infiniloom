@@ -547,24 +547,19 @@ pub struct EmbedSettings {
     #[serde(default)]
     pub repo_name: Option<String>,
 
-    /// Enable streaming output mode for memory-efficient large repo processing
+    /// Enable batched JSONL output mode for large repo processing
     ///
-    /// When enabled, files are processed in batches and chunks are written to the
-    /// output as they are generated, rather than collecting all chunks into memory
-    /// first. This reduces peak memory from O(all chunks) to O(batch size).
-    ///
-    /// Trade-offs vs non-streaming mode:
-    /// - `called_by` is populated within each batch only, not globally
-    /// - Ordering is deterministic within batches but not globally sorted across
-    ///   batch boundaries (files within each batch are sorted, and batches are
-    ///   processed in lexicographic file order)
+    /// When enabled, files are parsed in batches before global post-processing
+    /// and output. This bounds parsing-phase intermediates while preserving the
+    /// same complete dependency metadata, hierarchy/signature chunks, git
+    /// metadata, and deterministic ordering as non-streaming mode.
     #[serde(default)]
     pub streaming: bool,
 
     /// Number of files to process per batch in streaming mode (default: 500)
     ///
-    /// Larger batches improve `called_by` coverage and reduce overhead, but use
-    /// more memory. Only relevant when `streaming` is true.
+    /// Larger batches reduce parsing overhead, but use more memory. Only
+    /// relevant when `streaming` is true.
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
 }

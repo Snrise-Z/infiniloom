@@ -1,7 +1,8 @@
 //! Streaming API for large repository processing
 //!
 //! This module provides an iterator-based interface for processing large repositories
-//! without loading all chunks into memory simultaneously. This is essential for:
+//! while preserving the same globally finalized metadata as [`EmbedChunker`]. This is
+//! useful for:
 //!
 //! - **Large Monorepos**: Repositories with 100K+ files
 //! - **CI/CD Pipelines**: Memory-constrained container environments
@@ -14,7 +15,7 @@
 //!
 //! let stream = ChunkStream::new(repo_path, settings, limits)?;
 //!
-//! // Process chunks as they're generated
+//! // Process finalized chunks from the iterator
 //! for chunk_result in stream {
 //!     match chunk_result {
 //!         Ok(chunk) => {
@@ -47,15 +48,12 @@
 //! }
 //! ```
 //!
-//! # Memory Guarantees
+//! # Finalization
 //!
-//! The streaming API bounds memory usage to approximately:
-//! - `batch_size * avg_chunk_size` for chunk data
-//! - `O(files_in_current_batch)` for file metadata
-//! - `O(symbols_per_file)` for parse state
-//!
-//! For a typical batch_size of 100 and avg_chunk_size of 5KB, memory usage
-//! is bounded to ~500KB for chunk data, regardless of repository size.
+//! Complete dependency metadata such as `called_by`, hierarchy links, signature
+//! chunks, and deterministic global ordering require a repository-wide finalization
+//! pass. The stream parses files in batches, then yields finalized chunks after that
+//! pass completes.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -66,12 +64,13 @@ use crate::parser::{parse_file_symbols, Language};
 use crate::security::SecurityScanner;
 use crate::tokenizer::{TokenModel, Tokenizer};
 
-use super::chunker::{generate_summary, generate_tags_for_symbol};
+use super::chunker::{generate_summary, generate_tags_for_symbol, EmbedChunker};
 use super::complexity::compute_complexity;
 use super::error::EmbedError;
 use super::hasher::hash_content;
 use super::identifiers::extract_identifiers;
 use super::limits::ResourceLimits;
+use super::progress::QuietProgress;
 use super::type_extraction::extract_types;
 use super::types::{ChunkContext, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier};
 
@@ -150,8 +149,8 @@ impl StreamStats {
 
 /// Streaming chunk iterator for large repositories
 ///
-/// This iterator yields chunks one at a time as they are generated,
-/// without loading the entire repository into memory.
+/// This iterator yields globally finalized chunks. The first yielded item is
+/// available after the repository-wide dependency finalization pass completes.
 pub struct ChunkStream {
     /// Queued files to process
     pending_files: VecDeque<PathBuf>,
@@ -188,6 +187,9 @@ pub struct ChunkStream {
 
     /// Error count for early termination
     error_count: AtomicUsize,
+
+    /// Whether finalized chunks have already been loaded into the output buffer
+    finalized_loaded: bool,
 }
 
 impl ChunkStream {
@@ -239,6 +241,7 @@ impl ChunkStream {
             stats: StreamStats::default(),
             cancelled: Arc::new(AtomicBool::new(false)),
             error_count: AtomicUsize::new(0),
+            finalized_loaded: false,
         };
 
         // Discover files
@@ -371,64 +374,57 @@ impl ChunkStream {
             || path_str.contains("\\__tests__\\")
     }
 
-    /// Process the next batch of files and fill the chunk buffer
+    /// Parse files in configured batches, globally finalize metadata, and fill
+    /// the chunk buffer.
     fn fill_buffer(&mut self) -> bool {
-        if self.is_cancelled() {
+        if self.is_cancelled() || self.finalized_loaded {
+            return false;
+        }
+        self.finalized_loaded = true;
+
+        if self.pending_files.is_empty() {
             return false;
         }
 
-        // Take a batch of files
-        let batch_size = self.config.file_batch_size.min(self.pending_files.len());
-        if batch_size == 0 {
-            return false;
+        let mut settings = self.settings.clone();
+        settings.streaming = true;
+        settings.batch_size = self.config.file_batch_size.max(1);
+
+        let mut chunker = EmbedChunker::new(settings, self.limits.clone());
+        if self.repo_id != RepoIdentifier::default() {
+            chunker.set_repo_id(self.repo_id.clone());
         }
 
-        let batch: Vec<_> = (0..batch_size)
-            .filter_map(|_| self.pending_files.pop_front())
-            .collect();
+        let progress = QuietProgress;
+        match chunker.chunk_repository_streaming_chunks(&self.repo_root, &progress) {
+            Ok((chunks, stats)) => {
+                self.pending_files.clear();
+                self.stats.files_processed = stats.files_processed;
+                self.stats.files_skipped = stats.files_skipped;
+                self.stats.chunks_generated = chunks.len();
+                self.stats.bytes_processed = chunks
+                    .iter()
+                    .map(|chunk| chunk.content.len() as u64)
+                    .sum::<u64>();
 
-        // Process files
-        for file_path in batch {
-            if self.is_cancelled() {
-                break;
-            }
-
-            match self.process_file(&file_path) {
-                Ok(chunks) => {
-                    self.stats.files_processed += 1;
-                    self.stats.chunks_generated += chunks.len();
-
-                    for chunk in chunks {
-                        self.chunk_buffer.push_back(Ok(chunk));
-                    }
-                },
-                Err(e) => {
-                    self.stats.error_count += 1;
-                    let current_errors = self.error_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-                    if e.is_skippable() && self.config.skip_on_error {
-                        self.stats.files_skipped += 1;
-                        // Optionally emit the error for logging
-                        if !e.is_critical() {
-                            self.chunk_buffer.push_back(Err(e));
-                        }
-                    } else if current_errors >= self.config.max_errors {
-                        // Too many errors, emit and stop
-                        self.chunk_buffer.push_back(Err(EmbedError::TooManyErrors {
-                            count: current_errors,
-                            max: self.config.max_errors,
-                        }));
-                        self.cancelled.store(true, Ordering::Relaxed);
-                        break;
-                    } else if e.is_critical() {
-                        self.chunk_buffer.push_back(Err(e));
-                        break;
-                    }
-                },
-            }
+                for chunk in chunks {
+                    self.chunk_buffer.push_back(Ok(chunk));
+                }
+            },
+            Err(e) => {
+                self.pending_files.clear();
+                self.stats.error_count += 1;
+                let current_errors = self.error_count.fetch_add(1, Ordering::Relaxed) + 1;
+                let err = if current_errors >= self.config.max_errors {
+                    EmbedError::TooManyErrors { count: current_errors, max: self.config.max_errors }
+                } else {
+                    e
+                };
+                self.chunk_buffer.push_back(Err(err));
+            },
         }
 
-        !self.chunk_buffer.is_empty() || !self.pending_files.is_empty()
+        !self.chunk_buffer.is_empty()
     }
 
     /// Process a single file and return its chunks
@@ -928,6 +924,67 @@ fn goodbye() {
         // Should be sorted by file path
         assert!(chunks[0].source.file < chunks[1].source.file);
         assert!(chunks[1].source.file < chunks[2].source.file);
+    }
+
+    #[test]
+    fn test_chunk_stream_matches_chunker_with_cross_batch_dependencies() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "a.rs",
+            r#"
+pub fn caller() {
+    callee();
+}
+"#,
+        );
+        create_test_file(
+            temp_dir.path(),
+            "b.rs",
+            r#"
+pub fn callee() {
+}
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_signatures: true,
+            enable_hierarchy: true,
+            hierarchy_min_children: 1,
+            repo_namespace: Some("org".to_owned()),
+            repo_name: Some("repo".to_owned()),
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let limits = ResourceLimits::default();
+        let progress = QuietProgress;
+
+        let mut chunker = EmbedChunker::new(settings.clone(), limits.clone());
+        let expected = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let config = StreamConfig { file_batch_size: 1, ..Default::default() };
+        let stream = ChunkStream::with_config(temp_dir.path(), settings, limits, config).unwrap();
+        let actual = stream.collect_all().unwrap();
+
+        assert_eq!(actual, expected);
+        let callee = actual
+            .iter()
+            .find(|chunk| chunk.source.symbol == "callee" && chunk.repr == "code")
+            .expect("callee chunk should exist");
+        assert!(
+            callee
+                .context
+                .called_by
+                .iter()
+                .any(|caller| caller.contains("caller")),
+            "called_by should include caller across stream batches: {:?}",
+            callee.context.called_by
+        );
     }
 
     #[test]

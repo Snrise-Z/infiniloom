@@ -629,11 +629,10 @@ enum Commands {
         /// Enrich chunks with git metadata (change frequency, authors, last modified)
         #[arg(long)]
         git_metadata: bool,
-        /// Enable streaming output mode (lower memory usage for large repos)
+        /// Enable batched JSONL output mode for large repos
         ///
-        /// Processes files in batches and writes chunks as they are generated,
-        /// reducing peak memory from O(all chunks) to O(batch size). Trade-off:
-        /// called_by is populated within each batch only, not globally.
+        /// Processes files in batches before global dependency finalization,
+        /// preserving complete dependency metadata and deterministic ordering.
         /// Only supported with JSONL output format.
         #[arg(long)]
         streaming: bool,

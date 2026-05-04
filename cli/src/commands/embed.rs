@@ -75,7 +75,7 @@ pub(crate) struct EmbedConfig {
     pub hierarchy_min_children: usize,
     /// Enrich chunks with git metadata
     pub git_metadata: bool,
-    /// Enable streaming output mode (lower memory usage)
+    /// Enable batched JSONL output mode
     pub streaming: bool,
     /// Files per batch in streaming mode
     pub batch_size: usize,
@@ -229,10 +229,10 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         Box::new(QuietProgress) // Default to quiet for clean stdout piping
     };
 
-    // Streaming mode: write chunks as they are generated (JSONL only)
+    // Streaming mode: parse in batches and write globally finalized chunks (JSONL only)
     if config.streaming {
-        // Streaming mode never saves manifests (chunks are not held in memory),
-        // so --since-manifest and --diff-only are incompatible with it.
+        // Keep manifest/diff behavior unchanged for this mode. Streaming is focused
+        // on JSONL output and does not update manifests.
         if config.since_manifest {
             anyhow::bail!(
                 "Cannot use --streaming with --since-manifest.\n\
@@ -243,7 +243,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
         if config.diff_only {
             anyhow::bail!(
                 "Cannot use --streaming with --diff-only.\n\
-                 Streaming mode writes chunks as they are generated and cannot compute diffs."
+                 Streaming mode keeps JSONL-only output semantics and does not compute diffs."
             );
         }
         return cmd_embed_streaming(config, settings, chunker, progress.as_ref(), start);
@@ -746,14 +746,14 @@ fn cmd_embed_sqlite(
 
 /// Run the embed command in streaming mode.
 ///
-/// Writes header, streams chunk batches directly to the writer via
-/// `chunk_repository_streaming`, then writes a footer with totals.
-/// Manifest updates are skipped in streaming mode because we never hold
-/// all chunks in memory simultaneously.
+/// Writes a header, parses files in batches, applies repository-wide dependency
+/// finalization, writes chunk lines, then writes a footer with totals.
+/// Manifest updates are skipped in streaming mode to preserve the existing
+/// JSONL-only command semantics.
 fn cmd_embed_streaming(
     config: EmbedConfig,
     settings: EmbedSettings,
-    chunker: EmbedChunker,
+    mut chunker: EmbedChunker,
     progress: &dyn infiniloom_engine::ProgressReporter,
     start: Instant,
 ) -> Result<()> {
@@ -784,12 +784,22 @@ fn cmd_embed_streaming(
     });
     writeln!(writer, "{}", serde_json::to_string(&header)?)?;
 
-    // Stream chunks -- the chunker writes {"type":"chunk","data":...} lines directly
-    let streaming_stats = chunker
-        .chunk_repository_streaming(&config.path, &mut writer, progress)
+    // Parse in bounded batches, then apply global dependency post-processing
+    // before writing chunks so streaming output is semantically equivalent to
+    // non-streaming output.
+    let (chunks, streaming_stats) = chunker
+        .chunk_repository_streaming_chunks(&config.path, progress)
         .context("Failed to generate chunks in streaming mode")?;
 
     let elapsed = start.elapsed();
+
+    for chunk in &chunks {
+        let chunk_json = serde_json::json!({
+            "type": "chunk",
+            "data": chunk,
+        });
+        writeln!(writer, "{}", serde_json::to_string(&chunk_json)?)?;
+    }
 
     // Write footer line
     let footer = serde_json::json!({
@@ -805,6 +815,10 @@ fn cmd_embed_streaming(
 
     // Flush the writer
     writer.flush()?;
+
+    if config.graph_export {
+        write_graph_export(&chunks, &config.graph_dir, config.quiet)?;
+    }
 
     // Print statistics to stderr if appropriate
     if !config.quiet && (config.output_file.is_some() || config.verbose) {

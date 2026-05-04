@@ -511,6 +511,36 @@ fn test_embed_streaming_jsonl() {
 }
 
 #[test]
+fn test_embed_streaming_writes_graph_export() {
+    let dir = create_rust_repo();
+    let output_file = dir.path().join("stream.jsonl");
+    let graph_dir = dir.path().join("graph");
+
+    let out = run(&[
+        "embed",
+        dir.path().to_str().unwrap(),
+        "--streaming",
+        "--graph-export",
+        "--graph-dir",
+        graph_dir.to_str().unwrap(),
+        "-o",
+        output_file.to_str().unwrap(),
+        "--no-security-scan",
+        "--quiet",
+    ]);
+
+    assert!(out.status.success(), "streaming embed failed: {}", stderr_str(&out));
+    let edges = graph_dir.join("edges.jsonl");
+    let vertices = graph_dir.join("vertices.jsonl");
+    assert!(edges.exists(), "streaming graph export should write edges.jsonl");
+    assert!(vertices.exists(), "streaming graph export should write vertices.jsonl");
+    assert!(
+        !fs::read_to_string(edges).unwrap().trim().is_empty(),
+        "streaming graph export should contain edges"
+    );
+}
+
+#[test]
 fn test_embed_streaming_rejects_json_format() {
     let dir = create_rust_repo();
 

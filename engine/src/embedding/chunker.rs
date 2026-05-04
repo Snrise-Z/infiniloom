@@ -133,13 +133,16 @@ impl EmbedChunker {
     ///
     /// Same as `chunk_repository`: deterministic, thread-safe, resource-limited.
     pub fn chunk_repository_filtered(
-        &self,
+        &mut self,
         repo_path: &Path,
         only_files: &std::collections::HashSet<PathBuf>,
         progress: &dyn ProgressReporter,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Validate repo path
         let repo_root = self.validate_repo_path(repo_path)?;
+
+        // Build repo identity from settings and git info if not already set
+        self.populate_repo_identity(&repo_root);
 
         // Discover all files, then filter to only the specified ones
         progress.set_phase("Scanning repository (filtered)...");
@@ -331,13 +334,30 @@ impl EmbedChunker {
             });
         }
 
+        self.finalize_chunks(&mut all_chunks, repo_root, progress);
+
+        progress.set_phase("Complete");
+        Ok(all_chunks)
+    }
+
+    /// Run the global post-processing phases shared by all chunking modes.
+    ///
+    /// Keeping this as a single path ensures streaming and non-streaming modes
+    /// produce equivalent dependency, hierarchy, signature, ordering, and git
+    /// metadata fields.
+    fn finalize_chunks(
+        &self,
+        all_chunks: &mut Vec<EmbedChunk>,
+        repo_root: &Path,
+        progress: &dyn ProgressReporter,
+    ) {
         // Phase 3: Build reverse call graph (called_by + dependents_count)
         progress.set_phase("Building call graph...");
-        self.populate_called_by(&mut all_chunks);
+        self.populate_called_by(all_chunks);
 
         // Phase 3b: Link parent/children chunk IDs
         progress.set_phase("Linking parent/children chunks...");
-        self.link_parent_children(&mut all_chunks, progress);
+        self.link_parent_children(all_chunks, progress);
 
         // Phase 4: Build hierarchy summaries (if enabled)
         if self.settings.enable_hierarchy {
@@ -349,10 +369,10 @@ impl EmbedChunker {
             let builder = HierarchyBuilder::with_config(hierarchy_config);
 
             // Enrich existing chunks with hierarchy metadata tags
-            builder.enrich_chunks(&mut all_chunks);
+            builder.enrich_chunks(all_chunks);
 
             // Generate summary chunks for containers (classes, structs, etc.)
-            let mut summaries = builder.build_hierarchy(&all_chunks);
+            let mut summaries = builder.build_hierarchy(all_chunks);
 
             // Count tokens for summary chunks
             let token_model = self.parse_token_model(&self.settings.token_model);
@@ -366,14 +386,14 @@ impl EmbedChunker {
         // Phase 5: Generate signature-only chunks (if enabled)
         if self.settings.include_signatures {
             progress.set_phase("Generating signature chunks...");
-            let signature_chunks = self.generate_signature_chunks(&all_chunks);
+            let signature_chunks = self.generate_signature_chunks(all_chunks);
             all_chunks.extend(signature_chunks);
         }
 
         // Phase 6: Sort for deterministic output
         // Note: par_sort_by is unstable, but our comparison uses multiple tiebreakers
         // to guarantee no two elements ever compare equal, making stability irrelevant.
-        // Order: file → start line → end line → symbol name → chunk ID
+        // Order: file -> start line -> end line -> symbol name -> chunk ID
         progress.set_phase("Sorting chunks...");
         all_chunks.par_sort_by(|a, b| {
             a.source
@@ -385,14 +405,11 @@ impl EmbedChunker {
                 .then_with(|| a.id.cmp(&b.id)) // Content-addressable ID as final tiebreaker
         });
 
-        // Phase 6: Enrich with git metadata (if enabled)
+        // Phase 7: Enrich with git metadata (if enabled)
         if self.settings.git_metadata {
             progress.set_phase("Collecting git metadata...");
-            self.enrich_with_git_metadata(&mut all_chunks, repo_root);
+            self.enrich_with_git_metadata(all_chunks, repo_root);
         }
-
-        progress.set_phase("Complete");
-        Ok(all_chunks)
     }
 
     /// Enrich chunks with git metadata (change frequency, authors, last modified).
@@ -409,40 +426,65 @@ impl EmbedChunker {
             chunk.context.git = Some(metadata);
         }
     }
-    /// Generate chunks in streaming mode, writing each batch to a writer as JSONL.
+    /// Generate chunks in streaming mode and write finalized chunks as JSONL.
     ///
-    /// Instead of collecting all chunks into memory, this method processes files in
-    /// batches, writes each batch's chunks to the writer, then drops them. This
-    /// reduces peak memory from O(all chunks) to O(batch_size worth of chunks).
+    /// Files are parsed in batches to bound parsing-phase intermediates. The full
+    /// chunk set is then globally finalized before writing so dependency metadata
+    /// matches non-streaming output.
     ///
     /// # Determinism
     ///
-    /// - Files are sorted lexicographically before batching, so batches are processed
-    ///   in a deterministic order.
-    /// - Within each batch, chunks are sorted by (file, start_line, end_line, symbol, id).
-    /// - Across batch boundaries, ordering is NOT globally sorted (batch N's last chunk
-    ///   may sort after batch N+1's first chunk). For full global sorting, use the
-    ///   non-streaming `chunk_repository()` method.
-    ///
-    /// # `called_by` trade-off
-    ///
-    /// The reverse call graph (`called_by` field) is populated within each batch only.
-    /// Cross-batch `called_by` references are not captured because that would require
-    /// keeping all chunks in memory. For full `called_by` coverage, use the
-    /// non-streaming `chunk_repository()` method.
+    /// Files are parsed in bounded batches, then global post-processing is applied
+    /// before writing. This preserves complete cross-batch dependency metadata and
+    /// deterministic global ordering.
     ///
     /// # Writer protocol
     ///
     /// Each chunk is serialized as a single JSON line (JSONL) via `serde_json`. The
     /// caller is responsible for writing any header/footer lines around the chunks.
     pub fn chunk_repository_streaming<W: Write>(
-        &self,
+        &mut self,
         repo_path: &Path,
         writer: &mut W,
         progress: &dyn ProgressReporter,
     ) -> Result<StreamingStats, EmbedError> {
+        let (chunks, stats) = self.chunk_repository_streaming_chunks(repo_path, progress)?;
+
+        for chunk in &chunks {
+            let chunk_json = serde_json::json!({
+                "type": "chunk",
+                "data": chunk,
+            });
+            let line = serde_json::to_string(&chunk_json).map_err(|e| EmbedError::IoError {
+                path: repo_path.to_path_buf(),
+                source: std::io::Error::other(e),
+            })?;
+            writeln!(writer, "{}", line)
+                .map_err(|e| EmbedError::IoError { path: repo_path.to_path_buf(), source: e })?;
+        }
+        writer
+            .flush()
+            .map_err(|e| EmbedError::IoError { path: repo_path.to_path_buf(), source: e })?;
+
+        Ok(stats)
+    }
+
+    /// Parse files in bounded batches and return globally finalized chunks.
+    ///
+    /// This keeps the parsing phase bounded by `batch_size`, but still retains
+    /// the complete chunk set for dependency resolution. Complete `called_by`,
+    /// graph export, hierarchy, signatures, git metadata, and deterministic
+    /// ordering all require a global post-processing pass.
+    pub fn chunk_repository_streaming_chunks(
+        &mut self,
+        repo_path: &Path,
+        progress: &dyn ProgressReporter,
+    ) -> Result<(Vec<EmbedChunk>, StreamingStats), EmbedError> {
         // Validate repo path
         let repo_root = self.validate_repo_path(repo_path)?;
+
+        // Build repo identity from settings and git info if not already set.
+        self.populate_repo_identity(&repo_root);
 
         // Phase 1: Discover files (deterministic order)
         progress.set_phase("Scanning repository...");
@@ -476,6 +518,7 @@ impl EmbedChunker {
         // Phase 2: Process files in batches
         progress.set_phase("Parsing and chunking (streaming)...");
         let total_chunk_count = Mutex::new(0usize);
+        let mut all_chunks = Vec::new();
 
         for batch_files in files.chunks(batch_size) {
             let processed_in_batch = AtomicUsize::new(0);
@@ -540,64 +583,21 @@ impl EmbedChunker {
                     },
                 }
             }
-
-            // Populate called_by within this batch only.
-            // NOTE: Cross-batch called_by references are not captured in streaming
-            // mode. This is an intentional trade-off to avoid keeping all chunks in
-            // memory. For full called_by coverage, use chunk_repository() instead.
-            self.populate_called_by(&mut batch_chunks);
-
-            // Link parent/children chunk IDs within this batch
-            self.link_parent_children(&mut batch_chunks, progress);
-
-            // Sort chunks within this batch for deterministic intra-batch ordering
-            batch_chunks.sort_by(|a, b| {
-                a.source
-                    .file
-                    .cmp(&b.source.file)
-                    .then_with(|| a.source.lines.0.cmp(&b.source.lines.0))
-                    .then_with(|| a.source.lines.1.cmp(&b.source.lines.1))
-                    .then_with(|| a.source.symbol.cmp(&b.source.symbol))
-                    .then_with(|| a.id.cmp(&b.id))
-            });
-
-            // Write each chunk as a JSONL line, then drop the batch
-            for chunk in &batch_chunks {
-                let chunk_json = serde_json::json!({
-                    "type": "chunk",
-                    "data": chunk,
-                });
-                let line = serde_json::to_string(&chunk_json).map_err(|e| EmbedError::IoError {
-                    path: repo_path.to_path_buf(),
-                    source: std::io::Error::other(e),
-                })?;
-                writeln!(writer, "{}", line).map_err(|e| EmbedError::IoError {
-                    path: repo_path.to_path_buf(),
-                    source: e,
-                })?;
-            }
-
-            stats.total_chunks += batch_chunks.len();
+            all_chunks.extend(batch_chunks);
             stats.batches_processed += 1;
-
-            // Flush writer after each batch to prevent unbounded memory buildup
-            // and ensure data is written even if processing fails later
-            writer
-                .flush()
-                .map_err(|e| EmbedError::IoError { path: repo_path.to_path_buf(), source: e })?;
-
-            // batch_chunks is dropped here, freeing memory
         }
 
-        if stats.total_chunks == 0 {
+        if all_chunks.is_empty() {
             return Err(EmbedError::NoChunksGenerated {
                 include_patterns: "default".to_owned(),
                 exclude_patterns: "default".to_owned(),
             });
         }
 
+        self.finalize_chunks(&mut all_chunks, &repo_root, progress);
+        stats.total_chunks = all_chunks.len();
         progress.set_phase("Complete");
-        Ok(stats)
+        Ok((all_chunks, stats))
     }
     /// Populate the called_by field for all chunks by building a reverse call graph.
     ///
@@ -2445,6 +2445,107 @@ fn goodbye() {
                 assert_eq!(results[0][j].id, results[i][j].id);
             }
         }
+    }
+
+    #[test]
+    fn test_streaming_matches_non_streaming_with_cross_batch_dependencies() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "a.rs",
+            r#"
+pub fn caller() {
+    callee();
+}
+"#,
+        );
+        create_test_file(
+            temp_dir.path(),
+            "b.rs",
+            r#"
+pub fn callee() {
+}
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            batch_size: 1,
+            include_signatures: true,
+            enable_hierarchy: true,
+            hierarchy_min_children: 1,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+
+        let mut non_streaming = EmbedChunker::with_defaults(settings.clone());
+        let expected = non_streaming
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let mut streaming = EmbedChunker::with_defaults(settings);
+        let (actual, stats) = streaming
+            .chunk_repository_streaming_chunks(temp_dir.path(), &progress)
+            .unwrap();
+
+        assert_eq!(actual, expected);
+        assert_eq!(stats.total_chunks, actual.len());
+        assert_eq!(stats.batches_processed, 2);
+
+        let callee = actual
+            .iter()
+            .find(|chunk| chunk.source.symbol == "callee" && chunk.repr == "code")
+            .expect("callee chunk should exist");
+        assert!(
+            callee
+                .context
+                .called_by
+                .iter()
+                .any(|caller| caller.contains("caller")),
+            "called_by should include caller across streaming batches: {:?}",
+            callee.context.called_by
+        );
+    }
+
+    #[test]
+    fn test_filtered_chunking_populates_repo_identity() {
+        use std::collections::HashSet;
+
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "a.rs",
+            r#"
+pub fn caller() {
+}
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            repo_namespace: Some("org".to_owned()),
+            repo_name: Some("repo".to_owned()),
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut only_files = HashSet::new();
+        only_files.insert(PathBuf::from("a.rs"));
+
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository_filtered(temp_dir.path(), &only_files, &progress)
+            .unwrap();
+
+        assert!(!chunks.is_empty());
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.source.repo.namespace.as_deref() == Some("org")));
+        assert!(chunks.iter().all(|chunk| chunk.source.repo.name == "repo"));
     }
 
     #[test]
