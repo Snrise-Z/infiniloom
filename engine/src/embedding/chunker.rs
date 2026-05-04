@@ -853,6 +853,7 @@ impl EmbedChunker {
 
         let lines: Vec<&str> = content.lines().collect();
         let mut chunks = Vec::with_capacity(symbols.len() + 2);
+        let token_model = self.parse_token_model(&self.settings.token_model);
 
         for symbol in &symbols {
             // Skip imports if configured
@@ -867,7 +868,6 @@ impl EmbedChunker {
                 self.extract_symbol_content(&lines, symbol, self.settings.context_lines);
 
             // Count tokens
-            let token_model = self.parse_token_model(&self.settings.token_model);
             let tokens = self.tokenizer.count(&chunk_content, token_model);
 
             // Handle large symbols (with depth-limited splitting)
@@ -880,6 +880,7 @@ impl EmbedChunker {
                     start_line,
                     0, // Initial depth
                     lang_enum,
+                    token_model,
                 )?;
                 chunks.extend(split_chunks);
             } else {
@@ -929,9 +930,14 @@ impl EmbedChunker {
 
         // Handle top-level code if configured
         if self.settings.include_top_level && !symbols.is_empty() {
-            if let Some(top_level) =
-                self.extract_top_level(&lines, &symbols, &relative_path, &language, lang_enum)
-            {
+            if let Some(top_level) = self.extract_top_level(
+                &lines,
+                &symbols,
+                &relative_path,
+                &language,
+                lang_enum,
+                token_model,
+            ) {
                 chunks.push(top_level);
             }
         }
@@ -976,6 +982,7 @@ impl EmbedChunker {
         base_line: u32,
         depth: u32,
         lang_enum: Option<Language>,
+        token_model: TokenModel,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Depth limit to prevent stack overflow
         if !self.limits.check_recursion_depth(depth) {
@@ -990,7 +997,6 @@ impl EmbedChunker {
         let total_lines = lines.len();
 
         // Calculate target lines per chunk using INTEGER math only
-        let token_model = self.parse_token_model(&self.settings.token_model);
         let total_tokens = self.tokenizer.count(content, token_model) as usize;
         let target_tokens = self.settings.max_tokens as usize;
 
@@ -1119,28 +1125,34 @@ impl EmbedChunker {
         file: &str,
         language: &str,
         lang_enum: Option<Language>,
+        token_model: TokenModel,
     ) -> Option<EmbedChunk> {
         if lines.is_empty() || symbols.is_empty() {
             return None;
         }
 
-        // Find lines not covered by any symbol
-        let mut covered = vec![false; lines.len()];
+        // Find gaps between merged symbol ranges.
+        let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             let start = symbol.start_line.saturating_sub(1) as usize;
             let end = (symbol.end_line as usize).min(lines.len());
-            for i in start..end {
-                covered[i] = true;
+            if start < end {
+                ranges.push((start, end));
             }
         }
+        ranges.sort_unstable_by_key(|range| range.0);
 
-        // Collect uncovered lines
-        let top_level_lines: Vec<&str> = lines
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !covered[*i])
-            .map(|(_, line)| *line)
-            .collect();
+        let mut top_level_lines: Vec<&str> = Vec::new();
+        let mut cursor = 0usize;
+        for (start, end) in ranges {
+            if cursor < start {
+                top_level_lines.extend_from_slice(&lines[cursor..start]);
+            }
+            cursor = cursor.max(end);
+        }
+        if cursor < lines.len() {
+            top_level_lines.extend_from_slice(&lines[cursor..]);
+        }
 
         if top_level_lines.is_empty() {
             return None;
@@ -1151,7 +1163,6 @@ impl EmbedChunker {
             return None;
         }
 
-        let token_model = self.parse_token_model(&self.settings.token_model);
         let tokens = self.tokenizer.count(&content, token_model);
 
         if tokens < self.settings.min_tokens {
@@ -2481,6 +2492,80 @@ pub fn callee() {
             "called_by should include caller across streaming batches: {:?}",
             callee.context.called_by
         );
+    }
+
+    #[test]
+    fn test_extract_top_level_matches_covered_line_semantics() {
+        let code = "\
+use std::fmt;
+
+fn outer() {
+    helper();
+}
+
+const VALUE: usize = 1;
+
+impl Service {
+    fn run(&self) {}
+}
+
+fn trailing() {}
+";
+        let lines: Vec<&str> = code.lines().collect();
+        let mut symbols = Vec::new();
+        for (name, kind, start_line, end_line) in [
+            ("std::fmt", crate::types::SymbolKind::Import, 1, 1),
+            ("outer", crate::types::SymbolKind::Function, 3, 5),
+            ("Service", crate::types::SymbolKind::Class, 9, 11),
+            ("run", crate::types::SymbolKind::Method, 10, 10),
+            ("trailing", crate::types::SymbolKind::Function, 13, 13),
+        ] {
+            let mut symbol = Symbol::new(name, kind);
+            symbol.start_line = start_line;
+            symbol.end_line = end_line;
+            symbols.push(symbol);
+        }
+
+        let mut covered = vec![false; lines.len()];
+        for symbol in &symbols {
+            let start = symbol.start_line.saturating_sub(1) as usize;
+            let end = (symbol.end_line as usize).min(lines.len());
+            for item in covered.iter_mut().take(end).skip(start) {
+                *item = true;
+            }
+        }
+        let expected = lines
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !covered[*index])
+            .map(|(_, line)| *line)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_owned();
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let top_level = chunker
+            .extract_top_level(
+                &lines,
+                &symbols,
+                "src/lib.rs",
+                "Rust",
+                Some(Language::Rust),
+                token_model,
+            )
+            .expect("top-level chunk should be generated");
+
+        assert_eq!(top_level.content, expected);
+        assert_eq!(top_level.content, "const VALUE: usize = 1;");
+        assert_eq!(top_level.source.lines, (1, lines.len() as u32));
     }
 
     #[test]
