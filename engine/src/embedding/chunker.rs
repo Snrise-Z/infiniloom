@@ -679,8 +679,11 @@ impl EmbedChunker {
     fn link_parent_children(&self, chunks: &mut [EmbedChunk], progress: &dyn ProgressReporter) {
         use std::collections::{BTreeMap, BTreeSet};
 
-        // Build map: (file, symbol_name) -> chunk index for container types
-        let mut container_map: BTreeMap<(String, String), usize> = BTreeMap::new();
+        // Build map: (file, symbol_name) -> chunk indexes for container types.
+        // Split container parts are logical views of the same parent symbol, so
+        // children are attached to every part while a child's single
+        // parent_chunk_id points at the first deterministic part.
+        let mut container_map: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
         for (i, chunk) in chunks.iter().enumerate() {
             if matches!(
                 chunk.kind,
@@ -689,8 +692,12 @@ impl EmbedChunker {
                     | ChunkKind::Enum
                     | ChunkKind::Trait
                     | ChunkKind::Interface
+                    | ChunkKind::ClassPart
             ) {
-                container_map.insert((chunk.source.file.clone(), chunk.source.symbol.clone()), i);
+                container_map
+                    .entry((chunk.source.file.clone(), chunk.source.symbol.clone()))
+                    .or_default()
+                    .push(i);
             }
         }
 
@@ -702,14 +709,16 @@ impl EmbedChunker {
         for i in 0..chunks.len() {
             if let Some(ref parent_name) = chunks[i].source.parent {
                 let key = (chunks[i].source.file.clone(), parent_name.clone());
-                if let Some(&parent_idx) = container_map.get(&key) {
-                    let parent_id = chunks[parent_idx].id.clone();
+                if let Some(parent_indexes) = container_map.get(&key) {
+                    let parent_id = chunks[parent_indexes[0]].id.clone();
                     chunks[i].source.parent_chunk_id = Some(parent_id);
 
-                    parent_children
-                        .entry(parent_idx)
-                        .or_default()
-                        .push(chunks[i].id.clone());
+                    for &parent_idx in parent_indexes {
+                        parent_children
+                            .entry(parent_idx)
+                            .or_default()
+                            .push(chunks[i].id.clone());
+                    }
                 } else {
                     orphaned_count += 1;
                     orphaned_files.insert(chunks[i].source.file.clone());
@@ -729,6 +738,7 @@ impl EmbedChunker {
         // Second pass: set children_ids on parents (sorted for determinism)
         for (parent_idx, mut child_ids) in parent_children {
             child_ids.sort();
+            child_ids.dedup();
             chunks[parent_idx].children_ids = child_ids;
         }
     }
@@ -877,6 +887,7 @@ impl EmbedChunker {
                     symbol,
                     &relative_path,
                     &language,
+                    path,
                     start_line,
                     0, // Initial depth
                     lang_enum,
@@ -979,6 +990,7 @@ impl EmbedChunker {
         symbol: &Symbol,
         file: &str,
         language: &str,
+        source_path: &Path,
         base_line: u32,
         depth: u32,
         lang_enum: Option<Language>,
@@ -1024,6 +1036,18 @@ impl EmbedChunker {
 
         // Parent ID for linking parts
         let parent_hash = hash_content(content);
+        let original_kind: ChunkKind = symbol.kind.into();
+        let part_kind = match original_kind {
+            ChunkKind::Class
+            | ChunkKind::Struct
+            | ChunkKind::Enum
+            | ChunkKind::Interface
+            | ChunkKind::Trait
+            | ChunkKind::Module => ChunkKind::ClassPart,
+            _ => ChunkKind::FunctionPart,
+        };
+        let original_fqn = self.compute_fqn(file, symbol);
+        let original_context = self.extract_context(symbol, content, file, source_path);
 
         while current_start < total_lines {
             // Calculate content boundaries
@@ -1042,10 +1066,6 @@ impl EmbedChunker {
             // Only create chunk if above minimum
             if tokens >= self.settings.min_tokens {
                 let hash = hash_content(&part_content);
-                let part_keywords = extract_keywords(&part_content);
-                let part_identifiers = extract_identifiers(&part_content, lang_enum);
-                let part_prefix =
-                    Some(generate_context_prefix(file, Some(&symbol.name), &symbol.kind));
 
                 // Track actual overlap lines included (for metadata)
                 let actual_overlap = if part_num > 1 {
@@ -1058,34 +1078,31 @@ impl EmbedChunker {
                     repo: self.repo_id.clone(),
                     file: file.to_owned(),
                     lines: (base_line + content_start as u32, base_line + content_end as u32 - 1),
-                    symbol: format!("{}_part{}", symbol.name, part_num),
-                    fqn: None,
+                    symbol: symbol.name.clone(),
+                    fqn: Some(original_fqn.clone()),
                     language: language.to_owned(),
-                    parent: Some(symbol.name.clone()),
+                    parent: symbol.parent.clone(),
                     visibility: symbol.visibility.into(),
-                    is_test: false,
+                    is_test: self.is_test_code(source_path, symbol),
                     module_path: Some(derive_module_path(file, language)),
                     parent_chunk_id: None,
                 };
-                let mut part_context = ChunkContext {
-                    signature: symbol.signature.clone(), // Include in every part for context
-                    // Propagate docstring to ALL parts for better RAG retrieval
-                    // Each part should be self-contained for semantic search
-                    docstring: symbol.docstring.clone(),
-                    keywords: part_keywords,
-                    identifiers: part_identifiers,
-                    context_prefix: part_prefix,
-                    ..Default::default()
-                };
-                part_context.summary =
-                    generate_summary(ChunkKind::FunctionPart, &part_source, &part_context);
+                let mut part_context = original_context.clone();
+                part_context.keywords = extract_keywords(&part_content);
+                part_context.identifiers = extract_identifiers(&part_content, lang_enum)
+                    .or_else(|| original_context.identifiers.clone());
+                part_context.lines_of_code = self.count_lines_of_code(&part_content);
+                part_context.max_nesting_depth = self.calculate_nesting_depth(&part_content);
+                part_context.complexity_score =
+                    lang_enum.and_then(|l| super::complexity::compute_complexity(&part_content, l));
+                part_context.summary = generate_summary(part_kind, &part_source, &part_context);
 
                 chunks.push(EmbedChunk {
                     id: hash.short_id,
                     full_hash: hash.full_hash,
                     content: part_content,
                     tokens,
-                    kind: ChunkKind::FunctionPart, // or ClassPart based on symbol.kind
+                    kind: part_kind,
                     source: part_source,
                     context: part_context,
                     children_ids: Vec::new(),
@@ -2508,6 +2525,247 @@ pub fn callee() {
             "called_by should include caller across streaming batches: {:?}",
             callee.context.called_by
         );
+    }
+
+    #[test]
+    fn test_split_parts_inherit_original_symbol_relationships() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut big_body = String::new();
+        for index in 0..80 {
+            big_body.push_str(&format!(
+                "    let value_{index} = callee({index});\n    helper(value_{index});\n"
+            ));
+        }
+        create_test_file(
+            temp_dir.path(),
+            "lib.rs",
+            &format!(
+                r#"
+pub fn callee(value: i32) -> i32 {{
+    value + 1
+}}
+
+pub fn helper(value: i32) -> i32 {{
+    value * 2
+}}
+
+pub fn caller() {{
+    big();
+}}
+
+pub fn big() {{
+{big_body}
+}}
+"#
+            ),
+        );
+
+        let settings = EmbedSettings {
+            max_tokens: 60,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let big_parts: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| chunk.kind == ChunkKind::FunctionPart && chunk.source.symbol == "big")
+            .collect();
+        assert!(big_parts.len() > 1, "expected big() to be split: {chunks:#?}");
+
+        for part in &big_parts {
+            assert_eq!(part.source.symbol, "big");
+            assert!(part
+                .source
+                .fqn
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with("::big"));
+            assert!(part.source.parent.is_none());
+            assert!(part.part.is_some());
+            assert!(
+                part.context.calls.contains(&"callee".to_owned())
+                    && part.context.calls.contains(&"helper".to_owned()),
+                "part should inherit full-symbol calls: {:?}",
+                part.context.calls
+            );
+            assert!(
+                part.context
+                    .called_by
+                    .iter()
+                    .any(|caller| caller.ends_with("::caller")),
+                "part should inherit full-symbol called_by: {:?}",
+                part.context.called_by
+            );
+            assert!(part.context.dependents_count.unwrap_or_default() > 0);
+        }
+
+        let callee = chunks
+            .iter()
+            .find(|chunk| chunk.kind == ChunkKind::Function && chunk.source.symbol == "callee")
+            .expect("callee chunk should exist");
+        let caller = chunks
+            .iter()
+            .find(|chunk| chunk.kind == ChunkKind::Function && chunk.source.symbol == "caller")
+            .expect("caller chunk should exist");
+
+        let graph = crate::embedding::generate_graph_export(&chunks);
+        for part in &big_parts {
+            assert!(
+                graph.edges.iter().any(|edge| {
+                    edge.label == "CALLS" && edge.from == part.id && edge.to == callee.id
+                }),
+                "part {} should have outgoing CALLS edge to callee",
+                part.id
+            );
+            assert!(
+                graph.edges.iter().any(|edge| {
+                    edge.label == "CALLS" && edge.from == caller.id && edge.to == part.id
+                }),
+                "part {} should have incoming CALLS edge from caller",
+                part.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_split_class_parts_inherit_children_hierarchy() {
+        fn chunk(id: &str, kind: ChunkKind, symbol: &str, parent: Option<&str>) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: symbol.to_owned(),
+                tokens: 1,
+                kind,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "service.py".to_owned(),
+                    lines: (1, 1),
+                    symbol: symbol.to_owned(),
+                    fqn: Some(format!("service::{symbol}")),
+                    language: "Python".to_owned(),
+                    parent: parent.map(str::to_owned),
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("service".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: if kind == ChunkKind::ClassPart {
+                    Some(ChunkPart {
+                        part: if id.ends_with('1') { 1 } else { 2 },
+                        of: 2,
+                        parent_id: "class_parent".to_owned(),
+                        parent_signature: "class BigService".to_owned(),
+                        overlap_lines: 0,
+                    })
+                } else {
+                    None
+                },
+            }
+        }
+
+        let mut chunks = vec![
+            chunk("class_part_1", ChunkKind::ClassPart, "BigService", None),
+            chunk("class_part_2", ChunkKind::ClassPart, "BigService", None),
+            chunk("child_method", ChunkKind::Method, "important_child", Some("BigService")),
+        ];
+
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let progress = QuietProgress;
+        let chunker = EmbedChunker::with_defaults(settings);
+        chunker.link_parent_children(&mut chunks, &progress);
+
+        let child = chunks
+            .iter()
+            .find(|chunk| chunk.id == "child_method")
+            .expect("child method should exist");
+        assert!(
+            child.source.parent_chunk_id.is_some(),
+            "child method should link to a split class part"
+        );
+
+        for part in chunks
+            .iter()
+            .filter(|chunk| chunk.kind == ChunkKind::ClassPart)
+        {
+            assert_eq!(part.source.symbol, "BigService");
+            assert!(part.part.is_some());
+            assert!(
+                part.children_ids.contains(&child.id),
+                "class part {} should inherit method children_ids {:?}",
+                part.id,
+                part.children_ids
+            );
+        }
+    }
+
+    #[test]
+    fn test_real_repo_file_split_parts_inherit_relationships() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let settings = EmbedSettings {
+            max_tokens: 120,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_patterns: vec!["src/embedding/chunker.rs".to_owned()],
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker.chunk_repository(repo_root, &progress).unwrap();
+
+        let split_large_symbol_parts: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| {
+                chunk.kind == ChunkKind::FunctionPart
+                    && chunk.source.symbol == "split_large_symbol"
+                    && chunk.repr == "code"
+            })
+            .collect();
+        assert!(
+            split_large_symbol_parts.len() > 1,
+            "real repository file should split split_large_symbol(): {chunks:#?}"
+        );
+
+        for part in &split_large_symbol_parts {
+            assert!(part.part.is_some());
+            assert_eq!(part.source.symbol, "split_large_symbol");
+            assert!(part
+                .source
+                .fqn
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with("::split_large_symbol"));
+            assert!(
+                !part.context.calls.is_empty(),
+                "real split part should inherit original calls"
+            );
+            assert!(
+                part.context
+                    .called_by
+                    .iter()
+                    .any(|caller| caller.ends_with("::chunk_file")),
+                "real split part should inherit caller relationship: {:?}",
+                part.context.called_by
+            );
+        }
     }
 
     #[test]

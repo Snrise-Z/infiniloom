@@ -78,6 +78,21 @@ fn edge_id(from: &str, to: &str, label: &str) -> String {
     format!("e_{}", &result.short_id[3..])
 }
 
+fn logical_target_ids<'a>(candidates: &'a [&'a EmbedChunk]) -> Vec<&'a str> {
+    if candidates.iter().any(|chunk| chunk.kind.is_part()) {
+        candidates
+            .iter()
+            .filter(|chunk| chunk.kind.is_part())
+            .map(|chunk| chunk.id.as_str())
+            .collect()
+    } else {
+        candidates
+            .first()
+            .map(|chunk| vec![chunk.id.as_str()])
+            .unwrap_or_default()
+    }
+}
+
 /// Generate a Neptune-compatible graph export from embedding chunks.
 ///
 /// This performs best-effort symbol resolution: calls that cannot be matched
@@ -85,15 +100,18 @@ fn edge_id(from: &str, to: &str, label: &str) -> String {
 pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
     // Build lookup: symbol_name -> list of chunk IDs (for call resolution)
     // We use (symbol_name, file) as key for precise matching, falling back to name-only
-    let mut symbol_by_name_and_file: HashMap<(&str, &str), &str> = HashMap::new();
-    let mut symbol_by_name: HashMap<&str, &str> = HashMap::new();
+    let mut symbol_by_name_and_file: HashMap<(&str, &str), Vec<&EmbedChunk>> = HashMap::new();
+    let mut symbol_by_name: HashMap<&str, Vec<&EmbedChunk>> = HashMap::new();
 
     for chunk in chunks {
         let name = chunk.source.symbol.as_str();
         let file = chunk.source.file.as_str();
-        symbol_by_name_and_file.insert((name, file), &chunk.id);
+        symbol_by_name_and_file
+            .entry((name, file))
+            .or_default()
+            .push(chunk);
         // For name-only lookup, first match wins (deterministic due to sorted input)
-        symbol_by_name.entry(name).or_insert(&chunk.id);
+        symbol_by_name.entry(name).or_default().push(chunk);
     }
 
     // Track unique files and modules (sorted for determinism)
@@ -215,17 +233,19 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
     for chunk in chunks {
         for call_name in &chunk.context.calls {
             // Try precise match (same file first), then name-only
-            let target_id = symbol_by_name_and_file
+            let target_ids = symbol_by_name_and_file
                 .get(&(call_name.as_str(), chunk.source.file.as_str()))
-                .or_else(|| symbol_by_name.get(call_name.as_str()));
+                .or_else(|| symbol_by_name.get(call_name.as_str()))
+                .map(|candidates| logical_target_ids(candidates))
+                .unwrap_or_default();
 
-            if let Some(target) = target_id {
+            for target in target_ids {
                 // Skip self-calls
-                if *target != chunk.id.as_str() {
+                if target != chunk.id.as_str() {
                     edges.push(GraphEdge {
                         id: edge_id(&chunk.id, target, "CALLS"),
                         from: chunk.id.clone(),
-                        to: (*target).to_owned(),
+                        to: target.to_owned(),
                         label: "CALLS".to_owned(),
                     });
                 }
@@ -253,14 +273,16 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
     for chunk in chunks {
         if let Some(ref parent_name) = chunk.source.parent {
             // Find the parent chunk by name in the same file
-            let parent_id =
-                symbol_by_name_and_file.get(&(parent_name.as_str(), chunk.source.file.as_str()));
+            let parent_ids = symbol_by_name_and_file
+                .get(&(parent_name.as_str(), chunk.source.file.as_str()))
+                .map(|candidates| logical_target_ids(candidates))
+                .unwrap_or_default();
 
-            if let Some(pid) = parent_id {
-                if *pid != chunk.id.as_str() {
+            for pid in parent_ids {
+                if pid != chunk.id.as_str() {
                     edges.push(GraphEdge {
                         id: edge_id(pid, &chunk.id, "CONTAINS"),
-                        from: (*pid).to_owned(),
+                        from: pid.to_owned(),
                         to: chunk.id.clone(),
                         label: "CONTAINS".to_owned(),
                     });
