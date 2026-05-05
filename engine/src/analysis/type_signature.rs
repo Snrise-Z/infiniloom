@@ -282,15 +282,21 @@ impl TypeSignatureExtractor {
     }
 
     fn contains_yield(&self, node: &Node<'_>) -> bool {
-        if node.kind() == "yield" || node.kind() == "yield_expression" {
-            return true;
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if self.contains_yield(&child) {
+        let mut stack = vec![*node];
+
+        while let Some(node) = stack.pop() {
+            if node.kind() == "yield" || node.kind() == "yield_expression" {
                 return true;
             }
+
+            let child_count = node.child_count();
+            for i in (0..child_count).rev() {
+                if let Some(child) = node.child(i as u32) {
+                    stack.push(child);
+                }
+            }
         }
+
         false
     }
 

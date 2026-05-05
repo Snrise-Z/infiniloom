@@ -160,37 +160,43 @@ impl ComplexityCalculator {
         nesting: u32,
         complexity: &mut u32,
     ) {
-        let kind = node.kind();
+        let mut stack = vec![(*node, nesting)];
 
-        // Increment for control flow structures
-        let is_control_flow = self.is_control_flow(kind, language);
-        if is_control_flow {
-            // Base increment
-            *complexity += 1;
-            // Nesting increment
-            *complexity += nesting;
-        }
+        while let Some((node, nesting)) = stack.pop() {
+            let kind = node.kind();
 
-        // Increment for breaks in linear flow
-        if self.is_flow_break(kind, language) {
-            *complexity += 1;
-        }
+            // Increment for control flow structures
+            let is_control_flow = self.is_control_flow(kind, language);
+            if is_control_flow {
+                // Base increment
+                *complexity += 1;
+                // Nesting increment
+                *complexity += nesting;
+            }
 
-        // Recursion penalty
-        if self.is_recursion(node, language) {
-            *complexity += 1;
-        }
+            // Increment for breaks in linear flow
+            if self.is_flow_break(kind, language) {
+                *complexity += 1;
+            }
 
-        // Walk children with updated nesting
-        let new_nesting = if is_control_flow || self.is_nesting_structure(kind, language) {
-            nesting + 1
-        } else {
-            nesting
-        };
+            // Recursion penalty
+            if self.is_recursion(&node, language) {
+                *complexity += 1;
+            }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.cognitive_walk(&child, language, new_nesting, complexity);
+            // Walk children with updated nesting
+            let new_nesting = if is_control_flow || self.is_nesting_structure(kind, language) {
+                nesting + 1
+            } else {
+                nesting
+            };
+
+            let child_count = node.child_count();
+            for i in (0..child_count).rev() {
+                if let Some(child) = node.child(i as u32) {
+                    stack.push((child, new_nesting));
+                }
+            }
         }
     }
 
@@ -427,20 +433,26 @@ impl ComplexityCalculator {
     }
 
     fn nesting_walk(&self, node: &Node<'_>, language: Language, depth: u32, max_depth: &mut u32) {
-        let kind = node.kind();
+        let mut stack = vec![(*node, depth)];
 
-        let is_nesting =
-            self.is_control_flow(kind, language) || self.is_nesting_structure(kind, language);
+        while let Some((node, depth)) = stack.pop() {
+            let kind = node.kind();
 
-        let new_depth = if is_nesting { depth + 1 } else { depth };
+            let is_nesting =
+                self.is_control_flow(kind, language) || self.is_nesting_structure(kind, language);
 
-        if new_depth > *max_depth {
-            *max_depth = new_depth;
-        }
+            let new_depth = if is_nesting { depth + 1 } else { depth };
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.nesting_walk(&child, language, new_depth, max_depth);
+            if new_depth > *max_depth {
+                *max_depth = new_depth;
+            }
+
+            let child_count = node.child_count();
+            for i in (0..child_count).rev() {
+                if let Some(child) = node.child(i as u32) {
+                    stack.push((child, new_depth));
+                }
+            }
         }
     }
 
@@ -489,11 +501,17 @@ impl ComplexityCalculator {
     where
         F: FnMut(&Node<'_>),
     {
-        callback(node);
+        let mut stack = vec![*node];
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk_tree(&child, callback);
+        while let Some(node) = stack.pop() {
+            callback(&node);
+
+            let child_count = node.child_count();
+            for i in (0..child_count).rev() {
+                if let Some(child) = node.child(i as u32) {
+                    stack.push(child);
+                }
+            }
         }
     }
 }

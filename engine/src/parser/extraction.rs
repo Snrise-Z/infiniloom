@@ -776,17 +776,34 @@ const MAX_RECURSION_DEPTH: usize = 1000;
 
 /// Recursively collect function calls from a node
 ///
-/// Uses a depth limit to prevent stack overflow on deeply nested code.
+/// Uses an explicit stack with the historical depth limit to avoid overflowing
+/// the Rust call stack on deeply nested or malformed code.
 pub fn collect_calls_recursive(
     node: Node<'_>,
     source_code: &str,
     language: Language,
     calls: &mut HashSet<String>,
 ) {
-    collect_calls_recursive_with_depth(node, source_code, language, calls, 0);
+    let mut stack = Vec::new();
+    stack.push((node, 0usize));
+
+    while let Some((node, depth)) = stack.pop() {
+        if depth >= MAX_RECURSION_DEPTH {
+            continue;
+        }
+
+        collect_calls_recursive_with_depth(node, source_code, language, calls, depth);
+
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push((child, depth + 1));
+            }
+        }
+    }
 }
 
-/// Internal recursive function with depth tracking
+/// Process one AST node for call extraction.
 fn collect_calls_recursive_with_depth(
     node: Node<'_>,
     source_code: &str,
@@ -1019,10 +1036,6 @@ fn collect_calls_recursive_with_depth(
         if !is_builtin(&name, language) {
             calls.insert(name);
         }
-    }
-
-    for child in node.children(&mut node.walk()) {
-        collect_calls_recursive_with_depth(child, source_code, language, calls, depth + 1);
     }
 }
 
@@ -2759,6 +2772,21 @@ mod tests {
         let calls = extract_calls(func_node, code, Language::Python);
         assert!(calls.contains(&"bar".to_owned()));
         assert!(calls.contains(&"custom_func".to_owned()));
+    }
+
+    #[test]
+    fn test_extract_calls_python_deep_ast_does_not_recurse() {
+        let expr = format!("{}target(){}", "wrap(".repeat(1200), ")".repeat(1200));
+        let code = format!("def foo():\n    return {expr}");
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(&code, None).unwrap();
+        let func_node = find_node_in_tree(tree.root_node(), "function_definition").unwrap();
+
+        let calls = extract_calls(func_node, &code, Language::Python);
+        assert!(calls.contains(&"wrap".to_owned()));
     }
 
     #[test]

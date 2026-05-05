@@ -97,12 +97,17 @@ pub fn deduplicate(doc: &mut Document) {
     // Collect paragraph hashes to detect duplicates
     let mut seen_hashes = std::collections::HashSet::new();
 
-    for section in &mut doc.sections {
-        dedup_section(section, &mut seen_hashes);
+    let mut stack: Vec<_> = doc.sections.iter_mut().rev().collect();
+    while let Some(section) = stack.pop() {
+        dedup_section_content(section, &mut seen_hashes);
+
+        for child in section.children.iter_mut().rev() {
+            stack.push(child);
+        }
     }
 }
 
-fn dedup_section(section: &mut Section, seen: &mut std::collections::HashSet<u64>) {
+fn dedup_section_content(section: &mut Section, seen: &mut std::collections::HashSet<u64>) {
     section.content.retain(|block| {
         if let ContentBlock::Paragraph(text) = block {
             let normalized = normalize_for_dedup(text);
@@ -116,10 +121,6 @@ fn dedup_section(section: &mut Section, seen: &mut std::collections::HashSet<u64
             true
         }
     });
-
-    for child in &mut section.children {
-        dedup_section(child, seen);
-    }
 }
 
 fn normalize_for_dedup(text: &str) -> String {

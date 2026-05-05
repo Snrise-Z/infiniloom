@@ -33,26 +33,30 @@ pub fn compute_complexity(content: &str, language: Language) -> Option<u32> {
     Some(1 + count)
 }
 
-/// Recursively walk the AST and count branch-point nodes.
+/// Walk the AST and count branch-point nodes.
 fn count_branch_nodes(
-    node: tree_sitter::Node,
+    node: tree_sitter::Node<'_>,
     source: &[u8],
     branch_types: &[&str],
     logical_ops: &LogicalOps,
     count: &mut u32,
 ) {
-    let kind = node.kind();
+    let mut stack = vec![node];
 
-    if branch_types.contains(&kind) {
-        *count += 1;
-    } else if is_logical_operator_node(node, source, kind, logical_ops) {
-        *count += 1;
-    }
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
 
-    let child_count = node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = node.child(i as u32) {
-            count_branch_nodes(child, source, branch_types, logical_ops, count);
+        if branch_types.contains(&kind) {
+            *count += 1;
+        } else if is_logical_operator_node(node, source, kind, logical_ops) {
+            *count += 1;
+        }
+
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push(child);
+            }
         }
     }
 }
@@ -67,7 +71,7 @@ struct LogicalOps {
 
 /// Check if a node represents a logical operator (&&, ||, `and`, `or`).
 fn is_logical_operator_node(
-    node: tree_sitter::Node,
+    node: tree_sitter::Node<'_>,
     source: &[u8],
     kind: &str,
     ops: &LogicalOps,
@@ -373,6 +377,23 @@ function check(x) {
         let score = compute_complexity(code, Language::JavaScript).unwrap();
         // if_statement + else_clause = 2
         assert_eq!(score, 3, "if/else JS should have complexity 3");
+    }
+
+    #[test]
+    fn test_deep_javascript_ast_walks_iteratively() {
+        let depth = 1200u32;
+        let mut code = String::from("function deep(x) {\n");
+        for _ in 0..depth {
+            code.push_str("if (x) {\n");
+        }
+        code.push_str("return 1;\n");
+        for _ in 0..depth {
+            code.push_str("}\n");
+        }
+        code.push_str("}\n");
+
+        let score = compute_complexity(&code, Language::JavaScript).unwrap();
+        assert_eq!(score, depth + 1);
     }
 
     #[test]

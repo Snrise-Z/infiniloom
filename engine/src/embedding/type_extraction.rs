@@ -47,20 +47,26 @@ pub fn extract_types(content: &str, language: Language) -> Option<TypeInfo> {
     }
 }
 
-/// Recursively find the first node with one of the given kinds.
+/// Find the first node with one of the given kinds.
 fn find_first_node<'a>(
     node: tree_sitter::Node<'a>,
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
-    if kinds.contains(&node.kind()) {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_first_node(child, kinds) {
-            return Some(found);
+    let mut stack = vec![node];
+
+    while let Some(node) = stack.pop() {
+        if kinds.contains(&node.kind()) {
+            return Some(node);
+        }
+
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push(child);
+            }
         }
     }
+
     None
 }
 

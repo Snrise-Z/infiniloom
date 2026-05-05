@@ -109,39 +109,37 @@ fn try_ast_extraction(content: &str, lang: Language) -> Option<Vec<String>> {
     let tree = parser.parse(content, None)?;
 
     let mut identifiers = Vec::new();
-    let mut cursor = tree.walk();
-    collect_identifiers_recursive(&mut cursor, content.as_bytes(), &mut identifiers);
+    collect_identifiers_iterative(tree.root_node(), content.as_bytes(), &mut identifiers);
 
     Some(identifiers)
 }
 
-/// Recursively walk the AST and collect identifier node text
-fn collect_identifiers_recursive(
-    cursor: &mut tree_sitter::TreeCursor,
+/// Walk the AST and collect identifier node text.
+fn collect_identifiers_iterative(
+    root: tree_sitter::Node<'_>,
     source: &[u8],
     identifiers: &mut Vec<String>,
 ) {
-    let node = cursor.node();
-    let kind = node.kind();
+    let mut stack = vec![root];
 
-    // Collect nodes that represent identifiers
-    if is_identifier_node(kind) {
-        if let Ok(text) = node.utf8_text(source) {
-            if !text.is_empty() && text.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                identifiers.push(text.to_owned());
+    while let Some(node) = stack.pop() {
+        let kind = node.kind();
+
+        // Collect nodes that represent identifiers
+        if is_identifier_node(kind) {
+            if let Ok(text) = node.utf8_text(source) {
+                if !text.is_empty() && text.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    identifiers.push(text.to_owned());
+                }
             }
         }
-    }
 
-    // Recurse into children
-    if cursor.goto_first_child() {
-        loop {
-            collect_identifiers_recursive(cursor, source, identifiers);
-            if !cursor.goto_next_sibling() {
-                break;
+        let child_count = node.child_count();
+        for i in (0..child_count).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push(child);
             }
         }
-        cursor.goto_parent();
     }
 }
 
@@ -938,6 +936,25 @@ mod tests {
     }
 
     #[test]
+    fn test_deep_rust_ast_identifier_walks_iteratively() {
+        let depth = 1200;
+        let mut code = String::from("fn deep() {\n");
+        for _ in 0..depth {
+            code.push_str("{\n");
+        }
+        code.push_str("let deeply_nested_identifier = 1;\n");
+        for _ in 0..depth {
+            code.push_str("}\n");
+        }
+        code.push_str("}\n");
+
+        let result = extract_identifiers(&code, Some(Language::Rust)).unwrap();
+        assert!(result.contains("deeply_nested_identifier"));
+        assert!(result.contains("nested"));
+        assert!(result.contains("identifier"));
+    }
+
+    #[test]
     fn test_camel_case_splitting() {
         let code = "fn test() { let x = getUserProfile(); }";
         let result = extract_identifiers(code, Some(Language::Rust));
@@ -1635,7 +1652,7 @@ func processData(input []byte) ([]byte, error) {
     #[test]
     fn test_extract_identifiers_unicode_identifiers() {
         // Unicode characters that are not alphanumeric+underscore should be filtered
-        // by the check in collect_identifiers_recursive
+        // by the AST identifier filter
         let code = "fn test() { let cafe = 1; }";
         let result = extract_identifiers(code, Some(Language::Rust));
         assert!(result.is_some());
