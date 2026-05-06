@@ -1029,13 +1029,23 @@ impl EmbedChunker {
         let mut emitted_any = false;
 
         while current_start < lines.len() {
-            let content_start = if emitted_any && overlap_lines > 0 {
+            let previous_start = current_start;
+            let mut content_start = if emitted_any && overlap_lines > 0 {
                 current_start.saturating_sub(overlap_lines)
             } else {
                 current_start
             };
-            let content_end =
+            let mut content_end =
                 self.find_max_fitting_line_end(lines, content_start, token_model, max_tokens);
+
+            // If the requested overlap consumes the whole budget, the fitted
+            // segment may not reach any new line. Drop overlap for this segment
+            // so the non-overlapped cursor always makes forward progress.
+            if emitted_any && content_end <= previous_start {
+                content_start = previous_start;
+                content_end =
+                    self.find_max_fitting_line_end(lines, content_start, token_model, max_tokens);
+            }
 
             if content_end == content_start + 1 {
                 let single_line = lines[content_start];
@@ -1059,6 +1069,7 @@ impl EmbedChunker {
                         emitted_any = true;
                     }
                     current_start = content_start + 1;
+                    debug_assert!(current_start > previous_start);
                     continue;
                 }
             }
@@ -1082,6 +1093,7 @@ impl EmbedChunker {
             }
 
             current_start = content_end;
+            debug_assert!(current_start > previous_start);
         }
 
         segments
@@ -2903,6 +2915,45 @@ pub fn big() {{
                 part.id
             );
         }
+    }
+
+    #[test]
+    fn test_split_large_symbol_makes_progress_with_full_overlap_budget() {
+        let mut lines = Vec::new();
+        for index in 0..80 {
+            lines.push(format!("    let value_{index} = callee({index});"));
+        }
+        let content = format!(
+            "pub fn callee(value: i32) -> i32 {{\n    value + 1\n}}\n\npub fn big() {{\n{}\n}}\n",
+            lines.join("\n")
+        );
+        let split_lines: Vec<&str> = content.lines().collect();
+
+        let settings = EmbedSettings {
+            max_tokens: 100,
+            min_tokens: 1,
+            overlap_tokens: 100,
+            context_lines: 0,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let segments = chunker.split_lines_to_budgeted_segments(&split_lines, 1, token_model, 100, 40);
+
+        assert!(segments.len() > 1);
+        for window in segments.windows(2) {
+            assert!(
+                window[1].end_line > window[0].end_line,
+                "segments must make forward progress: {:?}",
+                segments
+                    .iter()
+                    .map(|segment| (segment.start_line, segment.end_line, segment.tokens))
+                    .collect::<Vec<_>>()
+            );
+        }
+        assert!(segments.iter().all(|segment| segment.tokens <= 100));
     }
 
     #[test]
