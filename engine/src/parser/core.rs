@@ -446,6 +446,11 @@ class MyClass:
             .iter()
             .find(|s| s.name == "method" && s.kind == SymbolKind::Method);
         assert!(method.is_some());
+        let class = class.unwrap();
+        let method = method.unwrap();
+        assert_eq!(method.start_line, 7);
+        assert_eq!(method.end_line, 8);
+        assert!(method.line_count() < class.line_count());
     }
 
     #[test]

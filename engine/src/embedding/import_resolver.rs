@@ -531,6 +531,7 @@ mod tests {
                 ..Default::default()
             },
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             repr: "code".to_string(),
             code_chunk_id: None,
             part: None,

@@ -163,6 +163,19 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
         );
         props.insert("end_line".to_owned(), serde_json::Value::Number(chunk.source.lines.1.into()));
         props.insert("tokens".to_owned(), serde_json::Value::Number(chunk.tokens.into()));
+        if !chunk.dedup_alias_chunk_ids.is_empty() {
+            props.insert(
+                "dedup_alias_chunk_ids".to_owned(),
+                serde_json::Value::Array(
+                    chunk
+                        .dedup_alias_chunk_ids
+                        .iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+        }
 
         vertices.push(GraphVertex {
             id: chunk.id.clone(),
@@ -353,6 +366,7 @@ mod tests {
             },
             context: ChunkContext { calls, ..Default::default() },
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             repr: "code".to_string(),
             code_chunk_id: None,
             part: None,

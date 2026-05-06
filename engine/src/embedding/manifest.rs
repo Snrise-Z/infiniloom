@@ -513,7 +513,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding::types::{ChunkContext, ChunkKind, ChunkSource, RepoIdentifier, Visibility};
+    use crate::embedding::types::{
+        ChunkContext, ChunkKind, ChunkSource, RepoIdentifier, Visibility,
+    };
     use tempfile::TempDir;
 
     fn create_test_chunk(id: &str, file: &str, symbol: &str) -> EmbedChunk {
@@ -537,6 +539,7 @@ mod tests {
                 parent_chunk_id: None,
             },
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext::default(),
             repr: "code".to_string(),
             code_chunk_id: None,

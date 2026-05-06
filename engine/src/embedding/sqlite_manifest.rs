@@ -291,12 +291,7 @@ impl SqliteManifest {
         // Build map of current chunks
         let current_map: BTreeMap<String, &EmbedChunk> = current_chunks
             .iter()
-            .map(|c| {
-                (
-                    super::manifest::EmbedManifest::location_key(c),
-                    c,
-                )
-            })
+            .map(|c| (super::manifest::EmbedManifest::location_key(c), c))
             .collect();
 
         let mut added = Vec::new();
@@ -433,6 +428,7 @@ mod tests {
             },
             context: ChunkContext::default(),
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             repr: "code".to_owned(),
             code_chunk_id: None,
             part: None,

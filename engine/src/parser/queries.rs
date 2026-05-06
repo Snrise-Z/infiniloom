@@ -14,7 +14,7 @@ pub const PYTHON: &str = r#"
     (class_definition
       body: (block
         (function_definition
-          name: (identifier) @name))) @method
+          name: (identifier) @name) @method))
 "#;
 
 /// JavaScript/JSX symbol extraction query

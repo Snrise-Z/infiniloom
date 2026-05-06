@@ -259,6 +259,7 @@ impl HierarchyBuilder {
             kind: container.kind,
             source,
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext {
                 docstring: container.context.docstring.clone(),
                 comments: Vec::new(),
@@ -449,6 +450,7 @@ mod tests {
                 parent_chunk_id: None,
             },
             children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext {
                 docstring: docstring.map(String::from),
                 comments: Vec::new(),

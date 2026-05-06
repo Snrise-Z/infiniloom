@@ -599,6 +599,7 @@ impl ChunkStream {
                 kind: chunk_kind,
                 source,
                 children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
                 context,
                 repr,
                 code_chunk_id: None,

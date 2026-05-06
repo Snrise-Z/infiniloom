@@ -131,6 +131,11 @@ pub struct EmbedChunk {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children_ids: Vec<String>,
 
+    /// Chunk IDs that were canonicalized into this chunk because they had the
+    /// same source position and content but a less specific AST role.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dedup_alias_chunk_ids: Vec<String>,
+
     /// Representation type: "code" (default) or "signature"
     ///
     /// Code chunks contain the full implementation. Signature chunks contain only
@@ -174,10 +179,7 @@ impl EmbedChunk {
             .unwrap_or_default();
         let part_key = part
             .map(|item| {
-                format!(
-                    "part:{}:{}:{}:{}",
-                    item.part, item.of, item.overlap_lines, item.parent_id
-                )
+                format!("part:{}:{}:{}:{}", item.part, item.of, item.overlap_lines, item.parent_id)
             })
             .unwrap_or_else(|| "whole".to_owned());
         format!(

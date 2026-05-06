@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 
     -- Hierarchy
     children_ids        TEXT[],
+    dedup_alias_chunk_ids TEXT[],
     code_chunk_id       TEXT,
 
     -- Git metadata
@@ -280,6 +281,7 @@ mod tests {
         assert!(schema.contains("imports"));
         assert!(schema.contains("tags"));
         assert!(schema.contains("keywords"));
+        assert!(schema.contains("dedup_alias_chunk_ids"));
         assert!(schema.contains("lines_of_code"));
         assert!(schema.contains("max_nesting_depth"));
         // Git fields

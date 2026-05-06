@@ -369,7 +369,17 @@ impl EmbedChunker {
         progress.set_phase("Building call graph...");
         self.populate_called_by(all_chunks);
 
-        // Phase 3b: Link parent/children chunk IDs
+        // Phase 3b: Merge exact duplicate source spans after relation building so
+        // canonical chunks keep alias calls/called_by/import metadata.
+        progress.set_phase("Canonicalizing duplicate chunks...");
+        let canonicalized = self.canonicalize_duplicate_chunks(all_chunks);
+        if canonicalized > 0 {
+            progress.warn(&format!(
+                "Canonicalized {canonicalized} duplicate AST chunks into alias metadata"
+            ));
+        }
+
+        // Phase 3c: Link parent/children chunk IDs
         progress.set_phase("Linking parent/children chunks...");
         self.link_parent_children(all_chunks, progress);
 
@@ -424,6 +434,185 @@ impl EmbedChunker {
             progress.set_phase("Collecting git metadata...");
             self.enrich_with_git_metadata(all_chunks, repo_root);
         }
+    }
+
+    /// Canonicalize chunks that describe the exact same source span and content.
+    ///
+    /// Some Tree-sitter queries intentionally overlap, for example a Python class
+    /// method may also match the generic function rule. Those duplicates should be
+    /// represented by one canonical chunk, while the removed chunk IDs remain
+    /// visible in `dedup_alias_chunk_ids` for auditability.
+    fn canonicalize_duplicate_chunks(&self, chunks: &mut Vec<EmbedChunk>) -> usize {
+        use std::collections::BTreeMap;
+
+        let mut groups: BTreeMap<(String, String, u32, u32, String, String), Vec<EmbedChunk>> =
+            BTreeMap::new();
+
+        for chunk in std::mem::take(chunks) {
+            let content_hash = if chunk.full_hash.is_empty() {
+                hash_content(&chunk.content).full_hash
+            } else {
+                chunk.full_hash.clone()
+            };
+            let key = (
+                chunk.source.repo.qualified_name(),
+                chunk.source.file.clone(),
+                chunk.source.lines.0,
+                chunk.source.lines.1,
+                chunk.repr.clone(),
+                content_hash,
+            );
+            groups.entry(key).or_default().push(chunk);
+        }
+
+        let mut alias_count = 0usize;
+        for (_, mut group) in groups {
+            if group.len() == 1 {
+                chunks.push(group.pop().expect("single chunk group should be non-empty"));
+                continue;
+            }
+
+            group.sort_by(|a, b| {
+                Self::duplicate_canonical_rank(a.kind)
+                    .cmp(&Self::duplicate_canonical_rank(b.kind))
+                    .then_with(|| b.source.parent.is_some().cmp(&a.source.parent.is_some()))
+                    .then_with(|| b.source.fqn.is_some().cmp(&a.source.fqn.is_some()))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+
+            let mut canonical = group.remove(0);
+            for alias in group {
+                alias_count += 1;
+                Self::merge_alias_chunk(&mut canonical, alias);
+            }
+            chunks.push(canonical);
+        }
+
+        alias_count
+    }
+
+    fn duplicate_canonical_rank(kind: ChunkKind) -> u8 {
+        match kind {
+            ChunkKind::Method => 0,
+            ChunkKind::Function => 1,
+            ChunkKind::FunctionPart => 2,
+            ChunkKind::ClassPart => 3,
+            ChunkKind::Class => 4,
+            ChunkKind::Struct => 5,
+            ChunkKind::Interface => 6,
+            ChunkKind::Trait => 7,
+            ChunkKind::Enum => 8,
+            ChunkKind::Module => 9,
+            ChunkKind::Constant => 10,
+            ChunkKind::Variable => 11,
+            ChunkKind::TopLevel => 12,
+            ChunkKind::Imports => 13,
+        }
+    }
+
+    fn merge_alias_chunk(canonical: &mut EmbedChunk, alias: EmbedChunk) {
+        use std::collections::BTreeSet;
+
+        let mut alias_ids: BTreeSet<String> =
+            canonical.dedup_alias_chunk_ids.iter().cloned().collect();
+        alias_ids.insert(alias.id);
+        alias_ids.extend(alias.dedup_alias_chunk_ids);
+        canonical.dedup_alias_chunk_ids = alias_ids.into_iter().collect();
+
+        Self::merge_sorted_unique(&mut canonical.children_ids, alias.children_ids);
+        Self::merge_sorted_unique(&mut canonical.context.calls, alias.context.calls);
+        Self::merge_sorted_unique(&mut canonical.context.called_by, alias.context.called_by);
+        Self::merge_sorted_unique(&mut canonical.context.imports, alias.context.imports);
+        Self::merge_sorted_unique(&mut canonical.context.tags, alias.context.tags);
+        Self::merge_sorted_unique(&mut canonical.context.keywords, alias.context.keywords);
+        Self::merge_sorted_unique(&mut canonical.context.comments, alias.context.comments);
+        Self::merge_sorted_unique(
+            &mut canonical.context.qualified_calls,
+            alias.context.qualified_calls,
+        );
+        Self::merge_sorted_unique(
+            &mut canonical.context.unresolved_calls,
+            alias.context.unresolved_calls,
+        );
+        Self::merge_sorted_unique(
+            &mut canonical.context.parameter_types,
+            alias.context.parameter_types,
+        );
+        Self::merge_sorted_unique(&mut canonical.context.error_types, alias.context.error_types);
+
+        if canonical.full_hash.is_empty() {
+            canonical.full_hash = alias.full_hash;
+        }
+        if canonical.source.fqn.is_none() {
+            canonical.source.fqn = alias.source.fqn;
+        }
+        if canonical.source.parent.is_none() {
+            canonical.source.parent = alias.source.parent;
+        }
+        if canonical.source.module_path.is_none() {
+            canonical.source.module_path = alias.source.module_path;
+        }
+        if canonical.source.parent_chunk_id.is_none() {
+            canonical.source.parent_chunk_id = alias.source.parent_chunk_id;
+        }
+        if canonical.code_chunk_id.is_none() {
+            canonical.code_chunk_id = alias.code_chunk_id;
+        }
+
+        if canonical.context.docstring.is_none() {
+            canonical.context.docstring = alias.context.docstring;
+        }
+        if canonical.context.signature.is_none() {
+            canonical.context.signature = alias.context.signature;
+        }
+        if canonical.context.context_prefix.is_none() {
+            canonical.context.context_prefix = alias.context.context_prefix;
+        }
+        if canonical.context.summary.is_none() {
+            canonical.context.summary = alias.context.summary;
+        }
+        if canonical.context.identifiers.is_none() {
+            canonical.context.identifiers = alias.context.identifiers;
+        }
+        if canonical.context.type_signature.is_none() {
+            canonical.context.type_signature = alias.context.type_signature;
+        }
+        if canonical.context.return_type.is_none() {
+            canonical.context.return_type = alias.context.return_type;
+        }
+        if canonical.context.git.is_none() {
+            canonical.context.git = alias.context.git;
+        }
+        if canonical.context.complexity_score.is_none() {
+            canonical.context.complexity_score = alias.context.complexity_score;
+        }
+
+        canonical.context.lines_of_code = canonical
+            .context
+            .lines_of_code
+            .max(alias.context.lines_of_code);
+        canonical.context.max_nesting_depth = canonical
+            .context
+            .max_nesting_depth
+            .max(alias.context.max_nesting_depth);
+
+        if canonical.context.called_by.is_empty() {
+            canonical.context.dependents_count = canonical
+                .context
+                .dependents_count
+                .or(alias.context.dependents_count);
+        } else {
+            canonical.context.dependents_count = Some(canonical.context.called_by.len() as u32);
+        }
+    }
+
+    fn merge_sorted_unique(target: &mut Vec<String>, source: Vec<String>) {
+        if source.is_empty() {
+            return;
+        }
+        target.extend(source);
+        target.sort();
+        target.dedup();
     }
 
     /// Enrich chunks with git metadata (change frequency, authors, last modified).
@@ -811,6 +1000,7 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
+                    dedup_alias_chunk_ids: Vec::new(),
                     repr,
                     code_chunk_id: Some(chunk.id.clone()),
                     part: None,
@@ -915,6 +1105,7 @@ impl EmbedChunker {
                     path,
                     start_line,
                     0, // Initial depth
+                    &symbols,
                     lang_enum,
                     token_model,
                 )?;
@@ -966,6 +1157,7 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
+                    dedup_alias_chunk_ids: Vec::new(),
                     repr,
                     code_chunk_id: None,
                     part: None,
@@ -1176,6 +1368,7 @@ impl EmbedChunker {
         source_path: &Path,
         base_line: u32,
         depth: u32,
+        all_symbols: &[Symbol],
         lang_enum: Option<Language>,
         token_model: TokenModel,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
@@ -1188,15 +1381,21 @@ impl EmbedChunker {
             });
         }
 
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
+        let original_kind: ChunkKind = symbol.kind.into();
+        let mut content_lines: Vec<String> = content.lines().map(ToOwned::to_owned).collect();
+        if self.should_mask_container_child_bodies(original_kind) {
+            self.mask_container_child_bodies(&mut content_lines, symbol, all_symbols, base_line);
+        }
+        let line_refs: Vec<&str> = content_lines.iter().map(String::as_str).collect();
+        let total_lines = line_refs.len();
         let max_tokens = self.settings.max_tokens;
 
         if total_lines == 0 || max_tokens == 0 {
             return Ok(Vec::new());
         }
 
-        let total_tokens = self.tokenizer.count(content, token_model) as usize;
+        let split_content = content_lines.join("\n");
+        let total_tokens = self.tokenizer.count(&split_content, token_model) as usize;
         if total_tokens == 0 {
             return Ok(Vec::new());
         }
@@ -1211,7 +1410,6 @@ impl EmbedChunker {
 
         // Parent ID for linking parts
         let parent_hash = hash_content(content);
-        let original_kind: ChunkKind = symbol.kind.into();
         let part_kind = match original_kind {
             ChunkKind::Class
             | ChunkKind::Struct
@@ -1244,10 +1442,9 @@ impl EmbedChunker {
             original_context.signature.as_deref(),
             None,
         );
-        let parent_id =
-            EmbedChunk::build_chunk_id(&parent_location_key, &parent_hash.full_hash);
+        let parent_id = EmbedChunk::build_chunk_id(&parent_location_key, &parent_hash.full_hash);
         let segments = self.split_lines_to_budgeted_segments(
-            &lines,
+            &line_refs,
             base_line,
             token_model,
             max_tokens,
@@ -1306,6 +1503,7 @@ impl EmbedChunker {
                 source: part_source,
                 context: part_context,
                 children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
                 repr,
                 code_chunk_id: None,
                 part: Some(part),
@@ -1413,6 +1611,7 @@ impl EmbedChunker {
                 source: top_source,
                 context: top_context,
                 children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
                 repr,
                 code_chunk_id: None,
                 part: None,
@@ -1432,13 +1631,8 @@ impl EmbedChunker {
         }
 
         let hash = hash_content(&content);
-        let location_key = EmbedChunk::build_location_key(
-            &top_source,
-            ChunkKind::TopLevel,
-            &repr,
-            None,
-            None,
-        );
+        let location_key =
+            EmbedChunk::build_location_key(&top_source, ChunkKind::TopLevel, &repr, None, None);
         let parent_id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
         let total_parts = segments.len() as u32;
         let mut chunks = Vec::with_capacity(segments.len());
@@ -1461,10 +1655,8 @@ impl EmbedChunker {
                 ..Default::default()
             };
             top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
-            let part_source = ChunkSource {
-                lines: (segment.start_line, segment.end_line),
-                ..top_source.clone()
-            };
+            let part_source =
+                ChunkSource { lines: (segment.start_line, segment.end_line), ..top_source.clone() };
             let location_key = EmbedChunk::build_location_key(
                 &part_source,
                 ChunkKind::TopLevel,
@@ -1483,6 +1675,7 @@ impl EmbedChunker {
                 source: part_source,
                 context: top_context,
                 children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
                 repr: repr.clone(),
                 code_chunk_id: None,
                 part: Some(part),
@@ -1490,6 +1683,52 @@ impl EmbedChunker {
         }
 
         chunks
+    }
+
+    fn should_mask_container_child_bodies(&self, kind: ChunkKind) -> bool {
+        matches!(
+            kind,
+            ChunkKind::Class
+                | ChunkKind::Struct
+                | ChunkKind::Enum
+                | ChunkKind::Interface
+                | ChunkKind::Trait
+                | ChunkKind::Module
+        )
+    }
+
+    fn mask_container_child_bodies(
+        &self,
+        lines: &mut [String],
+        symbol: &Symbol,
+        all_symbols: &[Symbol],
+        base_line: u32,
+    ) {
+        if lines.is_empty() {
+            return;
+        }
+
+        let slice_start = base_line;
+        let slice_end = base_line + lines.len() as u32 - 1;
+        let symbol_name = symbol.name.as_str();
+
+        for child in all_symbols.iter() {
+            if child.parent.as_deref() != Some(symbol_name) {
+                continue;
+            }
+            if child.end_line < slice_start || child.start_line > slice_end {
+                continue;
+            }
+
+            let child_start = child.start_line.max(slice_start);
+            let child_end = child.end_line.min(slice_end);
+            let start_idx = (child_start - slice_start) as usize;
+            let end_idx = (child_end - slice_start) as usize;
+
+            for line in &mut lines[start_idx..=end_idx] {
+                line.clear();
+            }
+        }
     }
 
     /// Extract semantic context for retrieval
@@ -2925,7 +3164,8 @@ pub fn big() {{
         };
         let chunker = EmbedChunker::with_defaults(settings);
         let token_model = chunker.parse_token_model(&chunker.settings.token_model);
-        let segments = chunker.split_lines_to_budgeted_segments(&split_lines, 1, token_model, 100, 40);
+        let segments =
+            chunker.split_lines_to_budgeted_segments(&split_lines, 1, token_model, 100, 40);
 
         assert!(segments.len() > 1);
         for window in segments.windows(2) {
@@ -2961,10 +3201,9 @@ pub fn big() {{
         };
         let chunker = EmbedChunker::with_defaults(settings);
         let token_model = chunker.parse_token_model(&chunker.settings.token_model);
-        let two_line_budget = chunker.tokenizer.count(
-            &format!("{repeated_line}\n{repeated_line}"),
-            token_model,
-        );
+        let two_line_budget = chunker
+            .tokenizer
+            .count(&format!("{repeated_line}\n{repeated_line}"), token_model);
         let chunker = EmbedChunker::with_defaults(EmbedSettings {
             max_tokens: two_line_budget,
             min_tokens: 1,
@@ -2984,6 +3223,7 @@ pub fn big() {{
                 Path::new("src/repeat_parts.py"),
                 1,
                 0,
+                &[],
                 Some(Language::Python),
                 token_model,
             )
@@ -3020,10 +3260,9 @@ pub fn big() {{
         };
         let chunker = EmbedChunker::with_defaults(settings);
         let token_model = chunker.parse_token_model(&chunker.settings.token_model);
-        let two_line_budget = chunker.tokenizer.count(
-            &format!("{repeated_line}\n{repeated_line}"),
-            token_model,
-        );
+        let two_line_budget = chunker
+            .tokenizer
+            .count(&format!("{repeated_line}\n{repeated_line}"), token_model);
         let chunker = EmbedChunker::with_defaults(EmbedSettings {
             max_tokens: two_line_budget,
             min_tokens: 1,
@@ -3074,6 +3313,7 @@ pub fn big() {{
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: if kind == ChunkKind::ClassPart {
@@ -3124,6 +3364,127 @@ pub fn big() {{
                 part.children_ids
             );
         }
+    }
+
+    #[test]
+    fn test_duplicate_chunks_canonicalize_and_preserve_alias_relations() {
+        fn chunk(id: &str, kind: ChunkKind, parent: Option<&str>) -> EmbedChunk {
+            let content = "def run(self):\n    return helper()".to_owned();
+            let full_hash = hash_content(&content).full_hash;
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash,
+                content,
+                tokens: 8,
+                kind,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "service.py".to_owned(),
+                    lines: (10, 11),
+                    symbol: "run".to_owned(),
+                    fqn: Some("service::Worker::run".to_owned()),
+                    language: "Python".to_owned(),
+                    parent: parent.map(str::to_owned),
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("service".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext {
+                    calls: vec![format!("{id}_call")],
+                    called_by: vec![format!("{id}_caller")],
+                    imports: vec![format!("{id}_import")],
+                    qualified_calls: vec![format!("service::{id}_call")],
+                    unresolved_calls: vec![format!("{id}_unresolved")],
+                    ..Default::default()
+                },
+                children_ids: vec![format!("{id}_child")],
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: None,
+            }
+        }
+
+        let mut chunks = vec![
+            chunk("function_alias", ChunkKind::Function, None),
+            chunk("method_canonical", ChunkKind::Method, Some("Worker")),
+        ];
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let aliases = chunker.canonicalize_duplicate_chunks(&mut chunks);
+
+        assert_eq!(aliases, 1);
+        assert_eq!(chunks.len(), 1);
+        let chunk = &chunks[0];
+        assert_eq!(chunk.kind, ChunkKind::Method);
+        assert_eq!(chunk.dedup_alias_chunk_ids, vec!["function_alias".to_owned()]);
+        assert_eq!(chunk.context.calls.len(), 2);
+        assert_eq!(chunk.context.called_by.len(), 2);
+        assert_eq!(chunk.context.imports.len(), 2);
+        assert_eq!(chunk.context.qualified_calls.len(), 2);
+        assert_eq!(chunk.context.unresolved_calls.len(), 2);
+        assert_eq!(chunk.children_ids.len(), 2);
+        assert_eq!(chunk.context.dependents_count, Some(2));
+    }
+
+    #[test]
+    fn test_python_method_duplicate_and_container_split_source_dedup() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut class_fields = String::new();
+        for index in 0..120 {
+            class_fields.push_str(&format!("    field_{index} = 'container field {index}'\n"));
+        }
+        let method_body = "        return CHILD_BODY_MARKER_RESULT\n";
+        create_test_file(
+            temp_dir.path(),
+            "service.py",
+            &format!("class BigContainer:\n{class_fields}\n    def worker(self):\n{method_body}"),
+        );
+
+        let settings = EmbedSettings {
+            max_tokens: 80,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let worker_chunks: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| chunk.source.symbol == "worker")
+            .collect();
+        assert_eq!(worker_chunks.len(), 1, "method/function duplicates should canonicalize");
+        let worker = worker_chunks[0];
+        assert_eq!(worker.kind, ChunkKind::Method);
+        assert!(
+            !worker.dedup_alias_chunk_ids.is_empty(),
+            "method chunk should keep the generic function alias"
+        );
+        assert!(worker.content.contains("CHILD_BODY_MARKER_RESULT"));
+
+        let class_parts: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| {
+                chunk.kind == ChunkKind::ClassPart && chunk.source.symbol == "BigContainer"
+            })
+            .collect();
+        assert!(!class_parts.is_empty(), "large class should still produce class parts");
+        assert!(
+            class_parts
+                .iter()
+                .all(|chunk| !chunk.content.contains("CHILD_BODY_MARKER")),
+            "class parts must not duplicate child method bodies: {class_parts:#?}"
+        );
     }
 
     #[test]
@@ -3301,7 +3662,9 @@ fn trailing() {}
                 .collect::<Vec<_>>()
         );
         assert!(
-            chunks.iter().all(|chunk| chunk.source.symbol == "<top_level>" && chunk.part.is_some()),
+            chunks
+                .iter()
+                .all(|chunk| chunk.source.symbol == "<top_level>" && chunk.part.is_some()),
             "oversized top-level chunks should be represented as split parts"
         );
     }

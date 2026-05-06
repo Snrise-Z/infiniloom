@@ -27,7 +27,7 @@ pub fn python_query() -> Result<Query, ParserError> {
         (class_definition
           body: (block
             (function_definition
-              name: (identifier) @name))) @method
+              name: (identifier) @name) @method))
     "#;
 
     Query::new(&tree_sitter_python::LANGUAGE.into(), query_string)
@@ -48,7 +48,7 @@ pub fn python_super_query() -> Result<Query, ParserError> {
         (class_definition
           body: (block
             (function_definition
-              name: (identifier) @name))) @method
+              name: (identifier) @name) @method))
 
         ; Imports
         (import_statement) @import
