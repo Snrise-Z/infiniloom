@@ -61,6 +61,20 @@ pub struct StreamingStats {
     pub orphaned_chunks: u32,
 }
 
+/// A token-bounded content segment created by split chunking.
+struct BudgetedSegment {
+    /// Segment content.
+    content: String,
+    /// 1-indexed inclusive start line.
+    start_line: u32,
+    /// 1-indexed inclusive end line.
+    end_line: u32,
+    /// Token count for the configured token model.
+    tokens: u32,
+    /// Actual overlap lines included from the previous segment.
+    overlap_lines: u32,
+}
+
 /// Core chunker for generating embedding chunks
 pub struct EmbedChunker {
     settings: EmbedSettings,
@@ -961,16 +975,15 @@ impl EmbedChunker {
 
         // Handle top-level code if configured
         if self.settings.include_top_level && !symbols.is_empty() {
-            if let Some(top_level) = self.extract_top_level(
+            let top_level_chunks = self.extract_top_level(
                 &lines,
                 &symbols,
                 &relative_path,
                 &language,
                 lang_enum,
                 token_model,
-            ) {
-                chunks.push(top_level);
-            }
+            );
+            chunks.extend(top_level_chunks);
         }
 
         Ok(chunks)
@@ -996,6 +1009,144 @@ impl EmbedChunker {
 
         // Return 1-indexed line numbers
         (content, (context_start + 1) as u32, context_end as u32)
+    }
+
+    /// Split contiguous lines into token-bounded segments.
+    ///
+    /// The normal path uses line boundaries and optional line overlap. If a
+    /// single source line exceeds the budget, it falls back to UTF-8-safe
+    /// token-budget slicing for that line only.
+    fn split_lines_to_budgeted_segments(
+        &self,
+        lines: &[&str],
+        base_line: u32,
+        token_model: TokenModel,
+        max_tokens: u32,
+        overlap_lines: usize,
+    ) -> Vec<BudgetedSegment> {
+        let mut segments = Vec::new();
+        let mut current_start = 0usize;
+        let mut emitted_any = false;
+
+        while current_start < lines.len() {
+            let content_start = if emitted_any && overlap_lines > 0 {
+                current_start.saturating_sub(overlap_lines)
+            } else {
+                current_start
+            };
+            let content_end =
+                self.find_max_fitting_line_end(lines, content_start, token_model, max_tokens);
+
+            if content_end == content_start + 1 {
+                let single_line = lines[content_start];
+                let line_tokens = self.tokenizer.count(single_line, token_model);
+                if line_tokens > max_tokens {
+                    for piece in
+                        self.split_overlong_line_to_budget(single_line, token_model, max_tokens)
+                    {
+                        let tokens = self.tokenizer.count(&piece, token_model);
+                        if tokens == 0 {
+                            continue;
+                        }
+                        let line = base_line + content_start as u32;
+                        segments.push(BudgetedSegment {
+                            content: piece,
+                            start_line: line,
+                            end_line: line,
+                            tokens,
+                            overlap_lines: 0,
+                        });
+                        emitted_any = true;
+                    }
+                    current_start = content_start + 1;
+                    continue;
+                }
+            }
+
+            let content = lines[content_start..content_end].join("\n");
+            let tokens = self.tokenizer.count(&content, token_model);
+            if tokens > 0 {
+                let overlap = if emitted_any {
+                    current_start.saturating_sub(content_start) as u32
+                } else {
+                    0
+                };
+                segments.push(BudgetedSegment {
+                    content,
+                    start_line: base_line + content_start as u32,
+                    end_line: base_line + content_end as u32 - 1,
+                    tokens,
+                    overlap_lines: overlap,
+                });
+                emitted_any = true;
+            }
+
+            current_start = content_end;
+        }
+
+        segments
+    }
+
+    /// Find the largest line end index whose joined content fits `max_tokens`.
+    fn find_max_fitting_line_end(
+        &self,
+        lines: &[&str],
+        start: usize,
+        token_model: TokenModel,
+        max_tokens: u32,
+    ) -> usize {
+        let mut low = start + 1;
+        let mut high = lines.len();
+
+        while low < high {
+            let mid = (low + high).div_ceil(2);
+            let candidate = lines[start..mid].join("\n");
+            if self.tokenizer.count(&candidate, token_model) <= max_tokens {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        low
+    }
+
+    /// Split an over-budget single line with token-budget truncation.
+    fn split_overlong_line_to_budget(
+        &self,
+        line: &str,
+        token_model: TokenModel,
+        max_tokens: u32,
+    ) -> Vec<String> {
+        let mut pieces = Vec::new();
+        let mut remaining = line;
+
+        while !remaining.is_empty() {
+            let prefix = self
+                .tokenizer
+                .truncate_to_budget(remaining, token_model, max_tokens);
+            let cut = if prefix.is_empty() {
+                remaining
+                    .char_indices()
+                    .nth(1)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(remaining.len())
+            } else {
+                prefix.len()
+            };
+
+            if cut == 0 {
+                break;
+            }
+
+            pieces.push(remaining[..cut].to_owned());
+            if cut >= remaining.len() {
+                break;
+            }
+            remaining = &remaining[cut..];
+        }
+
+        pieces
     }
 
     /// Split a large symbol into multiple chunks at line boundaries
@@ -1027,32 +1178,24 @@ impl EmbedChunker {
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
+        let max_tokens = self.settings.max_tokens;
 
-        // Calculate target lines per chunk using INTEGER math only
-        let total_tokens = self.tokenizer.count(content, token_model) as usize;
-        let target_tokens = self.settings.max_tokens as usize;
-
-        if total_tokens == 0 || target_tokens == 0 {
+        if total_lines == 0 || max_tokens == 0 {
             return Ok(Vec::new());
         }
 
-        // INTEGER division: (total_lines * target_tokens) / total_tokens
-        let target_lines = ((total_lines * target_tokens) / total_tokens).max(1);
+        let total_tokens = self.tokenizer.count(content, token_model) as usize;
+        if total_tokens == 0 {
+            return Ok(Vec::new());
+        }
 
-        // Calculate overlap lines from overlap_tokens setting
-        // Estimate: overlap_lines = (total_lines * overlap_tokens) / total_tokens
+        // Estimate overlap lines from the configured token overlap.
         let overlap_tokens = self.settings.overlap_tokens as usize;
-        let overlap_lines = if overlap_tokens > 0 && total_tokens > 0 {
-            ((total_lines * overlap_tokens) / total_tokens)
-                .max(1)
-                .min(target_lines / 2)
+        let overlap_lines = if overlap_tokens > 0 {
+            ((total_lines * overlap_tokens) / total_tokens).max(1)
         } else {
             0
         };
-
-        let mut chunks = Vec::new();
-        let mut current_start = 0usize;
-        let mut part_num = 1u32;
 
         // Parent ID for linking parts
         let parent_hash = hash_content(content);
@@ -1091,95 +1234,76 @@ impl EmbedChunker {
         );
         let parent_id =
             EmbedChunk::build_chunk_id(&parent_location_key, &parent_hash.full_hash);
+        let segments = self.split_lines_to_budgeted_segments(
+            &lines,
+            base_line,
+            token_model,
+            max_tokens,
+            overlap_lines,
+        );
 
-        while current_start < total_lines {
-            // Calculate content boundaries
-            // For parts after the first, include overlap from the previous chunk
-            let content_start = if part_num > 1 && overlap_lines > 0 {
-                current_start.saturating_sub(overlap_lines)
-            } else {
-                current_start
+        let mut chunks = Vec::with_capacity(segments.len());
+
+        for segment in segments {
+            let hash = hash_content(&segment.content);
+            let part_source = ChunkSource {
+                repo: self.repo_id.clone(),
+                file: file.to_owned(),
+                lines: (segment.start_line, segment.end_line),
+                symbol: symbol.name.clone(),
+                fqn: Some(original_fqn.clone()),
+                language: language.to_owned(),
+                parent: symbol.parent.clone(),
+                visibility: symbol.visibility.into(),
+                is_test: self.is_test_code(source_path, symbol),
+                module_path: Some(derive_module_path(file, language)),
+                parent_chunk_id: None,
             };
-            let content_end = (current_start + target_lines).min(total_lines);
+            let mut part_context = original_context.clone();
+            part_context.keywords = extract_keywords(&segment.content);
+            part_context.identifiers = extract_identifiers(&segment.content, lang_enum)
+                .or_else(|| original_context.identifiers.clone());
+            part_context.lines_of_code = self.count_lines_of_code(&segment.content);
+            part_context.max_nesting_depth = self.calculate_nesting_depth(&segment.content);
+            part_context.complexity_score =
+                lang_enum.and_then(|l| super::complexity::compute_complexity(&segment.content, l));
+            let repr = default_repr();
+            part_context.summary = generate_summary(part_kind, &part_source, &part_context);
+            let part = ChunkPart {
+                part: 0,
+                of: 0, // Updated after all parts
+                parent_id: parent_id.clone(),
+                parent_signature: symbol.signature.clone().unwrap_or_default(),
+                overlap_lines: segment.overlap_lines,
+            };
+            let location_key = EmbedChunk::build_location_key(
+                &part_source,
+                part_kind,
+                &repr,
+                part_context.signature.as_deref(),
+                Some(&part),
+            );
+            let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
-            let part_content = lines[content_start..content_end].join("\n");
-
-            let tokens = self.tokenizer.count(&part_content, token_model);
-
-            // Only create chunk if above minimum
-            if tokens >= self.settings.min_tokens {
-                let hash = hash_content(&part_content);
-
-                // Track actual overlap lines included (for metadata)
-                let actual_overlap = if part_num > 1 {
-                    current_start.saturating_sub(content_start) as u32
-                } else {
-                    0
-                };
-
-                let part_source = ChunkSource {
-                    repo: self.repo_id.clone(),
-                    file: file.to_owned(),
-                    lines: (base_line + content_start as u32, base_line + content_end as u32 - 1),
-                    symbol: symbol.name.clone(),
-                    fqn: Some(original_fqn.clone()),
-                    language: language.to_owned(),
-                    parent: symbol.parent.clone(),
-                    visibility: symbol.visibility.into(),
-                    is_test: self.is_test_code(source_path, symbol),
-                    module_path: Some(derive_module_path(file, language)),
-                    parent_chunk_id: None,
-                };
-                let mut part_context = original_context.clone();
-                part_context.keywords = extract_keywords(&part_content);
-                part_context.identifiers = extract_identifiers(&part_content, lang_enum)
-                    .or_else(|| original_context.identifiers.clone());
-                part_context.lines_of_code = self.count_lines_of_code(&part_content);
-                part_context.max_nesting_depth = self.calculate_nesting_depth(&part_content);
-                part_context.complexity_score =
-                    lang_enum.and_then(|l| super::complexity::compute_complexity(&part_content, l));
-                part_context.summary = generate_summary(part_kind, &part_source, &part_context);
-                let repr = default_repr();
-                let part = ChunkPart {
-                    part: part_num,
-                    of: 0,
-                    parent_id: parent_id.clone(),
-                    parent_signature: symbol.signature.clone().unwrap_or_default(),
-                    overlap_lines: actual_overlap,
-                };
-                let location_key = EmbedChunk::build_location_key(
-                    &part_source,
-                    part_kind,
-                    &repr,
-                    part_context.signature.as_deref(),
-                    Some(&part),
-                );
-                let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
-
-                chunks.push(EmbedChunk {
-                    id,
-                    full_hash: hash.full_hash,
-                    content: part_content,
-                    tokens,
-                    kind: part_kind,
-                    source: part_source,
-                    context: part_context,
-                    children_ids: Vec::new(),
-                    repr,
-                    code_chunk_id: None,
-                    part: Some(part),
-                });
-
-                part_num += 1;
-            }
-
-            current_start = content_end;
+            chunks.push(EmbedChunk {
+                id,
+                full_hash: hash.full_hash,
+                content: segment.content,
+                tokens: segment.tokens,
+                kind: part_kind,
+                source: part_source,
+                context: part_context,
+                children_ids: Vec::new(),
+                repr,
+                code_chunk_id: None,
+                part: Some(part),
+            });
         }
 
-        // Update total part count
         let total_parts = chunks.len() as u32;
-        for chunk in &mut chunks {
+        for (index, chunk) in chunks.iter_mut().enumerate() {
             if let Some(ref mut part) = chunk.part {
+                part.part = (index as u32) + 1;
                 part.of = total_parts;
             }
         }
@@ -1196,9 +1320,9 @@ impl EmbedChunker {
         language: &str,
         lang_enum: Option<Language>,
         token_model: TokenModel,
-    ) -> Option<EmbedChunk> {
+    ) -> Vec<EmbedChunk> {
         if lines.is_empty() || symbols.is_empty() {
-            return None;
+            return Vec::new();
         }
 
         // Find gaps between merged symbol ranges.
@@ -1225,25 +1349,19 @@ impl EmbedChunker {
         }
 
         if top_level_lines.is_empty() {
-            return None;
+            return Vec::new();
         }
 
         let content = top_level_lines.join("\n").trim().to_owned();
         if content.is_empty() {
-            return None;
+            return Vec::new();
         }
 
         let tokens = self.tokenizer.count(&content, token_model);
 
         if tokens < self.settings.min_tokens {
-            return None;
+            return Vec::new();
         }
-
-        let hash = hash_content(&content);
-        let keywords = extract_keywords(&content);
-        let top_identifiers = extract_identifiers(&content, lang_enum);
-        let context_prefix =
-            Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
 
         let top_source = ChunkSource {
             repo: self.repo_id.clone(),
@@ -1258,36 +1376,123 @@ impl EmbedChunker {
             module_path: Some(derive_module_path(file, language)),
             parent_chunk_id: None,
         };
-        let mut top_context = ChunkContext {
-            keywords,
-            identifiers: top_identifiers,
-            context_prefix,
-            ..Default::default()
-        };
-        top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
+        let context_prefix =
+            Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
         let repr = default_repr();
+
+        if tokens <= self.settings.max_tokens {
+            let hash = hash_content(&content);
+            let keywords = extract_keywords(&content);
+            let top_identifiers = extract_identifiers(&content, lang_enum);
+            let mut top_context = ChunkContext {
+                keywords,
+                identifiers: top_identifiers,
+                context_prefix,
+                ..Default::default()
+            };
+            top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
+            let location_key = EmbedChunk::build_location_key(
+                &top_source,
+                ChunkKind::TopLevel,
+                &repr,
+                top_context.signature.as_deref(),
+                None,
+            );
+            let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+
+            return vec![EmbedChunk {
+                id,
+                full_hash: hash.full_hash,
+                content,
+                tokens,
+                kind: ChunkKind::TopLevel,
+                source: top_source,
+                context: top_context,
+                children_ids: Vec::new(),
+                repr,
+                code_chunk_id: None,
+                part: None,
+            }];
+        }
+
+        let split_lines: Vec<&str> = content.lines().collect();
+        let segments = self.split_lines_to_budgeted_segments(
+            &split_lines,
+            1,
+            token_model,
+            self.settings.max_tokens,
+            0,
+        );
+        if segments.is_empty() {
+            return Vec::new();
+        }
+
+        let hash = hash_content(&content);
         let location_key = EmbedChunk::build_location_key(
             &top_source,
             ChunkKind::TopLevel,
             &repr,
-            top_context.signature.as_deref(),
+            None,
             None,
         );
-        let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+        let parent_id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+        let mut chunks = Vec::with_capacity(segments.len());
 
-        Some(EmbedChunk {
-            id,
-            full_hash: hash.full_hash,
-            content,
-            tokens,
-            kind: ChunkKind::TopLevel,
-            source: top_source,
-            context: top_context,
-            children_ids: Vec::new(),
-            repr,
-            code_chunk_id: None,
-            part: None,
-        })
+        for segment in segments {
+            let hash = hash_content(&segment.content);
+            let keywords = extract_keywords(&segment.content);
+            let top_identifiers = extract_identifiers(&segment.content, lang_enum);
+            let mut top_context = ChunkContext {
+                keywords,
+                identifiers: top_identifiers,
+                context_prefix: context_prefix.clone(),
+                ..Default::default()
+            };
+            top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
+            let part = ChunkPart {
+                part: 0,
+                of: 0,
+                parent_id: parent_id.clone(),
+                parent_signature: String::new(),
+                overlap_lines: segment.overlap_lines,
+            };
+            let part_source = ChunkSource {
+                lines: (segment.start_line, segment.end_line),
+                ..top_source.clone()
+            };
+            let location_key = EmbedChunk::build_location_key(
+                &part_source,
+                ChunkKind::TopLevel,
+                &repr,
+                top_context.signature.as_deref(),
+                Some(&part),
+            );
+            let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+
+            chunks.push(EmbedChunk {
+                id,
+                full_hash: hash.full_hash,
+                content: segment.content,
+                tokens: segment.tokens,
+                kind: ChunkKind::TopLevel,
+                source: part_source,
+                context: top_context,
+                children_ids: Vec::new(),
+                repr: repr.clone(),
+                code_chunk_id: None,
+                part: Some(part),
+            });
+        }
+
+        let total_parts = chunks.len() as u32;
+        for (index, chunk) in chunks.iter_mut().enumerate() {
+            if let Some(ref mut part) = chunk.part {
+                part.part = (index as u32) + 1;
+                part.of = total_parts;
+            }
+        }
+
+        chunks
     }
 
     /// Extract semantic context for retrieval
@@ -2646,6 +2851,7 @@ pub fn big() {{
 
         for part in &big_parts {
             assert_eq!(part.source.symbol, "big");
+            assert!(part.tokens <= 60, "split part should respect max_tokens=60");
             assert!(part
                 .source
                 .fqn
@@ -2808,6 +3014,7 @@ pub fn big() {{
 
         for part in &split_large_symbol_parts {
             assert!(part.part.is_some());
+            assert!(part.tokens <= 120, "real split part should respect max_tokens=120");
             assert_eq!(part.source.symbol, "split_large_symbol");
             assert!(part
                 .source
@@ -2888,20 +3095,70 @@ fn trailing() {}
         };
         let chunker = EmbedChunker::with_defaults(settings);
         let token_model = chunker.parse_token_model(&chunker.settings.token_model);
-        let top_level = chunker
-            .extract_top_level(
-                &lines,
-                &symbols,
-                "src/lib.rs",
-                "Rust",
-                Some(Language::Rust),
-                token_model,
-            )
-            .expect("top-level chunk should be generated");
+        let top_levels = chunker.extract_top_level(
+            &lines,
+            &symbols,
+            "src/lib.rs",
+            "Rust",
+            Some(Language::Rust),
+            token_model,
+        );
+        assert_eq!(top_levels.len(), 1);
+        let top_level = &top_levels[0];
 
         assert_eq!(top_level.content, expected);
         assert_eq!(top_level.content, "const VALUE: usize = 1;");
         assert_eq!(top_level.source.lines, (1, lines.len() as u32));
+    }
+
+    #[test]
+    fn test_real_repo_file_respects_max_tokens_hard_cap() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let content = std::fs::read_to_string(repo_root.join("src/embedding/chunker.rs")).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        let mut marker = Symbol::new("module_header", crate::types::SymbolKind::Module);
+        marker.start_line = 1;
+        marker.end_line = 1;
+        let symbols = vec![marker];
+        let settings = EmbedSettings {
+            max_tokens: 100,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let chunks = chunker.extract_top_level(
+            &lines,
+            &symbols,
+            "src/embedding/chunker.rs",
+            "Rust",
+            Some(Language::Rust),
+            token_model,
+        );
+
+        assert!(chunks.len() > 1, "real file top-level content should be split");
+        assert!(
+            chunks.iter().all(|chunk| chunk.tokens <= 100),
+            "all real-file chunks should respect max_tokens=100: {:?}",
+            chunks
+                .iter()
+                .filter(|chunk| chunk.tokens > 100)
+                .map(|chunk| (
+                    chunk.id.as_str(),
+                    chunk.kind.name(),
+                    chunk.source.symbol.as_str(),
+                    chunk.tokens
+                ))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            chunks.iter().all(|chunk| chunk.source.symbol == "<top_level>" && chunk.part.is_some()),
+            "oversized top-level chunks should be represented as split parts"
+        );
     }
 
     #[test]
