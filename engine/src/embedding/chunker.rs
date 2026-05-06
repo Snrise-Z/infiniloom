@@ -1253,10 +1253,10 @@ impl EmbedChunker {
             max_tokens,
             overlap_lines,
         );
-
+        let total_parts = segments.len() as u32;
         let mut chunks = Vec::with_capacity(segments.len());
 
-        for segment in segments {
+        for (index, segment) in segments.into_iter().enumerate() {
             let hash = hash_content(&segment.content);
             let part_source = ChunkSource {
                 repo: self.repo_id.clone(),
@@ -1282,8 +1282,8 @@ impl EmbedChunker {
             let repr = default_repr();
             part_context.summary = generate_summary(part_kind, &part_source, &part_context);
             let part = ChunkPart {
-                part: 0,
-                of: 0, // Updated after all parts
+                part: (index as u32) + 1,
+                of: total_parts,
                 parent_id: parent_id.clone(),
                 parent_signature: symbol.signature.clone().unwrap_or_default(),
                 overlap_lines: segment.overlap_lines,
@@ -1310,14 +1310,6 @@ impl EmbedChunker {
                 code_chunk_id: None,
                 part: Some(part),
             });
-        }
-
-        let total_parts = chunks.len() as u32;
-        for (index, chunk) in chunks.iter_mut().enumerate() {
-            if let Some(ref mut part) = chunk.part {
-                part.part = (index as u32) + 1;
-                part.of = total_parts;
-            }
         }
 
         Ok(chunks)
@@ -1448,12 +1440,20 @@ impl EmbedChunker {
             None,
         );
         let parent_id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+        let total_parts = segments.len() as u32;
         let mut chunks = Vec::with_capacity(segments.len());
 
-        for segment in segments {
+        for (index, segment) in segments.into_iter().enumerate() {
             let hash = hash_content(&segment.content);
             let keywords = extract_keywords(&segment.content);
             let top_identifiers = extract_identifiers(&segment.content, lang_enum);
+            let part = ChunkPart {
+                part: (index as u32) + 1,
+                of: total_parts,
+                parent_id: parent_id.clone(),
+                parent_signature: String::new(),
+                overlap_lines: segment.overlap_lines,
+            };
             let mut top_context = ChunkContext {
                 keywords,
                 identifiers: top_identifiers,
@@ -1461,13 +1461,6 @@ impl EmbedChunker {
                 ..Default::default()
             };
             top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
-            let part = ChunkPart {
-                part: 0,
-                of: 0,
-                parent_id: parent_id.clone(),
-                parent_signature: String::new(),
-                overlap_lines: segment.overlap_lines,
-            };
             let part_source = ChunkSource {
                 lines: (segment.start_line, segment.end_line),
                 ..top_source.clone()
@@ -1494,14 +1487,6 @@ impl EmbedChunker {
                 code_chunk_id: None,
                 part: Some(part),
             });
-        }
-
-        let total_parts = chunks.len() as u32;
-        for (index, chunk) in chunks.iter_mut().enumerate() {
-            if let Some(ref mut part) = chunk.part {
-                part.part = (index as u32) + 1;
-                part.of = total_parts;
-            }
         }
 
         chunks
@@ -2954,6 +2939,115 @@ pub fn big() {{
             );
         }
         assert!(segments.iter().all(|segment| segment.tokens <= 100));
+    }
+
+    #[test]
+    fn test_split_large_symbol_part_ids_remain_unique_for_repeated_content() {
+        let repeated_line = "alpha beta gamma delta epsilon";
+        let content = vec![repeated_line; 6].join("\n");
+        let mut symbol = Symbol::new("repeat_parts", crate::types::SymbolKind::Function);
+        symbol.signature = Some("fn repeat_parts()".to_owned());
+        symbol.start_line = 1;
+        symbol.end_line = 6;
+
+        let settings = EmbedSettings {
+            max_tokens: 0,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let two_line_budget = chunker.tokenizer.count(
+            &format!("{repeated_line}\n{repeated_line}"),
+            token_model,
+        );
+        let chunker = EmbedChunker::with_defaults(EmbedSettings {
+            max_tokens: two_line_budget,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        });
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let chunks = chunker
+            .split_large_symbol(
+                &content,
+                &symbol,
+                "src/repeat_parts.py",
+                "Python",
+                Path::new("src/repeat_parts.py"),
+                1,
+                0,
+                Some(Language::Python),
+                token_model,
+            )
+            .unwrap();
+
+        assert!(chunks.len() > 1);
+        let unique_ids: std::collections::HashSet<_> =
+            chunks.iter().map(|chunk| chunk.id.clone()).collect();
+        assert_eq!(unique_ids.len(), chunks.len(), "split parts must have unique IDs");
+    }
+
+    #[test]
+    fn test_top_level_split_part_ids_remain_unique_for_repeated_content() {
+        let repeated_line = "alpha beta gamma delta epsilon";
+        let mut lines = (0..6).map(|_| repeated_line.to_owned()).collect::<Vec<_>>();
+        lines.push("def keep():".to_owned());
+        lines.push("    return 1".to_owned());
+        let line_refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+
+        let mut symbol = Symbol::new("keep", crate::types::SymbolKind::Function);
+        symbol.start_line = 7;
+        symbol.end_line = 8;
+        let symbols = vec![symbol];
+
+        let settings = EmbedSettings {
+            max_tokens: 0,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: true,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let two_line_budget = chunker.tokenizer.count(
+            &format!("{repeated_line}\n{repeated_line}"),
+            token_model,
+        );
+        let chunker = EmbedChunker::with_defaults(EmbedSettings {
+            max_tokens: two_line_budget,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: true,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        });
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let chunks = chunker.extract_top_level(
+            &line_refs,
+            &symbols,
+            "src/repeat_top_level.py",
+            "Python",
+            Some(Language::Python),
+            token_model,
+        );
+
+        assert!(chunks.len() > 1);
+        let unique_ids: std::collections::HashSet<_> =
+            chunks.iter().map(|chunk| chunk.id.clone()).collect();
+        assert_eq!(unique_ids.len(), chunks.len(), "top-level split parts must have unique IDs");
     }
 
     #[test]

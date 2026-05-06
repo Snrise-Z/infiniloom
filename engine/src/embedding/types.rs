@@ -153,6 +153,12 @@ pub struct EmbedChunk {
 
 impl EmbedChunk {
     /// Build a deterministic location key for chunk identity and manifest storage.
+    ///
+    /// The key intentionally includes repository identity and line range. Symbol
+    /// names are not unique enough in real code: anonymous callbacks, interface
+    /// declarations, repeated generated methods, and split parts can share the
+    /// same file, symbol, signature, and content while still being different
+    /// source locations.
     pub fn build_location_key(
         source: &ChunkSource,
         kind: ChunkKind,
@@ -160,6 +166,7 @@ impl EmbedChunk {
         signature: Option<&str>,
         part: Option<&ChunkPart>,
     ) -> String {
+        let repo = source.repo.qualified_name();
         let semantic_name = source.fqn.as_deref().unwrap_or(source.symbol.as_str());
         let parent = source.parent.as_deref().unwrap_or("");
         let signature_key = signature
@@ -174,8 +181,11 @@ impl EmbedChunk {
             })
             .unwrap_or_else(|| "whole".to_owned());
         format!(
-            "{}::{}::{}::{}::{}::{}::{}",
+            "repo:{}::file:{}::lines:{}-{}::symbol:{}::parent:{}::kind:{}::repr:{}::sig:{}::part:{}",
+            repo,
             source.file,
+            source.lines.0,
+            source.lines.1,
             semantic_name,
             parent,
             kind.name(),
@@ -824,6 +834,10 @@ mod tests {
 
         let source_a = source("src/a.rs", "foo");
         let source_b = source("src/b.rs", "foo");
+        let mut source_line_b = source_a.clone();
+        source_line_b.lines = (11, 20);
+        let mut source_repo_b = source_a.clone();
+        source_repo_b.repo = RepoIdentifier::new("other-org", "same-path");
         let signature = Some("fn foo() -> i32");
         let part = ChunkPart {
             part: 1,
@@ -837,6 +851,20 @@ mod tests {
             EmbedChunk::build_location_key(&source_a, ChunkKind::Function, "code", signature, None);
         let key_b =
             EmbedChunk::build_location_key(&source_b, ChunkKind::Function, "code", signature, None);
+        let key_line_b = EmbedChunk::build_location_key(
+            &source_line_b,
+            ChunkKind::Function,
+            "code",
+            signature,
+            None,
+        );
+        let key_repo_b = EmbedChunk::build_location_key(
+            &source_repo_b,
+            ChunkKind::Function,
+            "code",
+            signature,
+            None,
+        );
         let key_sig = EmbedChunk::build_location_key(
             &source_a,
             ChunkKind::Function,
@@ -853,15 +881,21 @@ mod tests {
         );
 
         assert_ne!(key_a, key_b);
+        assert_ne!(key_a, key_line_b);
+        assert_ne!(key_a, key_repo_b);
         assert_ne!(key_a, key_sig);
         assert_ne!(key_a, key_part);
 
         let id_a = EmbedChunk::build_chunk_id(&key_a, "hash-a");
         let id_b = EmbedChunk::build_chunk_id(&key_b, "hash-a");
         let id_c = EmbedChunk::build_chunk_id(&key_a, "hash-b");
+        let id_line_b = EmbedChunk::build_chunk_id(&key_line_b, "hash-a");
+        let id_repo_b = EmbedChunk::build_chunk_id(&key_repo_b, "hash-a");
 
         assert_ne!(id_a, id_b);
         assert_ne!(id_a, id_c);
+        assert_ne!(id_a, id_line_b);
+        assert_ne!(id_a, id_repo_b);
     }
 
     #[test]
