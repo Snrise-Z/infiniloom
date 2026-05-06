@@ -43,7 +43,7 @@ fn determine_focus_impl<'a>(mut files: impl Iterator<Item = &'a RepoFile>) -> St
 impl Chunker {
     /// Create a new chunker
     pub fn new(strategy: ChunkStrategy, max_tokens: u32) -> Self {
-        Self { strategy, max_tokens, overlap_tokens: 200, model: TokenizerModel::Claude }
+        Self { strategy, max_tokens, overlap_tokens: 0, model: TokenizerModel::Claude }
     }
 
     /// Set overlap tokens
@@ -812,6 +812,12 @@ mod tests {
     // ============================================
     // Chunker Builder Tests
     // ============================================
+
+    #[test]
+    fn test_chunker_default_overlap_is_zero() {
+        let chunker = Chunker::new(ChunkStrategy::Fixed { size: 1000 }, 1000);
+        assert_eq!(chunker.overlap_tokens, 0);
+    }
 
     #[test]
     fn test_chunker_with_overlap() {

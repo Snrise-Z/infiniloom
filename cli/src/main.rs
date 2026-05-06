@@ -492,7 +492,7 @@ enum Commands {
         #[arg(short = 't', long, default_value = "8000")]
         max_tokens: u32,
 
-        /// Overlap tokens between chunks (for context continuity)
+        /// Overlap tokens between chunks (default: 0, for explicit context continuity)
         #[arg(long, default_value = "0")]
         overlap: u32,
 

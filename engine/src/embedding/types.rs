@@ -631,7 +631,7 @@ impl Default for EmbedSettings {
         Self {
             max_tokens: 1000,        // Optimized for code embedding models
             min_tokens: 50,          // Minimum meaningful chunk size
-            overlap_tokens: 100,     // Context continuity between chunks
+            overlap_tokens: 0,       // No overlap by default; callers can opt in explicitly
             context_lines: 5,        // Capture docstrings above functions
             include_imports: true,   // Track dependencies
             include_top_level: true, // Include module-level code
@@ -760,7 +760,7 @@ mod tests {
         let settings = EmbedSettings::default();
         assert_eq!(settings.max_tokens, 1000);
         assert_eq!(settings.min_tokens, 50);
-        assert_eq!(settings.overlap_tokens, 100);
+        assert_eq!(settings.overlap_tokens, 0);
         assert!(settings.scan_secrets);
     }
 
