@@ -581,9 +581,18 @@ impl ChunkStream {
 
             // Generate summary after source and context are built
             context.summary = generate_summary(chunk_kind, &source, &context);
+            let repr = "code".to_owned();
+            let location_key = EmbedChunk::build_location_key(
+                &source,
+                chunk_kind,
+                &repr,
+                context.signature.as_deref(),
+                None,
+            );
+            let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
             chunks.push(EmbedChunk {
-                id: hash.short_id,
+                id,
                 full_hash: hash.full_hash,
                 content: chunk_content,
                 tokens,
@@ -591,7 +600,7 @@ impl ChunkStream {
                 source,
                 children_ids: Vec::new(),
                 context,
-                repr: "code".to_owned(),
+                repr,
                 code_chunk_id: None,
                 part: None,
             });

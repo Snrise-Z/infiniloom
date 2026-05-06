@@ -1,9 +1,9 @@
 //! Embedding chunks generation for vector databases
 //!
-//! This module provides deterministic, content-addressable code chunks optimized
-//! for embedding in vector databases. The system generates stable chunk IDs based
-//! on content hashes, enabling efficient incremental updates and cross-repository
-//! deduplication.
+//! This module provides deterministic, location-aware code chunks optimized for
+//! embedding in vector databases. The system generates stable chunk IDs from a
+//! chunk's logical location plus content hash, while retaining a pure content
+//! fingerprint for verification and optional deduplication.
 //!
 //! # Design Philosophy
 //!
@@ -21,7 +21,7 @@
 //! # Features
 //!
 //! - **Deterministic**: Same repo + same settings = identical output every time
-//! - **Content-addressable**: Same code anywhere = same chunk ID (enables deduplication)
+//! - **Location-aware IDs**: Same code in different places remains distinct
 //! - **Code-aware**: Chunks respect AST boundaries (never split mid-function)
 //! - **Incremental**: Track added/modified/removed chunks via manifest
 //! - **Cross-platform**: Identical output on Windows/Linux/macOS
@@ -40,21 +40,20 @@
 //! // Generate chunks for a repository
 //! let chunks = chunker.chunk_repository(Path::new("/path/to/repo"))?;
 //!
-//! // Each chunk has a stable, content-addressable ID
+//! // Each chunk has a stable ID plus a pure content hash
 //! for chunk in &chunks {
-//!     println!("Chunk {}: {} tokens", chunk.id, chunk.tokens);
+//!     println!("Chunk {} (hash {}): {} tokens", chunk.id, chunk.full_hash, chunk.tokens);
 //! }
 //! ```
 //!
-//! # Content Addressability
+//! # Stable IDs and Content Hashes
 //!
-//! Chunk IDs are derived from BLAKE3 hashes of normalized content:
+//! Chunk IDs are derived from both logical location and normalized content:
 //!
 //! ```rust,ignore
-//! // Same code = same ID, even in different files/repos
+//! // Same code in different files has different IDs but the same full_hash.
 //! let code = "fn add(a: i32, b: i32) -> i32 { a + b }";
 //! let hash = embed_hash(code);
-//! // Returns: "ec_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" (32 hex chars)
 //! ```
 //!
 //! # Incremental Updates

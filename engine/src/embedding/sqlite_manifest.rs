@@ -166,11 +166,7 @@ impl SqliteManifest {
             })?;
 
         for chunk in chunks {
-            let location_key = super::manifest::EmbedManifest::location_key(
-                &chunk.source.file,
-                &chunk.source.symbol,
-                chunk.kind,
-            );
+            let location_key = super::manifest::EmbedManifest::location_key(chunk);
 
             stmt.execute(params![
                 location_key,
@@ -297,11 +293,7 @@ impl SqliteManifest {
             .iter()
             .map(|c| {
                 (
-                    super::manifest::EmbedManifest::location_key(
-                        &c.source.file,
-                        &c.source.symbol,
-                        c.kind,
-                    ),
+                    super::manifest::EmbedManifest::location_key(c),
                     c,
                 )
             })

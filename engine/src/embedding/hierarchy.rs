@@ -224,29 +224,40 @@ impl HierarchyBuilder {
         let mut tags = vec!["summary".to_owned(), "hierarchy".to_owned()];
         tags.extend(container.context.tags.iter().cloned());
 
+        let repr = "code".to_owned();
+        let source = ChunkSource {
+            repo: container.source.repo.clone(),
+            file: container.source.file.clone(),
+            lines: container.source.lines,
+            symbol: format!("{}_summary", container.source.symbol),
+            fqn: container
+                .source
+                .fqn
+                .as_ref()
+                .map(|f| format!("{}_summary", f)),
+            language: container.source.language.clone(),
+            parent: container.source.parent.clone(),
+            visibility: container.source.visibility,
+            is_test: container.source.is_test,
+            module_path: container.source.module_path.clone(),
+            parent_chunk_id: None,
+        };
+        let location_key = EmbedChunk::build_location_key(
+            &source,
+            container.kind,
+            &repr,
+            container.context.signature.as_deref(),
+            None,
+        );
+        let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
+
         Some(EmbedChunk {
-            id: hash.short_id,
+            id,
             full_hash: hash.full_hash,
             content: summary_content,
             tokens: 0, // Will be computed by caller if needed
             kind: container.kind,
-            source: ChunkSource {
-                repo: container.source.repo.clone(),
-                file: container.source.file.clone(),
-                lines: container.source.lines,
-                symbol: format!("{}_summary", container.source.symbol),
-                fqn: container
-                    .source
-                    .fqn
-                    .as_ref()
-                    .map(|f| format!("{}_summary", f)),
-                language: container.source.language.clone(),
-                parent: container.source.parent.clone(),
-                visibility: container.source.visibility,
-                is_test: container.source.is_test,
-                module_path: container.source.module_path.clone(),
-                parent_chunk_id: None,
-            },
+            source,
             children_ids: Vec::new(),
             context: ChunkContext {
                 docstring: container.context.docstring.clone(),
@@ -272,7 +283,7 @@ impl HierarchyBuilder {
                 complexity_score: None,
                 dependents_count: None,
             },
-            repr: "code".to_owned(),
+            repr,
             code_chunk_id: None,
             part: None,
         })

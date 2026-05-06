@@ -1,7 +1,7 @@
 //! Core chunking logic for embedding generation
 //!
-//! This module generates deterministic, content-addressable code chunks from
-//! a repository. It uses thread-local parsers for parallel processing and
+//! This module generates deterministic, location-aware code chunks from a
+//! repository. It uses thread-local parsers for parallel processing and
 //! enforces resource limits for DoS protection.
 //!
 //! # Thread Safety
@@ -402,7 +402,7 @@ impl EmbedChunker {
                 .then_with(|| a.source.lines.0.cmp(&b.source.lines.0))
                 .then_with(|| a.source.lines.1.cmp(&b.source.lines.1))
                 .then_with(|| a.source.symbol.cmp(&b.source.symbol))
-                .then_with(|| a.id.cmp(&b.id)) // Content-addressable ID as final tiebreaker
+                .then_with(|| a.id.cmp(&b.id)) // Stable chunk ID as final tiebreaker
         });
 
         // Phase 7: Enrich with git metadata (if enabled)
@@ -771,22 +771,33 @@ impl EmbedChunker {
                 let signature = chunk.context.signature.as_ref()?;
                 let hash = hash_content(signature);
                 let tokens = self.tokenizer.count(signature, token_model);
+                let repr = "signature".to_owned();
+                let source = chunk.source.clone();
+                let context = ChunkContext {
+                    signature: chunk.context.signature.clone(),
+                    docstring: chunk.context.docstring.clone(),
+                    context_prefix: chunk.context.context_prefix.clone(),
+                    ..Default::default()
+                };
+                let location_key = EmbedChunk::build_location_key(
+                    &source,
+                    chunk.kind,
+                    &repr,
+                    context.signature.as_deref(),
+                    None,
+                );
+                let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
                 Some(EmbedChunk {
-                    id: hash.short_id,
+                    id,
                     full_hash: hash.full_hash,
                     content: signature.clone(),
                     tokens,
                     kind: chunk.kind,
-                    source: chunk.source.clone(),
-                    context: ChunkContext {
-                        signature: chunk.context.signature.clone(),
-                        docstring: chunk.context.docstring.clone(),
-                        context_prefix: chunk.context.context_prefix.clone(),
-                        ..Default::default()
-                    },
+                    source,
+                    context,
                     children_ids: Vec::new(),
-                    repr: "signature".to_owned(),
+                    repr,
                     code_chunk_id: Some(chunk.id.clone()),
                     part: None,
                 })
@@ -922,9 +933,18 @@ impl EmbedChunker {
 
                 // Generate natural language summary
                 context.summary = generate_summary(chunk_kind, &source, &context);
+                let repr = default_repr();
+                let location_key = EmbedChunk::build_location_key(
+                    &source,
+                    chunk_kind,
+                    &repr,
+                    context.signature.as_deref(),
+                    None,
+                );
+                let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
                 chunks.push(EmbedChunk {
-                    id: hash.short_id,
+                    id,
                     full_hash: hash.full_hash,
                     content: chunk_content,
                     tokens,
@@ -932,7 +952,7 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
-                    repr: default_repr(),
+                    repr,
                     code_chunk_id: None,
                     part: None,
                 });
@@ -1048,6 +1068,29 @@ impl EmbedChunker {
         };
         let original_fqn = self.compute_fqn(file, symbol);
         let original_context = self.extract_context(symbol, content, file, source_path);
+        let parent_source = ChunkSource {
+            repo: self.repo_id.clone(),
+            file: file.to_owned(),
+            lines: (base_line, base_line + total_lines as u32 - 1),
+            symbol: symbol.name.clone(),
+            fqn: Some(original_fqn.clone()),
+            language: language.to_owned(),
+            parent: symbol.parent.clone(),
+            visibility: symbol.visibility.into(),
+            is_test: self.is_test_code(source_path, symbol),
+            module_path: Some(derive_module_path(file, language)),
+            parent_chunk_id: None,
+        };
+        let parent_repr = default_repr();
+        let parent_location_key = EmbedChunk::build_location_key(
+            &parent_source,
+            original_kind,
+            &parent_repr,
+            original_context.signature.as_deref(),
+            None,
+        );
+        let parent_id =
+            EmbedChunk::build_chunk_id(&parent_location_key, &parent_hash.full_hash);
 
         while current_start < total_lines {
             // Calculate content boundaries
@@ -1096,9 +1139,25 @@ impl EmbedChunker {
                 part_context.complexity_score =
                     lang_enum.and_then(|l| super::complexity::compute_complexity(&part_content, l));
                 part_context.summary = generate_summary(part_kind, &part_source, &part_context);
+                let repr = default_repr();
+                let part = ChunkPart {
+                    part: part_num,
+                    of: 0,
+                    parent_id: parent_id.clone(),
+                    parent_signature: symbol.signature.clone().unwrap_or_default(),
+                    overlap_lines: actual_overlap,
+                };
+                let location_key = EmbedChunk::build_location_key(
+                    &part_source,
+                    part_kind,
+                    &repr,
+                    part_context.signature.as_deref(),
+                    Some(&part),
+                );
+                let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
                 chunks.push(EmbedChunk {
-                    id: hash.short_id,
+                    id,
                     full_hash: hash.full_hash,
                     content: part_content,
                     tokens,
@@ -1106,15 +1165,9 @@ impl EmbedChunker {
                     source: part_source,
                     context: part_context,
                     children_ids: Vec::new(),
-                    repr: default_repr(),
+                    repr,
                     code_chunk_id: None,
-                    part: Some(ChunkPart {
-                        part: part_num,
-                        of: 0, // Updated after all parts
-                        parent_id: parent_hash.short_id.clone(),
-                        parent_signature: symbol.signature.clone().unwrap_or_default(),
-                        overlap_lines: actual_overlap,
-                    }),
+                    part: Some(part),
                 });
 
                 part_num += 1;
@@ -1212,9 +1265,18 @@ impl EmbedChunker {
             ..Default::default()
         };
         top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
+        let repr = default_repr();
+        let location_key = EmbedChunk::build_location_key(
+            &top_source,
+            ChunkKind::TopLevel,
+            &repr,
+            top_context.signature.as_deref(),
+            None,
+        );
+        let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
 
         Some(EmbedChunk {
-            id: hash.short_id,
+            id,
             full_hash: hash.full_hash,
             content,
             tokens,
@@ -1222,7 +1284,7 @@ impl EmbedChunker {
             source: top_source,
             context: top_context,
             children_ids: Vec::new(),
-            repr: default_repr(),
+            repr,
             code_chunk_id: None,
             part: None,
         })

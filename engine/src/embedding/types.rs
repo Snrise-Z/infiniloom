@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::hasher::hash_content;
+
 use super::error::EmbedError;
 
 /// Repository identifier for multi-tenant RAG systems
@@ -89,16 +91,19 @@ impl RepoIdentifier {
     }
 }
 
-/// A single embedding chunk with stable, content-addressable ID
+/// A single embedding chunk with a stable deterministic ID
 ///
 /// Each chunk represents a semantic unit of code (function, class, etc.) with
-/// a deterministic ID derived from its normalized content. This enables:
-/// - Cross-repository deduplication (same code = same ID)
-/// - Incremental updates (compare IDs to detect changes)
+/// an ID derived from its logical location plus content. This enables:
 /// - Stable references for vector databases
+/// - Incremental updates (compare IDs to detect changes)
+/// - Distinct IDs for the same content at different locations
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmbedChunk {
-    /// Content-addressable ID: BLAKE3 hash of normalized content
+    /// Stable deterministic chunk ID.
+    ///
+    /// The ID is derived from the logical location of the chunk and its content.
+    /// `full_hash` stores the pure content fingerprint for verification.
     /// Format: "ec_" + 32 hex chars (128 bits) - collision-resistant for enterprise scale
     pub id: String,
 
@@ -146,6 +151,62 @@ pub struct EmbedChunk {
     pub part: Option<ChunkPart>,
 }
 
+impl EmbedChunk {
+    /// Build a deterministic location key for chunk identity and manifest storage.
+    pub fn build_location_key(
+        source: &ChunkSource,
+        kind: ChunkKind,
+        repr: &str,
+        signature: Option<&str>,
+        part: Option<&ChunkPart>,
+    ) -> String {
+        let semantic_name = source.fqn.as_deref().unwrap_or(source.symbol.as_str());
+        let parent = source.parent.as_deref().unwrap_or("");
+        let signature_key = signature
+            .map(|value| hash_content(value).short_id)
+            .unwrap_or_default();
+        let part_key = part
+            .map(|item| {
+                format!(
+                    "part:{}:{}:{}:{}",
+                    item.part, item.of, item.overlap_lines, item.parent_id
+                )
+            })
+            .unwrap_or_else(|| "whole".to_owned());
+        format!(
+            "{}::{}::{}::{}::{}::{}::{}",
+            source.file,
+            semantic_name,
+            parent,
+            kind.name(),
+            repr,
+            signature_key,
+            part_key,
+        )
+    }
+
+    /// Build a deterministic chunk ID from a location key and content hash.
+    ///
+    /// The location key distinguishes the logical position of the chunk, while
+    /// `full_hash` preserves the pure content fingerprint. Combining both keeps
+    /// repeated content at different locations distinct without losing the
+    /// ability to compare content directly.
+    pub fn build_chunk_id(location_key: &str, full_hash: &str) -> String {
+        hash_content(&format!("{location_key}\0{full_hash}")).short_id
+    }
+
+    /// Return the logical location key for this chunk.
+    pub fn location_key(&self) -> String {
+        Self::build_location_key(
+            &self.source,
+            self.kind,
+            &self.repr,
+            self.context.signature.as_deref(),
+            self.part.as_ref(),
+        )
+    }
+}
+
 /// Default representation type for chunks
 pub(super) fn default_repr() -> String {
     "code".to_owned()
@@ -153,8 +214,9 @@ pub(super) fn default_repr() -> String {
 
 /// Source location metadata for a chunk
 ///
-/// This metadata helps identify where the chunk originated, but importantly
-/// does NOT affect the chunk ID (which is based solely on content).
+/// Source location participates in chunk identity so repeated content at
+/// different logical locations remains distinct. The pure content fingerprint is
+/// still available through [`EmbedChunk::full_hash`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChunkSource {
     /// Repository identifier for multi-tenant RAG
@@ -440,7 +502,7 @@ pub struct ChunkPart {
     /// Total number of parts
     pub of: u32,
 
-    /// ID of the logical parent (full symbol hash)
+    /// Stable ID of the logical parent chunk before splitting
     pub parent_id: String,
 
     /// Signature repeated for context
@@ -740,6 +802,66 @@ mod tests {
         assert!(ChunkKind::FunctionPart.is_part());
         assert!(ChunkKind::ClassPart.is_part());
         assert!(!ChunkKind::Function.is_part());
+    }
+
+    #[test]
+    fn test_location_key_and_chunk_id_are_location_aware() {
+        fn source(file: &str, symbol: &str) -> ChunkSource {
+            ChunkSource {
+                repo: RepoIdentifier::default(),
+                file: file.to_owned(),
+                lines: (1, 10),
+                symbol: symbol.to_owned(),
+                fqn: Some(format!("pkg::{symbol}")),
+                language: "Rust".to_owned(),
+                parent: None,
+                visibility: Visibility::Public,
+                is_test: false,
+                module_path: None,
+                parent_chunk_id: None,
+            }
+        }
+
+        let source_a = source("src/a.rs", "foo");
+        let source_b = source("src/b.rs", "foo");
+        let signature = Some("fn foo() -> i32");
+        let part = ChunkPart {
+            part: 1,
+            of: 2,
+            parent_id: "parent".to_owned(),
+            parent_signature: "fn foo()".to_owned(),
+            overlap_lines: 0,
+        };
+
+        let key_a =
+            EmbedChunk::build_location_key(&source_a, ChunkKind::Function, "code", signature, None);
+        let key_b =
+            EmbedChunk::build_location_key(&source_b, ChunkKind::Function, "code", signature, None);
+        let key_sig = EmbedChunk::build_location_key(
+            &source_a,
+            ChunkKind::Function,
+            "signature",
+            signature,
+            None,
+        );
+        let key_part = EmbedChunk::build_location_key(
+            &source_a,
+            ChunkKind::FunctionPart,
+            "code",
+            signature,
+            Some(&part),
+        );
+
+        assert_ne!(key_a, key_b);
+        assert_ne!(key_a, key_sig);
+        assert_ne!(key_a, key_part);
+
+        let id_a = EmbedChunk::build_chunk_id(&key_a, "hash-a");
+        let id_b = EmbedChunk::build_chunk_id(&key_b, "hash-a");
+        let id_c = EmbedChunk::build_chunk_id(&key_a, "hash-b");
+
+        assert_ne!(id_a, id_b);
+        assert_ne!(id_a, id_c);
     }
 
     #[test]

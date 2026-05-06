@@ -160,7 +160,7 @@ pub struct EmbedCheckpoint {
 /// Lightweight reference to a chunk (without full content)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkReference {
-    /// Content-addressable chunk ID
+    /// Stable chunk ID
     pub id: String,
 
     /// Full BLAKE3 hash

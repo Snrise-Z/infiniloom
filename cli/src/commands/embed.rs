@@ -451,7 +451,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
             // Remove entries for deleted files
             m.chunks.retain(|key, _| {
-                // Location key format: "file::symbol::kind"
+                // Location keys are file-prefixed for fast incremental filtering.
                 let file_part = key.split("::").next().unwrap_or("");
                 !deleted_file_strs.contains(file_part)
             });
@@ -466,11 +466,7 @@ pub(crate) fn cmd_embed(config: EmbedConfig) -> Result<()> {
 
             // Add new chunks for changed files
             for chunk in &final_chunks {
-                let key = EmbedManifest::location_key(
-                    &chunk.source.file,
-                    &chunk.source.symbol,
-                    chunk.kind,
-                );
+                let key = EmbedManifest::location_key(chunk);
                 m.chunks.insert(
                     key,
                     ManifestEntry {
@@ -582,7 +578,7 @@ fn compute_incremental_diff(
 
     // Compare new chunks against manifest entries for changed files
     for chunk in new_chunks {
-        let key = EmbedManifest::location_key(&chunk.source.file, &chunk.source.symbol, chunk.kind);
+        let key = EmbedManifest::location_key(chunk);
 
         if let Some(entry) = manifest.chunks.get(&key) {
             if chunk.id == entry.chunk_id {
@@ -605,10 +601,9 @@ fn compute_incremental_diff(
         let file_part = key.split("::").next().unwrap_or("");
         if processed_files.contains(file_part) && !deleted_files.contains(file_part) {
             // Check if this manifest entry has a corresponding new chunk
-            let has_match = new_chunks.iter().any(|c| {
-                let new_key = EmbedManifest::location_key(&c.source.file, &c.source.symbol, c.kind);
-                new_key == *key
-            });
+            let has_match = new_chunks
+                .iter()
+                .any(|c| EmbedManifest::location_key(c) == *key);
             if !has_match {
                 // Old chunk no longer exists in processed file - mark as removed
                 removed

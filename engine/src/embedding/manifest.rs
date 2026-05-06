@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::error::EmbedError;
 use super::hasher::IncrementalHasher;
-use super::types::{ChunkKind, EmbedChunk, EmbedSettings};
+use super::types::{EmbedChunk, EmbedSettings};
 use crate::bincode_safe::{deserialize_with_limit, serialize};
 
 /// Current manifest format version
@@ -82,7 +82,7 @@ pub struct EmbedManifest {
 /// Entry in the manifest for a single chunk
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestEntry {
-    /// Content-addressable chunk ID (128-bit)
+    /// Stable chunk ID derived from location and content
     pub chunk_id: String,
 
     /// Full content hash for collision detection (256-bit)
@@ -109,12 +109,9 @@ impl EmbedManifest {
         }
     }
 
-    /// Generate deterministic location key for a chunk
-    ///
-    /// Format: `file::symbol::kind`
-    /// Uses `::` as separator (unlikely in paths/symbols)
-    pub fn location_key(file: &str, symbol: &str, kind: ChunkKind) -> String {
-        format!("{}::{}::{}", file, symbol, kind.name())
+    /// Generate deterministic location key for a chunk.
+    pub fn location_key(chunk: &EmbedChunk) -> String {
+        chunk.location_key()
     }
 
     /// Compute integrity checksum over settings and chunk entries
@@ -266,7 +263,7 @@ impl EmbedManifest {
             }
             id_to_hash.insert(&chunk.id, &chunk.full_hash);
 
-            let key = Self::location_key(&chunk.source.file, &chunk.source.symbol, chunk.kind);
+            let key = Self::location_key(chunk);
 
             self.chunks.insert(
                 key,
@@ -293,7 +290,7 @@ impl EmbedManifest {
         // Using BTreeMap for deterministic iteration in "added" detection
         let current_map: BTreeMap<String, &EmbedChunk> = current_chunks
             .iter()
-            .map(|c| (Self::location_key(&c.source.file, &c.source.symbol, c.kind), c))
+            .map(|c| (Self::location_key(c), c))
             .collect();
 
         // Find modified and unchanged (iterate manifest)
@@ -516,7 +513,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding::types::{ChunkContext, ChunkSource, RepoIdentifier, Visibility};
+    use crate::embedding::types::{ChunkContext, ChunkKind, ChunkSource, RepoIdentifier, Visibility};
     use tempfile::TempDir;
 
     fn create_test_chunk(id: &str, file: &str, symbol: &str) -> EmbedChunk {
@@ -558,8 +555,17 @@ mod tests {
 
     #[test]
     fn test_location_key() {
-        let key = EmbedManifest::location_key("src/auth.rs", "validate", ChunkKind::Function);
-        assert_eq!(key, "src/auth.rs::validate::function");
+        let chunk = create_test_chunk("id", "src/auth.rs", "validate");
+        let base_key = EmbedManifest::location_key(&chunk);
+        assert!(base_key.contains("src/auth.rs"));
+        assert!(base_key.contains("validate"));
+        assert!(base_key.contains("function"));
+
+        let mut signature_chunk = chunk.clone();
+        signature_chunk.repr = "signature".to_owned();
+        signature_chunk.context.signature = Some("fn validate(&self) -> bool".to_owned());
+        let signature_key = EmbedManifest::location_key(&signature_chunk);
+        assert_ne!(base_key, signature_key);
     }
 
     #[test]
