@@ -828,15 +828,22 @@ impl EmbedChunker {
 
         // Phase C: Populate called_by using resolved target FQNs.
         for chunk in chunks.iter_mut() {
-            let fqn = chunk.source.fqn.as_deref().unwrap_or("");
+            let Some(fqn) = chunk.source.fqn.as_deref() else {
+                chunk.context.called_by.clear();
+                chunk.context.dependents_count = None;
+                continue;
+            };
 
             let mut called_by_set: BTreeSet<String> = BTreeSet::new();
 
             if !Self::is_non_entry_part(chunk) {
-                if !fqn.is_empty() {
-                    if let Some(callers) = qualified_reverse.get(fqn) {
-                        called_by_set.extend(callers.iter().cloned());
-                    }
+                if let Some(callers) = qualified_reverse.get(fqn) {
+                    called_by_set.extend(
+                        callers
+                            .iter()
+                            .filter(|caller| caller.as_str() != fqn)
+                            .cloned(),
+                    );
                 }
             }
 
@@ -3251,6 +3258,149 @@ def caller(value):
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].from, caller.id);
         assert_eq!(calls[0].to, target_a.id);
+    }
+
+    #[test]
+    fn test_python_member_calls_do_not_create_resolved_edges() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "pkg/session.py",
+            r#"
+class SessionBase:
+    def __init__(self):
+        self._session = {}
+
+    def get(self, key, default=None):
+        return self._session.get(key, default)
+
+    def pop(self, key, default=None):
+        return self._session.pop(key, default)
+
+    def update(self, data):
+        return self._session.update(data)
+
+class Child(SessionBase):
+    def __init__(self):
+        super().__init__()
+
+def helper():
+    return SessionBase()
+
+def caller():
+    return helper()
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let get_method = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::Method
+                    && chunk.source.file == "pkg/session.py"
+                    && chunk.source.parent.as_deref() == Some("SessionBase")
+                    && chunk.source.symbol == "get"
+            })
+            .expect("SessionBase.get chunk should exist");
+        assert!(
+            get_method.context.calls.is_empty(),
+            "member access self._session.get() should not expose a resolvable raw call: {:?}",
+            get_method.context.calls
+        );
+        assert!(
+            get_method.context.qualified_calls.is_empty(),
+            "member access self._session.get() should not resolve to SessionBase.get: {:?}",
+            get_method.context.qualified_calls
+        );
+        assert!(
+            get_method.context.called_by.is_empty(),
+            "SessionBase.get should not be called by itself: {:?}",
+            get_method.context.called_by
+        );
+
+        let child_init = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::Method
+                    && chunk.source.file == "pkg/session.py"
+                    && chunk.source.parent.as_deref() == Some("Child")
+                    && chunk.source.symbol == "__init__"
+            })
+            .expect("Child.__init__ chunk should exist");
+        assert!(
+            child_init.context.calls.is_empty(),
+            "super().__init__() should not expose __init__ as a resolvable raw call: {:?}",
+            child_init.context.calls
+        );
+        assert!(
+            child_init.context.qualified_calls.is_empty(),
+            "super().__init__() should not resolve to the current __init__: {:?}",
+            child_init.context.qualified_calls
+        );
+        assert!(
+            child_init.context.called_by.is_empty(),
+            "Child.__init__ should not be called by itself: {:?}",
+            child_init.context.called_by
+        );
+
+        let caller = chunks
+            .iter()
+            .find(|chunk| chunk.source.file == "pkg/session.py" && chunk.source.symbol == "caller")
+            .expect("caller chunk should exist");
+        let helper = chunks
+            .iter()
+            .find(|chunk| chunk.source.file == "pkg/session.py" && chunk.source.symbol == "helper")
+            .expect("helper chunk should exist");
+        assert_eq!(caller.context.qualified_calls.len(), 1);
+        assert!(
+            caller.context.qualified_calls[0].ends_with("::pkg::session::helper"),
+            "direct same-file call should still resolve: {:?}",
+            caller.context.qualified_calls
+        );
+        assert!(
+            helper
+                .context
+                .called_by
+                .iter()
+                .any(|caller| caller.ends_with("::pkg::session::caller")),
+            "helper should receive called_by from direct same-file call: {:?}",
+            helper.context.called_by
+        );
+
+        let graph = crate::embedding::generate_graph_export(&chunks);
+        assert!(
+            graph
+                .edges
+                .iter()
+                .all(|edge| edge.label != "CALLS" || edge.from != edge.to),
+            "member-call false positives must not create self CALLS edges"
+        );
+        assert!(
+            !graph
+                .edges
+                .iter()
+                .any(|edge| edge.label == "CALLS" && edge.to == get_method.id),
+            "self._session.get() should not produce a CALLS edge to SessionBase.get"
+        );
+        assert!(
+            graph.edges.iter().any(|edge| edge.label == "CALLS"
+                && edge.from == caller.id
+                && edge.to == helper.id),
+            "direct helper() call should still produce a CALLS edge"
+        );
     }
 
     #[test]

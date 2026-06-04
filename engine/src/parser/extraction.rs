@@ -824,10 +824,6 @@ fn collect_calls_recursive_with_depth(
                 node.child_by_field_name("function").and_then(|f| {
                     if f.kind() == "identifier" {
                         f.utf8_text(source_code.as_bytes()).ok().map(String::from)
-                    } else if f.kind() == "attribute" {
-                        f.child_by_field_name("attribute")
-                            .and_then(|a| a.utf8_text(source_code.as_bytes()).ok())
-                            .map(String::from)
                     } else {
                         None
                     }
@@ -2772,6 +2768,33 @@ mod tests {
         let calls = extract_calls(func_node, code, Language::Python);
         assert!(calls.contains(&"bar".to_owned()));
         assert!(calls.contains(&"custom_func".to_owned()));
+    }
+
+    #[test]
+    fn test_extract_calls_python_skips_member_calls() {
+        let code = r#"
+def foo(obj):
+    bar()
+    obj.method()
+    self.baz()
+    factory().build()
+    super().__init__()
+"#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(code, None).unwrap();
+        let func_node = find_node_in_tree(tree.root_node(), "function_definition").unwrap();
+
+        let calls = extract_calls(func_node, code, Language::Python);
+        assert!(calls.contains(&"bar".to_owned()));
+        assert!(calls.contains(&"factory".to_owned()));
+        assert!(!calls.contains(&"method".to_owned()));
+        assert!(!calls.contains(&"baz".to_owned()));
+        assert!(!calls.contains(&"build".to_owned()));
+        assert!(!calls.contains(&"__init__".to_owned()));
+        assert!(!calls.contains(&"super".to_owned()));
     }
 
     #[test]
