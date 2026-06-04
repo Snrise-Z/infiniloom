@@ -14,7 +14,7 @@
 //! - `qualified_calls`: calls successfully resolved to a qualified name via imports
 //! - `unresolved_calls`: calls that could not be matched to any import or local symbol
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::types::EmbedChunk;
 
@@ -24,41 +24,63 @@ use super::types::EmbedChunk;
 /// from a given file to a qualified name (module + symbol) or report it as
 /// unresolved.
 pub struct ImportResolver {
-    /// Per-file import maps: file_path -> (imported_name -> source_module)
-    file_imports: HashMap<String, HashMap<String, String>>,
-    /// Per-file local symbols: file_path -> set of symbol names defined in that file
-    file_symbols: HashMap<String, HashSet<String>>,
+    /// Per-file import maps: file_path -> imported_name -> resolved target FQNs.
+    file_imports: HashMap<String, HashMap<String, BTreeSet<String>>>,
+    /// Per-file local symbols: file_path -> symbol_name -> resolved target FQNs.
+    file_symbols: HashMap<String, HashMap<String, BTreeSet<String>>>,
 }
 
 impl ImportResolver {
     /// Build an `ImportResolver` from the generated chunks.
     ///
     /// For each chunk we:
-    /// 1. Record its symbol name in `file_symbols[file]`
-    /// 2. Parse its `context.imports` strings into `file_imports[file]`
+    /// 1. Record concrete internal definitions by file and module path.
+    /// 2. Parse import strings and resolve them to known internal FQNs.
     pub fn from_chunks(chunks: &[EmbedChunk]) -> Self {
-        let mut file_imports: HashMap<String, HashMap<String, String>> = HashMap::new();
-        let mut file_symbols: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut file_imports: HashMap<String, HashMap<String, BTreeSet<String>>> = HashMap::new();
+        let mut file_symbols: HashMap<String, HashMap<String, BTreeSet<String>>> = HashMap::new();
+        let mut module_symbols: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
+
+        for chunk in chunks {
+            if !is_resolvable_definition(chunk) {
+                continue;
+            }
+
+            let file = &chunk.source.file;
+            let symbol = &chunk.source.symbol;
+            let target = chunk.source.fqn.as_deref().unwrap_or(symbol).to_owned();
+
+            file_symbols
+                .entry(file.clone())
+                .or_default()
+                .entry(symbol.clone())
+                .or_default()
+                .insert(target.clone());
+
+            for module in module_variants_for_chunk(chunk) {
+                module_symbols
+                    .entry((module, symbol.clone()))
+                    .or_default()
+                    .insert(target.clone());
+            }
+        }
 
         for chunk in chunks {
             let file = &chunk.source.file;
+            let caller_module = chunk.source.module_path.as_deref();
 
-            // Record this chunk's symbol name as a local symbol for its file
-            if !chunk.source.symbol.is_empty() && chunk.source.symbol != "<top_level>" {
-                file_symbols
-                    .entry(file.clone())
-                    .or_default()
-                    .insert(chunk.source.symbol.clone());
-            }
-
-            // Parse import strings for this chunk's file
             for import_str in &chunk.context.imports {
-                let parsed = parse_import(import_str);
-                for (name, source) in parsed {
-                    file_imports
-                        .entry(file.clone())
-                        .or_default()
-                        .insert(name, source);
+                for (name, source) in parse_import(import_str) {
+                    if let Some(target) =
+                        resolve_import_target(file, caller_module, &source, &name, &module_symbols)
+                    {
+                        file_imports
+                            .entry(file.clone())
+                            .or_default()
+                            .entry(name)
+                            .or_default()
+                            .insert(target);
+                    }
                 }
             }
         }
@@ -69,25 +91,30 @@ impl ImportResolver {
     /// Resolve a call from a given file.
     ///
     /// Resolution order:
-    /// 1. If `call_name` is defined in the same file, return `"file::call_name"`
-    /// 2. If `call_name` appears in the file's imports, return `"source_module::call_name"`
+    /// 1. If `call_name` resolves unambiguously in the same file, return that FQN.
+    /// 2. If `call_name` resolves unambiguously through imports, return that FQN.
     /// 3. Otherwise return `None` (unresolved)
     pub fn resolve_call(&self, file: &str, call_name: &str) -> Option<String> {
-        // 1. Check same-file symbols
-        if let Some(symbols) = self.file_symbols.get(file) {
-            if symbols.contains(call_name) {
-                return Some(format!("{}::{}", file, call_name));
+        if let Some(targets) = self
+            .file_symbols
+            .get(file)
+            .and_then(|symbols| symbols.get(call_name))
+        {
+            if let Some(target) = unique_target(targets) {
+                return Some(target);
             }
         }
 
-        // 2. Check imports for this file
-        if let Some(imports) = self.file_imports.get(file) {
-            if let Some(source) = imports.get(call_name) {
-                return Some(format!("{}::{}", source, call_name));
+        if let Some(targets) = self
+            .file_imports
+            .get(file)
+            .and_then(|imports| imports.get(call_name))
+        {
+            if let Some(target) = unique_target(targets) {
+                return Some(target);
             }
         }
 
-        // 3. Unresolved
         None
     }
 
@@ -145,6 +172,226 @@ impl ImportResolver {
 
         reverse
     }
+}
+
+fn is_resolvable_definition(chunk: &EmbedChunk) -> bool {
+    !chunk.source.symbol.is_empty()
+        && chunk.source.symbol != "<top_level>"
+        && !matches!(
+            chunk.kind,
+            super::types::ChunkKind::Imports | super::types::ChunkKind::TopLevel
+        )
+}
+
+fn unique_target(targets: &BTreeSet<String>) -> Option<String> {
+    if targets.len() == 1 {
+        targets.iter().next().cloned()
+    } else {
+        None
+    }
+}
+
+fn module_variants_for_chunk(chunk: &EmbedChunk) -> BTreeSet<String> {
+    let mut variants = BTreeSet::new();
+
+    if let Some(module_path) = chunk.source.module_path.as_deref() {
+        add_module_variants(&mut variants, module_path);
+    }
+
+    let file_module = strip_known_extension(&chunk.source.file);
+    add_module_variants(&mut variants, &file_module);
+
+    if let Some(parent) = std::path::Path::new(&chunk.source.file).parent() {
+        if let Some(parent) = parent.to_str() {
+            if !parent.is_empty() {
+                add_module_variants(&mut variants, parent);
+            }
+        }
+    }
+
+    variants
+}
+
+fn resolve_import_target(
+    file: &str,
+    caller_module: Option<&str>,
+    source: &str,
+    symbol: &str,
+    module_symbols: &HashMap<(String, String), BTreeSet<String>>,
+) -> Option<String> {
+    let mut targets = BTreeSet::new();
+    for module in import_module_variants(file, caller_module, source) {
+        if let Some(found) = module_symbols.get(&(module, symbol.to_owned())) {
+            targets.extend(found.iter().cloned());
+        }
+    }
+    unique_target(&targets)
+}
+
+fn import_module_variants(
+    file: &str,
+    caller_module: Option<&str>,
+    source: &str,
+) -> BTreeSet<String> {
+    let mut variants = BTreeSet::new();
+    let source = source.trim().trim_matches('\'').trim_matches('"');
+
+    add_module_variants(&mut variants, source);
+
+    if source.starts_with('.') {
+        add_python_relative_module_variants(&mut variants, caller_module, source);
+        add_js_relative_module_variants(&mut variants, file, source);
+    }
+
+    if let Some(rest) = source
+        .strip_prefix("crate::")
+        .or_else(|| source.strip_prefix("self::"))
+    {
+        add_module_variants(&mut variants, rest);
+    }
+
+    if let Some(rest) = source.strip_prefix("super::") {
+        if let Some(caller_module) = caller_module {
+            let parent = drop_last_segment(caller_module, "::");
+            if parent.is_empty() {
+                add_module_variants(&mut variants, rest);
+            } else {
+                add_module_variants(&mut variants, &format!("{parent}::{rest}"));
+            }
+        }
+    }
+
+    variants
+}
+
+fn add_python_relative_module_variants(
+    variants: &mut BTreeSet<String>,
+    caller_module: Option<&str>,
+    source: &str,
+) {
+    let Some(caller_module) = caller_module else {
+        return;
+    };
+    let dot_count = source.chars().take_while(|ch| *ch == '.').count();
+    if dot_count == 0 {
+        return;
+    }
+    let suffix = source[dot_count..].replace('/', ".");
+    let mut base = caller_module.to_owned();
+    for _ in 0..dot_count {
+        base = drop_last_segment(&base, ".");
+    }
+    let resolved = if suffix.is_empty() {
+        base
+    } else if base.is_empty() {
+        suffix
+    } else {
+        format!("{base}.{suffix}")
+    };
+    add_module_variants(variants, &resolved);
+}
+
+fn add_js_relative_module_variants(variants: &mut BTreeSet<String>, file: &str, source: &str) {
+    let dir = std::path::Path::new(file)
+        .parent()
+        .and_then(|path| path.to_str())
+        .unwrap_or("");
+    let joined = if dir.is_empty() {
+        source.to_owned()
+    } else {
+        format!("{dir}/{source}")
+    };
+    add_module_variants(variants, &normalize_slash_path(&joined));
+}
+
+fn add_module_variants(variants: &mut BTreeSet<String>, module: &str) {
+    let cleaned = clean_module_name(module);
+    if cleaned.is_empty() {
+        return;
+    }
+
+    let mut candidates = BTreeSet::new();
+    candidates.insert(cleaned.clone());
+    candidates.insert(cleaned.replace('\\', "/"));
+    candidates.insert(cleaned.replace('/', "."));
+    candidates.insert(cleaned.replace('/', "::"));
+    candidates.insert(cleaned.replace('.', "::"));
+    candidates.insert(cleaned.replace("::", "."));
+    candidates.insert(cleaned.replace("::", "/"));
+
+    for candidate in candidates.clone() {
+        for prefix in ["src/", "lib/", "src.", "lib.", "src::", "lib::"] {
+            if let Some(stripped) = candidate.strip_prefix(prefix) {
+                candidates.insert(stripped.to_owned());
+            }
+        }
+    }
+
+    variants.extend(
+        candidates
+            .into_iter()
+            .filter(|candidate| !candidate.is_empty()),
+    );
+}
+
+fn clean_module_name(module: &str) -> String {
+    let mut cleaned = module
+        .trim()
+        .trim_end_matches(';')
+        .trim_matches('\'')
+        .trim_matches('"')
+        .replace('\\', "/");
+    while let Some(rest) = cleaned.strip_prefix("./") {
+        cleaned = rest.to_owned();
+    }
+    strip_known_extension(&cleaned)
+}
+
+fn strip_known_extension(path: &str) -> String {
+    let mut path = path.to_owned();
+    for suffix in [
+        "/__init__.py",
+        "/index.ts",
+        "/index.tsx",
+        "/index.js",
+        "/index.jsx",
+        ".py",
+        ".rs",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".java",
+    ] {
+        if let Some(stripped) = path.strip_suffix(suffix) {
+            path = stripped.to_owned();
+            break;
+        }
+    }
+    path
+}
+
+fn normalize_slash_path(path: &str) -> String {
+    let mut parts = Vec::new();
+    let normalized = path.replace('\\', "/");
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {},
+            ".." => {
+                parts.pop();
+            },
+            _ => parts.push(part),
+        }
+    }
+    parts.join("/")
+}
+
+fn drop_last_segment(value: &str, separator: &str) -> String {
+    value
+        .rsplit_once(separator)
+        .map(|(head, _)| head.to_owned())
+        .unwrap_or_default()
 }
 
 /// Parse a single import string into (imported_name, source_module) pairs.
@@ -455,16 +702,18 @@ mod tests {
         let chunks = vec![make_chunk("src/lib.rs", "foo", &[], &[])];
         let resolver = ImportResolver::from_chunks(&chunks);
         let resolved = resolver.resolve_call("src/lib.rs", "foo");
-        assert_eq!(resolved, Some("src/lib.rs::foo".to_owned()));
+        assert_eq!(resolved, Some("src::lib::foo".to_owned()));
     }
 
     #[test]
     fn test_resolve_via_import() {
-        let chunks =
-            vec![make_chunk("src/main.rs", "main", &["use crate::auth::verify;"], &["verify"])];
+        let chunks = vec![
+            make_chunk("src/main.rs", "main", &["use crate::auth::verify;"], &["verify"]),
+            make_chunk("src/auth.rs", "verify", &[], &[]),
+        ];
         let resolver = ImportResolver::from_chunks(&chunks);
         let resolved = resolver.resolve_call("src/main.rs", "verify");
-        assert_eq!(resolved, Some("crate::auth::verify".to_owned()));
+        assert_eq!(resolved, Some("src::auth::verify".to_owned()));
     }
 
     #[test]
@@ -490,8 +739,34 @@ mod tests {
         let resolver = ImportResolver::from_chunks(&chunks);
         resolver.resolve_all_calls(&mut chunks);
 
-        assert_eq!(chunks[0].context.qualified_calls, vec!["crate::auth::verify".to_owned()]);
+        assert_eq!(chunks[0].context.qualified_calls, vec!["src::auth::verify".to_owned()]);
         assert_eq!(chunks[0].context.unresolved_calls, vec!["unknown".to_owned()]);
+    }
+
+    #[test]
+    fn test_resolve_import_does_not_fallback_to_same_name() {
+        let chunks = vec![
+            make_chunk("pkg/main.py", "caller", &["from pkg.a import target"], &["target"]),
+            make_chunk("pkg/a.py", "target", &[], &[]),
+            make_chunk("pkg/b.py", "target", &[], &[]),
+        ];
+        let resolver = ImportResolver::from_chunks(&chunks);
+        let resolved = resolver.resolve_call("pkg/main.py", "target");
+
+        assert_eq!(resolved, Some("pkg::a::target".to_owned()));
+    }
+
+    #[test]
+    fn test_ambiguous_unqualified_call_is_unresolved() {
+        let chunks = vec![
+            make_chunk("pkg/main.py", "caller", &[], &["target"]),
+            make_chunk("pkg/a.py", "target", &[], &[]),
+            make_chunk("pkg/b.py", "target", &[], &[]),
+        ];
+        let resolver = ImportResolver::from_chunks(&chunks);
+        let resolved = resolver.resolve_call("pkg/main.py", "target");
+
+        assert_eq!(resolved, None);
     }
 
     #[test]
@@ -506,6 +781,9 @@ mod tests {
             ChunkContext, ChunkKind, ChunkSource, RepoIdentifier, Visibility,
         };
 
+        let fqn = symbol_fqn(file, symbol);
+        let module_path = module_path(file);
+
         EmbedChunk {
             id: format!("ec_{}", symbol),
             full_hash: String::new(),
@@ -517,12 +795,12 @@ mod tests {
                 file: file.to_owned(),
                 lines: (1, 10),
                 symbol: symbol.to_owned(),
-                fqn: None,
+                fqn: Some(fqn),
                 language: "Rust".to_owned(),
                 parent: None,
                 visibility: Visibility::Public,
                 is_test: false,
-                module_path: None,
+                module_path: Some(module_path),
                 parent_chunk_id: None,
             },
             context: ChunkContext {
@@ -536,5 +814,13 @@ mod tests {
             code_chunk_id: None,
             part: None,
         }
+    }
+
+    fn symbol_fqn(file: &str, symbol: &str) -> String {
+        format!("{}::{}", strip_known_extension(file).replace(['/', '.'], "::"), symbol)
+    }
+
+    fn module_path(file: &str) -> String {
+        strip_known_extension(file).replace('/', ".")
     }
 }

@@ -60,19 +60,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::parser::{parse_file_symbols, Language};
-use crate::security::SecurityScanner;
-use crate::tokenizer::{TokenModel, Tokenizer};
+use crate::parser::Language;
 
-use super::chunker::{generate_summary, generate_tags_for_symbol, EmbedChunker};
-use super::complexity::compute_complexity;
+use super::chunker::EmbedChunker;
 use super::error::EmbedError;
-use super::hasher::hash_content;
-use super::identifiers::extract_identifiers;
 use super::limits::ResourceLimits;
 use super::progress::QuietProgress;
-use super::type_extraction::extract_types;
-use super::types::{ChunkContext, ChunkSource, EmbedChunk, EmbedSettings, RepoIdentifier};
+use super::types::{EmbedChunk, EmbedSettings, RepoIdentifier};
 
 /// Configuration for streaming chunk generation
 #[derive(Debug, Clone)]
@@ -170,12 +164,6 @@ pub struct ChunkStream {
     /// Stream configuration
     config: StreamConfig,
 
-    /// Tokenizer instance
-    tokenizer: Tokenizer,
-
-    /// Security scanner (optional)
-    security_scanner: Option<SecurityScanner>,
-
     /// Repository identifier
     repo_id: RepoIdentifier,
 
@@ -221,13 +209,6 @@ impl ChunkStream {
             return Err(EmbedError::NotADirectory { path: repo_root });
         }
 
-        // Security scanner if enabled
-        let security_scanner = if settings.scan_secrets {
-            Some(SecurityScanner::new())
-        } else {
-            None
-        };
-
         let mut stream = Self {
             pending_files: VecDeque::new(),
             chunk_buffer: VecDeque::new(),
@@ -235,8 +216,6 @@ impl ChunkStream {
             settings,
             limits,
             config,
-            tokenizer: Tokenizer::new(),
-            security_scanner,
             repo_id: RepoIdentifier::default(),
             stats: StreamStats::default(),
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -420,249 +399,6 @@ impl ChunkStream {
         }
 
         !self.chunk_buffer.is_empty()
-    }
-
-    /// Process a single file and return its chunks
-    fn process_file(&mut self, path: &Path) -> Result<Vec<EmbedChunk>, EmbedError> {
-        // Validate file size
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
-
-        if !self.limits.check_file_size(metadata.len()) {
-            return Err(EmbedError::FileTooLarge {
-                path: path.to_path_buf(),
-                size: metadata.len(),
-                max: self.limits.max_file_size,
-            });
-        }
-
-        // Read file
-        let mut content = std::fs::read_to_string(path)
-            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
-
-        self.stats.bytes_processed += content.len() as u64;
-
-        // Check for long lines (minified files)
-        if let Some(max_line_len) = content.lines().map(|l| l.len()).max() {
-            if !self.limits.check_line_length(max_line_len) {
-                return Err(EmbedError::LineTooLong {
-                    path: path.to_path_buf(),
-                    length: max_line_len,
-                    max: self.limits.max_line_length,
-                });
-            }
-        }
-
-        // Security scanning
-        let relative_path = self.safe_relative_path(path)?;
-
-        if let Some(ref scanner) = self.security_scanner {
-            let findings = scanner.scan(&content, &relative_path);
-            if !findings.is_empty() {
-                if self.settings.fail_on_secrets {
-                    let files = findings
-                        .iter()
-                        .map(|f| format!("  {}:{} - {}", f.file, f.line, f.kind.name()))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    return Err(EmbedError::SecretsDetected { count: findings.len(), files });
-                }
-
-                if self.settings.redact_secrets {
-                    content = scanner.redact_content(&content, &relative_path);
-                }
-            }
-        }
-
-        // Parse symbols
-        let language = self.detect_language(path);
-        let mut symbols = parse_file_symbols(&content, path);
-        symbols.sort_by(|a, b| {
-            a.start_line
-                .cmp(&b.start_line)
-                .then_with(|| a.end_line.cmp(&b.end_line))
-                .then_with(|| a.name.cmp(&b.name))
-        });
-
-        let lines: Vec<&str> = content.lines().collect();
-        let mut chunks = Vec::with_capacity(symbols.len());
-
-        for symbol in &symbols {
-            // Skip imports if configured
-            if !self.settings.include_imports
-                && matches!(symbol.kind, crate::types::SymbolKind::Import)
-            {
-                continue;
-            }
-
-            // Extract content with context
-            let start_line = symbol.start_line.saturating_sub(1) as usize;
-            let end_line = (symbol.end_line as usize).min(lines.len());
-            let context_start = start_line.saturating_sub(self.settings.context_lines as usize);
-            let context_end = (end_line + self.settings.context_lines as usize).min(lines.len());
-
-            let chunk_content = lines[context_start..context_end].join("\n");
-
-            // Count tokens
-            let token_model = TokenModel::from_model_name(&self.settings.token_model)
-                .unwrap_or(TokenModel::Claude);
-            let tokens = self.tokenizer.count(&chunk_content, token_model);
-
-            // Generate hash
-            let hash = hash_content(&chunk_content);
-
-            // Build FQN
-            let fqn = self.compute_fqn(&relative_path, symbol);
-
-            // Extract keywords and context prefix before moving chunk_content
-            let keywords = super::chunker::extract_keywords(&chunk_content);
-            let context_prefix = super::chunker::generate_context_prefix(
-                &relative_path,
-                symbol.parent.as_deref(),
-                &symbol.kind,
-            );
-
-            // Extract enrichments: identifiers, type signatures, complexity, tags
-            let lang_enum = Language::from_path(path);
-            let identifiers = extract_identifiers(&chunk_content, lang_enum);
-            let (type_signature, parameter_types, return_type, error_types) =
-                if let Some(lang) = lang_enum {
-                    match extract_types(&chunk_content, lang) {
-                        Some(ti) => {
-                            (ti.type_signature, ti.parameter_types, ti.return_type, ti.error_types)
-                        },
-                        None => (None, Vec::new(), None, Vec::new()),
-                    }
-                } else {
-                    (None, Vec::new(), None, Vec::new())
-                };
-            let complexity_score = lang_enum.and_then(|l| compute_complexity(&chunk_content, l));
-            let tags = generate_tags_for_symbol(&symbol.name, symbol.signature.as_deref());
-
-            let chunk_kind = symbol.kind.into();
-            let source = ChunkSource {
-                repo: self.repo_id.clone(),
-                file: relative_path.clone(),
-                lines: ((context_start + 1) as u32, context_end as u32),
-                symbol: symbol.name.clone(),
-                fqn: Some(fqn),
-                language: language.clone(),
-                parent: symbol.parent.clone(),
-                visibility: symbol.visibility.into(),
-                is_test: self.is_test_code(path, symbol),
-                module_path: Some(super::chunker::derive_module_path(&relative_path, &language)),
-                parent_chunk_id: None,
-            };
-
-            let mut context = ChunkContext {
-                docstring: symbol.docstring.clone(),
-                comments: Vec::new(),
-                signature: symbol.signature.clone(),
-                calls: symbol.calls.clone(),
-                called_by: Vec::new(),
-                imports: Vec::new(),
-                tags,
-                keywords,
-                context_prefix: Some(context_prefix),
-                summary: None,
-                qualified_calls: Vec::new(),
-                unresolved_calls: Vec::new(),
-                identifiers,
-                type_signature,
-                parameter_types,
-                return_type,
-                error_types,
-                lines_of_code: chunk_content.lines().count() as u32,
-                max_nesting_depth: 0,
-                git: None,
-                complexity_score,
-                dependents_count: None,
-            };
-
-            // Generate summary after source and context are built
-            context.summary = generate_summary(chunk_kind, &source, &context);
-            let repr = "code".to_owned();
-            let location_key = EmbedChunk::build_location_key(
-                &source,
-                chunk_kind,
-                &repr,
-                context.signature.as_deref(),
-                None,
-            );
-            let id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
-
-            chunks.push(EmbedChunk {
-                id,
-                full_hash: hash.full_hash,
-                content: chunk_content,
-                tokens,
-                kind: chunk_kind,
-                source,
-                children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
-                context,
-                repr,
-                code_chunk_id: None,
-                part: None,
-            });
-        }
-
-        Ok(chunks)
-    }
-
-    /// Get safe relative path
-    fn safe_relative_path(&self, path: &Path) -> Result<String, EmbedError> {
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| EmbedError::IoError { path: path.to_path_buf(), source: e })?;
-
-        if !canonical.starts_with(&self.repo_root) {
-            return Err(EmbedError::PathTraversal {
-                path: canonical,
-                repo_root: self.repo_root.clone(),
-            });
-        }
-
-        Ok(canonical
-            .strip_prefix(&self.repo_root)
-            .unwrap_or(&canonical)
-            .to_string_lossy()
-            .replace('\\', "/"))
-    }
-
-    /// Detect language from file path (by extension or filename)
-    fn detect_language(&self, path: &Path) -> String {
-        Language::from_path(path)
-            .map_or_else(|| "unknown".to_owned(), |l| l.display_name().to_owned())
-    }
-
-    /// Compute fully qualified name
-    fn compute_fqn(&self, file: &str, symbol: &crate::types::Symbol) -> String {
-        let module_path = file
-            .strip_suffix(".rs")
-            .or_else(|| file.strip_suffix(".py"))
-            .or_else(|| file.strip_suffix(".ts"))
-            .or_else(|| file.strip_suffix(".tsx"))
-            .or_else(|| file.strip_suffix(".js"))
-            .or_else(|| file.strip_suffix(".jsx"))
-            .or_else(|| file.strip_suffix(".go"))
-            .unwrap_or(file)
-            .replace(['\\', '/'], "::"); // Normalize path separators
-
-        // Build the symbol portion
-        let symbol_part = if let Some(ref parent) = symbol.parent {
-            format!("{}::{}::{}", module_path, parent, symbol.name)
-        } else {
-            format!("{}::{}", module_path, symbol.name)
-        };
-
-        // Prepend repo identity: "{namespace}/{name}::{symbol_part}" or "{name}::{symbol_part}"
-        let repo_prefix = self.repo_id.qualified_name();
-        if repo_prefix.is_empty() {
-            symbol_part
-        } else {
-            format!("{}::{}", repo_prefix, symbol_part)
-        }
     }
 
     /// Check if code is test code

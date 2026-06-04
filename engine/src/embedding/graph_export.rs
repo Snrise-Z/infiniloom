@@ -12,12 +12,12 @@
 //!
 //! # Edge Types
 //!
-//! - `CALLS`: Symbol calls another symbol (from `chunk.context.calls`)
+//! - `CALLS`: Symbol calls another symbol (from resolved `chunk.context.qualified_calls`)
 //! - `DEFINED_IN`: Symbol is defined in a file
 //! - `BELONGS_TO`: File belongs to a module
 //! - `CONTAINS`: Parent symbol contains child symbol
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use serde::Serialize;
 
@@ -83,6 +83,7 @@ fn logical_target_ids<'a>(candidates: &'a [&'a EmbedChunk]) -> Vec<&'a str> {
         candidates
             .iter()
             .filter(|chunk| chunk.kind.is_part())
+            .filter(|chunk| chunk.part.as_ref().is_none_or(|part| part.part == 1))
             .map(|chunk| chunk.id.as_str())
             .collect()
     } else {
@@ -93,15 +94,43 @@ fn logical_target_ids<'a>(candidates: &'a [&'a EmbedChunk]) -> Vec<&'a str> {
     }
 }
 
+fn contains_parent_ids<'a>(
+    child: &'a EmbedChunk,
+    candidates: &'a [&'a EmbedChunk],
+) -> Vec<&'a str> {
+    if let Some(parent_chunk_id) = child.source.parent_chunk_id.as_deref() {
+        if candidates.iter().any(|chunk| chunk.id == parent_chunk_id) {
+            return vec![parent_chunk_id];
+        }
+    }
+
+    if candidates.iter().any(|chunk| chunk.kind.is_part()) {
+        return candidates
+            .iter()
+            .filter(|chunk| chunk.kind.is_part())
+            .filter(|chunk| line_ranges_overlap(chunk.source.lines, child.source.lines))
+            .map(|chunk| chunk.id.as_str())
+            .collect();
+    }
+
+    candidates
+        .first()
+        .map(|chunk| vec![chunk.id.as_str()])
+        .unwrap_or_default()
+}
+
+fn line_ranges_overlap(a: (u32, u32), b: (u32, u32)) -> bool {
+    a.0 <= b.1 && b.0 <= a.1
+}
+
 /// Generate a Neptune-compatible graph export from embedding chunks.
 ///
 /// This performs best-effort symbol resolution: calls that cannot be matched
 /// to a known chunk are silently skipped.
 pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
-    // Build lookup: symbol_name -> list of chunk IDs (for call resolution)
-    // We use (symbol_name, file) as key for precise matching, falling back to name-only
+    // Build lookups for hierarchy and resolved call targets.
     let mut symbol_by_name_and_file: HashMap<(&str, &str), Vec<&EmbedChunk>> = HashMap::new();
-    let mut symbol_by_name: HashMap<&str, Vec<&EmbedChunk>> = HashMap::new();
+    let mut symbol_by_fqn: HashMap<&str, Vec<&EmbedChunk>> = HashMap::new();
 
     for chunk in chunks {
         let name = chunk.source.symbol.as_str();
@@ -110,16 +139,14 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
             .entry((name, file))
             .or_default()
             .push(chunk);
-        // For name-only lookup, first match wins (deterministic due to sorted input)
-        symbol_by_name.entry(name).or_default().push(chunk);
+        if let Some(fqn) = chunk.source.fqn.as_deref() {
+            symbol_by_fqn.entry(fqn).or_default().push(chunk);
+        }
     }
 
     // Track unique files and modules (sorted for determinism)
     let mut files: BTreeSet<&str> = BTreeSet::new();
     let mut modules: BTreeSet<String> = BTreeSet::new();
-
-    // Track parent->children relationships by matching source.parent
-    let mut parent_map: HashMap<(&str, &str), Vec<&str>> = HashMap::new();
 
     for chunk in chunks {
         files.insert(&chunk.source.file);
@@ -127,14 +154,6 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
         // Derive module path from file path (e.g., "src/auth/mod.rs" -> "src/auth")
         if let Some(module_path) = derive_module_path(&chunk.source.file) {
             modules.insert(module_path);
-        }
-
-        // Track parent->child relationships
-        if let Some(ref parent_name) = chunk.source.parent {
-            parent_map
-                .entry((parent_name.as_str(), chunk.source.file.as_str()))
-                .or_default()
-                .push(&chunk.id);
         }
     }
 
@@ -205,21 +224,6 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
     }
 
     // --- Module vertices ---
-    // Collect into a BTreeMap for deterministic iteration
-    let module_files: BTreeMap<&str, Vec<&str>> = {
-        let mut mf: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for file in &files {
-            if let Some(module_path) = derive_module_path(file) {
-                if modules.contains(&module_path) {
-                    mf.entry(modules.get(&module_path).map_or("", |s| s.as_str()))
-                        .or_default()
-                        .push(file);
-                }
-            }
-        }
-        mf
-    };
-
     for module_path in &modules {
         let mut props = serde_json::Map::new();
         props.insert("module_path".to_owned(), serde_json::Value::String(module_path.clone()));
@@ -244,11 +248,9 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
 
     // --- CALLS edges (chunk -> called chunk) ---
     for chunk in chunks {
-        for call_name in &chunk.context.calls {
-            // Try precise match (same file first), then name-only
-            let target_ids = symbol_by_name_and_file
-                .get(&(call_name.as_str(), chunk.source.file.as_str()))
-                .or_else(|| symbol_by_name.get(call_name.as_str()))
+        for qcall in &chunk.context.qualified_calls {
+            let target_ids = symbol_by_fqn
+                .get(qcall.as_str())
                 .map(|candidates| logical_target_ids(candidates))
                 .unwrap_or_default();
 
@@ -288,7 +290,7 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
             // Find the parent chunk by name in the same file
             let parent_ids = symbol_by_name_and_file
                 .get(&(parent_name.as_str(), chunk.source.file.as_str()))
-                .map(|candidates| logical_target_ids(candidates))
+                .map(|candidates| contains_parent_ids(chunk, candidates))
                 .unwrap_or_default();
 
             for pid in parent_ids {
@@ -375,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_generate_graph_basic() {
-        let chunks = vec![
+        let mut chunks = vec![
             make_chunk(
                 "ec_aaa",
                 "foo",
@@ -386,6 +388,8 @@ mod tests {
             ),
             make_chunk("ec_bbb", "bar", "src/lib.rs", ChunkKind::Function, vec![], None),
         ];
+        chunks[0].context.qualified_calls = vec!["src::lib::bar".to_owned()];
+        chunks[1].source.fqn = Some("src::lib::bar".to_owned());
 
         let graph = generate_graph_export(&chunks);
 
@@ -433,6 +437,90 @@ mod tests {
     }
 
     #[test]
+    fn test_calls_to_split_symbol_target_entry_part_only() {
+        fn split_part(id: &str, part_num: u32) -> EmbedChunk {
+            let mut chunk =
+                make_chunk(id, "big", "src/lib.rs", ChunkKind::FunctionPart, vec![], None);
+            chunk.part = Some(crate::embedding::types::ChunkPart {
+                part: part_num,
+                of: 2,
+                parent_id: "parent_big".to_owned(),
+                parent_signature: "fn big()".to_owned(),
+                overlap_lines: 0,
+            });
+            chunk
+        }
+
+        let mut chunks = vec![
+            make_chunk(
+                "ec_caller",
+                "caller",
+                "src/lib.rs",
+                ChunkKind::Function,
+                vec!["big".into()],
+                None,
+            ),
+            split_part("ec_big_part_1", 1),
+            split_part("ec_big_part_2", 2),
+        ];
+        chunks[0].context.qualified_calls = vec!["src::lib::big".to_owned()];
+        chunks[1].source.fqn = Some("src::lib::big".to_owned());
+        chunks[2].source.fqn = Some("src::lib::big".to_owned());
+
+        let graph = generate_graph_export(&chunks);
+        let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, "ec_caller");
+        assert_eq!(calls[0].to, "ec_big_part_1");
+    }
+
+    #[test]
+    fn test_contains_to_split_class_targets_fragment_parent_only() {
+        fn class_part(id: &str, part_num: u32, lines: (u32, u32)) -> EmbedChunk {
+            let mut chunk =
+                make_chunk(id, "BigService", "src/model.rs", ChunkKind::ClassPart, vec![], None);
+            chunk.source.lines = lines;
+            chunk.part = Some(crate::embedding::types::ChunkPart {
+                part: part_num,
+                of: 2,
+                parent_id: "parent_big_service".to_owned(),
+                parent_signature: "class BigService".to_owned(),
+                overlap_lines: 0,
+            });
+            chunk
+        }
+
+        let mut child = make_chunk(
+            "ec_child",
+            "worker",
+            "src/model.rs",
+            ChunkKind::Method,
+            vec![],
+            Some("BigService".into()),
+        );
+        child.source.lines = (75, 80);
+        child.source.parent_chunk_id = Some("ec_class_part_2".to_owned());
+
+        let chunks = vec![
+            class_part("ec_class_part_1", 1, (1, 50)),
+            class_part("ec_class_part_2", 2, (51, 100)),
+            child,
+        ];
+
+        let graph = generate_graph_export(&chunks);
+        let contains: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.label == "CONTAINS")
+            .collect();
+
+        assert_eq!(contains.len(), 1);
+        assert_eq!(contains[0].from, "ec_class_part_2");
+        assert_eq!(contains[0].to, "ec_child");
+    }
+
+    #[test]
     fn test_unresolved_calls_skipped() {
         let chunks = vec![make_chunk(
             "ec_aaa",
@@ -447,6 +535,53 @@ mod tests {
 
         let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
         assert_eq!(calls.len(), 0);
+    }
+
+    #[test]
+    fn test_raw_calls_do_not_fallback_to_same_name() {
+        let chunks = vec![
+            make_chunk(
+                "ec_caller",
+                "caller",
+                "src/main.rs",
+                ChunkKind::Function,
+                vec!["target".into()],
+                None,
+            ),
+            make_chunk("ec_a", "target", "src/a.rs", ChunkKind::Function, vec![], None),
+            make_chunk("ec_b", "target", "src/b.rs", ChunkKind::Function, vec![], None),
+        ];
+
+        let graph = generate_graph_export(&chunks);
+        let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
+
+        assert_eq!(calls.len(), 0);
+    }
+
+    #[test]
+    fn test_qualified_call_targets_exact_fqn_only() {
+        let mut chunks = vec![
+            make_chunk(
+                "ec_caller",
+                "caller",
+                "src/main.rs",
+                ChunkKind::Function,
+                vec!["target".into()],
+                None,
+            ),
+            make_chunk("ec_a", "target", "src/a.rs", ChunkKind::Function, vec![], None),
+            make_chunk("ec_b", "target", "src/b.rs", ChunkKind::Function, vec![], None),
+        ];
+        chunks[0].context.qualified_calls = vec!["src::a::target".to_owned()];
+        chunks[1].source.fqn = Some("src::a::target".to_owned());
+        chunks[2].source.fqn = Some("src::b::target".to_owned());
+
+        let graph = generate_graph_export(&chunks);
+        let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, "ec_caller");
+        assert_eq!(calls[0].to, "ec_a");
     }
 
     #[test]
