@@ -377,6 +377,14 @@ impl EmbedChunker {
             progress.warn(&format!(
                 "Canonicalized {canonicalized} duplicate AST chunks into alias metadata"
             ));
+
+            // Canonicalization can replace the chunk that represents a source
+            // span, for example when a Python method also matched the generic
+            // function query. Rebuild the graph from the canonical chunk set so
+            // called_by/dependents_count never retain alias FQNs or parent-level
+            // metadata on non-entry split fragments.
+            progress.set_phase("Rebuilding canonical call graph...");
+            self.populate_called_by(all_chunks);
         }
 
         // Phase 3c: Link parent/children chunk IDs
