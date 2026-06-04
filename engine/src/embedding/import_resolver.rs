@@ -125,13 +125,16 @@ impl ImportResolver {
     pub fn resolve_all_calls(&self, chunks: &mut [EmbedChunk]) {
         for chunk in chunks.iter_mut() {
             let file = &chunk.source.file;
+            let caller_fqn = chunk.source.fqn.as_deref();
             let mut qualified = BTreeSet::new();
             let mut unresolved = BTreeSet::new();
 
             for call_name in &chunk.context.calls {
                 match self.resolve_call(file, call_name) {
                     Some(qname) => {
-                        qualified.insert(qname);
+                        if caller_fqn != Some(qname.as_str()) {
+                            qualified.insert(qname);
+                        }
                     },
                     None => {
                         unresolved.insert(call_name.clone());
@@ -163,6 +166,9 @@ impl ImportResolver {
                 .to_owned();
 
             for qcall in &chunk.context.qualified_calls {
+                if qcall == &caller_fqn {
+                    continue;
+                }
                 reverse
                     .entry(qcall.clone())
                     .or_default()
@@ -741,6 +747,20 @@ mod tests {
 
         assert_eq!(chunks[0].context.qualified_calls, vec!["src::auth::verify".to_owned()]);
         assert_eq!(chunks[0].context.unresolved_calls, vec!["unknown".to_owned()]);
+    }
+
+    #[test]
+    fn test_resolve_all_calls_skips_same_fqn_self_call() {
+        let mut chunks = vec![make_chunk("src/service.py", "Service", &[], &["Service"])];
+
+        let resolver = ImportResolver::from_chunks(&chunks);
+        resolver.resolve_all_calls(&mut chunks);
+
+        assert!(
+            chunks[0].context.qualified_calls.is_empty(),
+            "a chunk should not resolve calls to its own FQN: {:?}",
+            chunks[0].context.qualified_calls
+        );
     }
 
     #[test]

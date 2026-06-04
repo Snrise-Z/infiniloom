@@ -123,16 +123,26 @@ fn line_ranges_overlap(a: (u32, u32), b: (u32, u32)) -> bool {
     a.0 <= b.1 && b.0 <= a.1
 }
 
+fn same_logical_fqn(left: &EmbedChunk, right: &EmbedChunk) -> bool {
+    left.source
+        .fqn
+        .as_deref()
+        .zip(right.source.fqn.as_deref())
+        .is_some_and(|(left_fqn, right_fqn)| left_fqn == right_fqn)
+}
+
 /// Generate a Neptune-compatible graph export from embedding chunks.
 ///
 /// This performs best-effort symbol resolution: calls that cannot be matched
 /// to a known chunk are silently skipped.
 pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
     // Build lookups for hierarchy and resolved call targets.
+    let mut chunk_by_id: HashMap<&str, &EmbedChunk> = HashMap::new();
     let mut symbol_by_name_and_file: HashMap<(&str, &str), Vec<&EmbedChunk>> = HashMap::new();
     let mut symbol_by_fqn: HashMap<&str, Vec<&EmbedChunk>> = HashMap::new();
 
     for chunk in chunks {
+        chunk_by_id.insert(chunk.id.as_str(), chunk);
         let name = chunk.source.symbol.as_str();
         let file = chunk.source.file.as_str();
         symbol_by_name_and_file
@@ -256,7 +266,11 @@ pub fn generate_graph_export(chunks: &[EmbedChunk]) -> GraphExport {
 
             for target in target_ids {
                 // Skip self-calls
-                if target != chunk.id.as_str() {
+                let is_self_id = target == chunk.id.as_str();
+                let is_same_logical_fqn = chunk_by_id
+                    .get(target)
+                    .is_some_and(|target_chunk| same_logical_fqn(chunk, target_chunk));
+                if !is_self_id && !is_same_logical_fqn {
                     edges.push(GraphEdge {
                         id: edge_id(&chunk.id, target, "CALLS"),
                         from: chunk.id.clone(),
@@ -473,6 +487,34 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].from, "ec_caller");
         assert_eq!(calls[0].to, "ec_big_part_1");
+    }
+
+    #[test]
+    fn test_calls_skip_same_fqn_split_fragments() {
+        fn split_part(id: &str, part_num: u32) -> EmbedChunk {
+            let mut chunk =
+                make_chunk(id, "big", "src/lib.rs", ChunkKind::FunctionPart, vec![], None);
+            chunk.part = Some(crate::embedding::types::ChunkPart {
+                part: part_num,
+                of: 2,
+                parent_id: "parent_big".to_owned(),
+                parent_signature: "fn big()".to_owned(),
+                overlap_lines: 0,
+            });
+            chunk.source.fqn = Some("src::lib::big".to_owned());
+            chunk
+        }
+
+        let mut chunks = vec![split_part("ec_big_part_1", 1), split_part("ec_big_part_2", 2)];
+        chunks[0].context.qualified_calls = vec!["src::lib::big".to_owned()];
+
+        let graph = generate_graph_export(&chunks);
+        let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
+
+        assert!(
+            calls.is_empty(),
+            "split fragments of the same logical symbol should not call each other: {calls:#?}"
+        );
     }
 
     #[test]

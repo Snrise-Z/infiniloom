@@ -454,6 +454,31 @@ class MyClass:
     }
 
     #[test]
+    fn test_parse_python_decorated_method_keeps_parent() {
+        let mut parser = Parser::new();
+        let source = r#"
+class Factory:
+    @staticmethod
+    def BufferingHints():
+        return BufferingHints()
+"#;
+
+        let symbols = parser.parse(source, Language::Python).unwrap();
+        let method = symbols
+            .iter()
+            .find(|s| {
+                s.name == "BufferingHints"
+                    && s.kind == SymbolKind::Method
+                    && s.parent.as_deref() == Some("Factory")
+            })
+            .expect("decorated function inside a class should be extracted as a method");
+
+        assert_eq!(method.start_line, 4);
+        assert_eq!(method.end_line, 5);
+        assert_eq!(method.signature.as_deref(), Some("def BufferingHints():"));
+    }
+
+    #[test]
     fn test_parse_rust() {
         let mut parser = Parser::new();
         let source = r#"

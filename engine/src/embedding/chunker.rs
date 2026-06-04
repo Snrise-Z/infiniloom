@@ -3404,6 +3404,100 @@ def caller():
     }
 
     #[test]
+    fn test_python_decorated_methods_keep_class_fqn_scope() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "pkg/resources.py",
+            r#"
+class BufferingHints:
+    pass
+
+class Factory:
+    @staticmethod
+    def BufferingHints():
+        return BufferingHints()
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let class_chunk = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::Class
+                    && chunk.source.file == "pkg/resources.py"
+                    && chunk.source.symbol == "BufferingHints"
+            })
+            .expect("BufferingHints class chunk should exist");
+        let method_chunk = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::Method
+                    && chunk.source.file == "pkg/resources.py"
+                    && chunk.source.symbol == "BufferingHints"
+                    && chunk.source.parent.as_deref() == Some("Factory")
+            })
+            .expect("decorated BufferingHints method should be scoped under Factory");
+
+        let top_level_function_collision: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| {
+                chunk.kind == ChunkKind::Function
+                    && chunk.source.file == "pkg/resources.py"
+                    && chunk.source.symbol == "BufferingHints"
+                    && chunk.source.parent.is_none()
+            })
+            .collect();
+        assert!(
+            top_level_function_collision.is_empty(),
+            "decorated class method must not remain as a top-level function alias: {top_level_function_collision:#?}"
+        );
+        assert_ne!(class_chunk.source.fqn, method_chunk.source.fqn);
+        assert!(
+            class_chunk
+                .source
+                .fqn
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with("::pkg::resources::BufferingHints"),
+            "class FQN should stay class-scoped: {:?}",
+            class_chunk.source.fqn
+        );
+        assert!(
+            method_chunk
+                .source
+                .fqn
+                .as_deref()
+                .unwrap_or_default()
+                .ends_with("::pkg::resources::Factory::BufferingHints"),
+            "decorated method FQN should include class parent: {:?}",
+            method_chunk.source.fqn
+        );
+
+        let graph = crate::embedding::generate_graph_export(&chunks);
+        assert!(
+            graph
+                .edges
+                .iter()
+                .all(|edge| edge.label != "CALLS" || !edge.from.is_empty() || !edge.to.is_empty()),
+            "graph export should complete for decorated-method chunks"
+        );
+    }
+
+    #[test]
     fn test_split_parts_use_fragment_level_relationships() {
         let temp_dir = TempDir::new().unwrap();
         let mut big_body = String::new();
