@@ -17,6 +17,7 @@
 //! 3. Output chunks are sorted by (file, line, id)
 //! 4. All hash computations use integer-only math (no floats)
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -817,7 +818,6 @@ impl EmbedChunker {
     /// resolved internal targets only.
     fn populate_called_by(&self, chunks: &mut [EmbedChunk]) {
         use super::import_resolver::ImportResolver;
-        use std::collections::BTreeSet;
 
         // Phase A: Resolve calls via imports (populates qualified_calls / unresolved_calls)
         let resolver = ImportResolver::from_chunks(chunks);
@@ -825,9 +825,10 @@ impl EmbedChunker {
 
         // Phase B: Build reverse call map from resolved targets only.
         let qualified_reverse = resolver.build_qualified_reverse_map(chunks);
+        let logical_targets = Self::logical_target_indices_by_fqn(chunks);
 
         // Phase C: Populate called_by using resolved target FQNs.
-        for chunk in chunks.iter_mut() {
+        for (index, chunk) in chunks.iter_mut().enumerate() {
             let Some(fqn) = chunk.source.fqn.as_deref() else {
                 chunk.context.called_by.clear();
                 chunk.context.dependents_count = None;
@@ -835,8 +836,11 @@ impl EmbedChunker {
             };
 
             let mut called_by_set: BTreeSet<String> = BTreeSet::new();
+            let is_logical_target = logical_targets
+                .get(fqn)
+                .is_some_and(|indices| indices.contains(&index));
 
-            if !Self::is_non_entry_part(chunk) {
+            if is_logical_target && !Self::is_non_entry_part(chunk) {
                 if let Some(callers) = qualified_reverse.get(fqn) {
                     called_by_set.extend(
                         callers
@@ -854,6 +858,52 @@ impl EmbedChunker {
             let count = chunk.context.called_by.len() as u32;
             chunk.context.dependents_count = (count > 0).then_some(count);
         }
+    }
+
+    fn logical_target_indices_by_fqn(chunks: &[EmbedChunk]) -> BTreeMap<String, BTreeSet<usize>> {
+        let mut fqn_to_indices: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (index, chunk) in chunks.iter().enumerate() {
+            if let Some(fqn) = chunk.source.fqn.as_deref() {
+                fqn_to_indices
+                    .entry(fqn.to_owned())
+                    .or_default()
+                    .push(index);
+            }
+        }
+
+        fqn_to_indices
+            .into_iter()
+            .map(|(fqn, mut indices)| {
+                indices.sort_by(|left, right| {
+                    Self::logical_target_chunk_cmp(&chunks[*left], &chunks[*right])
+                });
+                let selected = if indices.iter().any(|index| chunks[*index].kind.is_part()) {
+                    indices
+                        .into_iter()
+                        .filter(|index| {
+                            chunks[*index].kind.is_part()
+                                && chunks[*index]
+                                    .part
+                                    .as_ref()
+                                    .is_none_or(|part| part.part == 1)
+                        })
+                        .collect()
+                } else {
+                    indices.into_iter().next().into_iter().collect()
+                };
+                (fqn, selected)
+            })
+            .collect()
+    }
+
+    fn logical_target_chunk_cmp(left: &EmbedChunk, right: &EmbedChunk) -> std::cmp::Ordering {
+        left.source
+            .file
+            .cmp(&right.source.file)
+            .then_with(|| left.source.lines.0.cmp(&right.source.lines.0))
+            .then_with(|| left.source.lines.1.cmp(&right.source.lines.1))
+            .then_with(|| left.source.symbol.cmp(&right.source.symbol))
+            .then_with(|| left.id.cmp(&right.id))
     }
 
     fn is_non_entry_part(chunk: &EmbedChunk) -> bool {
@@ -3495,6 +3545,83 @@ class Factory:
                 .all(|edge| edge.label != "CALLS" || !edge.from.is_empty() || !edge.to.is_empty()),
             "graph export should complete for decorated-method chunks"
         );
+    }
+
+    #[test]
+    fn test_duplicate_fqn_called_by_matches_graph_target() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "pkg/resources.py",
+            r#"
+def create(**kwargs): return {"type": "A", **kwargs}
+def create(**kwargs): return {"type": "B", **kwargs}
+
+def caller():
+    return create(name="item")
+"#,
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let create_chunks: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| {
+                chunk.source.file == "pkg/resources.py" && chunk.source.symbol == "create"
+            })
+            .collect();
+        assert_eq!(create_chunks.len(), 2, "expected both same-name functions");
+
+        let logical_target = create_chunks
+            .iter()
+            .min_by(|left, right| EmbedChunker::logical_target_chunk_cmp(left, right))
+            .expect("create target should exist");
+        let non_target = create_chunks
+            .iter()
+            .find(|chunk| chunk.id != logical_target.id)
+            .expect("second create chunk should exist");
+        let caller = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.source.file == "pkg/resources.py" && chunk.source.symbol == "caller"
+            })
+            .expect("caller chunk should exist");
+
+        assert!(
+            logical_target
+                .context
+                .called_by
+                .iter()
+                .any(|caller| caller.ends_with("::pkg::resources::caller")),
+            "the selected logical target should receive called_by: {:?}",
+            logical_target.context.called_by
+        );
+        assert!(
+            non_target.context.called_by.is_empty(),
+            "duplicate FQN chunks not selected as graph targets must not receive called_by: {:?}",
+            non_target.context.called_by
+        );
+
+        let graph = crate::embedding::generate_graph_export(&chunks);
+        let calls: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.label == "CALLS" && edge.from == caller.id)
+            .collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to, logical_target.id);
     }
 
     #[test]

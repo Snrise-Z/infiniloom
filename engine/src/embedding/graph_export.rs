@@ -79,6 +79,17 @@ fn edge_id(from: &str, to: &str, label: &str) -> String {
 }
 
 fn logical_target_ids<'a>(candidates: &'a [&'a EmbedChunk]) -> Vec<&'a str> {
+    let mut candidates = candidates.to_vec();
+    candidates.sort_by(|left, right| {
+        left.source
+            .file
+            .cmp(&right.source.file)
+            .then_with(|| left.source.lines.0.cmp(&right.source.lines.0))
+            .then_with(|| left.source.lines.1.cmp(&right.source.lines.1))
+            .then_with(|| left.source.symbol.cmp(&right.source.symbol))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
     if candidates.iter().any(|chunk| chunk.kind.is_part()) {
         candidates
             .iter()
@@ -624,6 +635,34 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].from, "ec_caller");
         assert_eq!(calls[0].to, "ec_a");
+    }
+
+    #[test]
+    fn test_duplicate_fqn_call_targets_first_source_order_chunk() {
+        let mut chunks = vec![
+            make_chunk(
+                "ec_caller",
+                "caller",
+                "src/main.py",
+                ChunkKind::Function,
+                vec!["create".into()],
+                None,
+            ),
+            make_chunk("ec_late", "create", "src/factory.py", ChunkKind::Function, vec![], None),
+            make_chunk("ec_early", "create", "src/factory.py", ChunkKind::Function, vec![], None),
+        ];
+        chunks[0].context.qualified_calls = vec!["src::factory::create".to_owned()];
+        chunks[1].source.fqn = Some("src::factory::create".to_owned());
+        chunks[1].source.lines = (30, 30);
+        chunks[2].source.fqn = Some("src::factory::create".to_owned());
+        chunks[2].source.lines = (10, 10);
+
+        let graph = generate_graph_export(&chunks);
+        let calls: Vec<_> = graph.edges.iter().filter(|e| e.label == "CALLS").collect();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from, "ec_caller");
+        assert_eq!(calls[0].to, "ec_early");
     }
 
     #[test]
