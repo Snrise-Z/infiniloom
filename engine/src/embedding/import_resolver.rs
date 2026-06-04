@@ -66,6 +66,10 @@ impl ImportResolver {
         }
 
         for chunk in chunks {
+            if chunk.kind == super::types::ChunkKind::Imports && chunk.part.is_some() {
+                continue;
+            }
+
             let file = &chunk.source.file;
             let caller_module = chunk.source.module_path.as_deref();
 
@@ -783,6 +787,28 @@ mod tests {
             make_chunk("pkg/a.py", "target", &[], &[]),
             make_chunk("pkg/b.py", "target", &[], &[]),
         ];
+        let resolver = ImportResolver::from_chunks(&chunks);
+        let resolved = resolver.resolve_call("pkg/main.py", "target");
+
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn test_split_import_fragments_do_not_build_import_scope() {
+        use super::super::types::ChunkPart;
+
+        let mut caller =
+            make_chunk("pkg/main.py", "caller", &["from pkg.a import target"], &["target"]);
+        caller.kind = super::super::types::ChunkKind::Imports;
+        caller.part = Some(ChunkPart {
+            part: 1,
+            of: 2,
+            parent_id: caller.id.clone(),
+            parent_signature: String::new(),
+            overlap_lines: 0,
+        });
+
+        let chunks = vec![caller, make_chunk("pkg/a.py", "target", &[], &[])];
         let resolver = ImportResolver::from_chunks(&chunks);
         let resolved = resolver.resolve_call("pkg/main.py", "target");
 

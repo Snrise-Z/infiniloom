@@ -178,9 +178,7 @@ impl EmbedChunk {
             .map(|value| hash_content(value).short_id)
             .unwrap_or_default();
         let part_key = part
-            .map(|item| {
-                format!("part:{}:{}:{}:{}", item.part, item.of, item.overlap_lines, item.parent_id)
-            })
+            .map(|item| format!("part:{}:{}:{}", item.part, item.of, item.overlap_lines))
             .unwrap_or_else(|| "whole".to_owned());
         format!(
             "repo:{}::file:{}::lines:{}-{}::symbol:{}::parent:{}::kind:{}::repr:{}::sig:{}::part:{}",
@@ -514,7 +512,10 @@ pub struct ChunkPart {
     /// Total number of parts
     pub of: u32,
 
-    /// Stable ID of the logical parent chunk before splitting
+    /// Chunk ID of the entry fragment for this split symbol.
+    ///
+    /// This is always an emitted chunk ID, so downstream metadata never points
+    /// at a synthetic parent chunk that is absent from the chunk list.
     pub parent_id: String,
 
     /// Signature repeated for context

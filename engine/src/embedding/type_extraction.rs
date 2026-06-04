@@ -302,9 +302,13 @@ fn extract_python_types(root: tree_sitter::Node<'_>, source: &str) -> Option<Typ
         }
     }
 
-    // Find return type (-> annotation)
-    let return_type =
-        find_child_by_kind(func_node, "type").map(|n| node_text(n, source).trim().to_owned());
+    // Find return type from the annotated return field only. A direct
+    // child-kind search for "type" is too broad for Python and can capture
+    // body/docstring text in malformed or multi-line definitions.
+    let return_type = func_node
+        .child_by_field_name("return_type")
+        .map(|n| node_text(n, source).trim().to_owned())
+        .filter(|text| !text.is_empty());
 
     // Build Python-style type signature
     let params_str = param_types.join(", ");
@@ -617,6 +621,18 @@ mod tests {
         assert_eq!(info.parameter_types, vec!["list", "int"]);
         assert_eq!(info.return_type.as_deref(), Some("dict"));
         assert!(info.type_signature.as_ref().unwrap().contains("-> dict"));
+    }
+
+    #[test]
+    fn test_python_return_type_does_not_include_body_or_docstring() {
+        let source = r#"def process(data: list) -> dict[str, int]:
+    """Return a mapping."""
+    result = {"count": len(data)}
+    return result"#;
+        let info = extract_types(source, Language::Python).unwrap();
+        assert_eq!(info.parameter_types, vec!["list"]);
+        assert_eq!(info.return_type.as_deref(), Some("dict[str, int]"));
+        assert!(!info.type_signature.unwrap().contains("Return a mapping"));
     }
 
     #[test]

@@ -388,9 +388,20 @@ impl EmbedChunker {
             self.populate_called_by(all_chunks);
         }
 
-        // Phase 3c: Link parent/children chunk IDs
+        // Phase 3c: Remove fragments that became pure whitespace after
+        // container child-body masking. These chunks are not useful retrieval
+        // units and must not become hierarchy targets.
+        progress.set_phase("Pruning empty chunks...");
+        let pruned = self.prune_empty_chunks(all_chunks);
+        if pruned > 0 {
+            progress.warn(&format!("Pruned {pruned} empty chunks after fragment generation"));
+            self.populate_called_by(all_chunks);
+        }
+
+        // Phase 3d: Link parent/children chunk IDs
         progress.set_phase("Linking parent/children chunks...");
         self.link_parent_children(all_chunks, progress);
+        self.repair_live_chunk_references(all_chunks);
 
         // Phase 4: Build hierarchy summaries (if enabled)
         if self.settings.enable_hierarchy {
@@ -423,6 +434,9 @@ impl EmbedChunker {
             all_chunks.extend(signature_chunks);
         }
 
+        progress.set_phase("Repairing chunk references...");
+        self.repair_live_chunk_references(all_chunks);
+
         // Phase 6: Sort for deterministic output
         // Note: par_sort_by is unstable, but our comparison uses multiple tiebreakers
         // to guarantee no two elements ever compare equal, making stability irrelevant.
@@ -442,6 +456,93 @@ impl EmbedChunker {
         if self.settings.git_metadata {
             progress.set_phase("Collecting git metadata...");
             self.enrich_with_git_metadata(all_chunks, repo_root);
+        }
+    }
+
+    fn prune_empty_chunks(&self, chunks: &mut Vec<EmbedChunk>) -> usize {
+        let before = chunks.len();
+        chunks.retain(|chunk| !chunk.content.trim().is_empty());
+        before - chunks.len()
+    }
+
+    fn repair_live_chunk_references(&self, chunks: &mut [EmbedChunk]) {
+        let live_ids: BTreeSet<String> = chunks.iter().map(|chunk| chunk.id.clone()).collect();
+
+        for chunk in chunks.iter_mut() {
+            chunk.children_ids.retain(|id| live_ids.contains(id));
+            chunk.children_ids.sort();
+            chunk.children_ids.dedup();
+
+            if chunk
+                .source
+                .parent_chunk_id
+                .as_ref()
+                .is_some_and(|id| !live_ids.contains(id))
+            {
+                chunk.source.parent_chunk_id = None;
+            }
+
+            if chunk
+                .code_chunk_id
+                .as_ref()
+                .is_some_and(|id| !live_ids.contains(id))
+            {
+                chunk.code_chunk_id = None;
+            }
+        }
+
+        Self::repair_split_part_parent_ids(chunks, &live_ids);
+    }
+
+    fn repair_split_part_parent_ids(chunks: &mut [EmbedChunk], live_ids: &BTreeSet<String>) {
+        type SplitGroupKey = (String, String, String, Option<String>, String, u32, String);
+
+        fn key_for(chunk: &EmbedChunk, part: &ChunkPart) -> SplitGroupKey {
+            (
+                chunk.source.repo.qualified_name(),
+                chunk.source.file.clone(),
+                chunk.source.symbol.clone(),
+                chunk.source.fqn.clone(),
+                part.parent_signature.clone(),
+                part.of,
+                part.parent_id.clone(),
+            )
+        }
+
+        let mut grouped_parts: BTreeMap<SplitGroupKey, Vec<(u32, String)>> = BTreeMap::new();
+        for chunk in chunks.iter() {
+            if let Some(part) = chunk.part.as_ref() {
+                if live_ids.contains(&part.parent_id) {
+                    continue;
+                }
+                grouped_parts
+                    .entry(key_for(chunk, part))
+                    .or_default()
+                    .push((part.part, chunk.id.clone()));
+            }
+        }
+
+        let entry_id_by_group: BTreeMap<SplitGroupKey, String> = grouped_parts
+            .into_iter()
+            .filter_map(|(key, mut parts)| {
+                parts
+                    .sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+                parts.first().map(|(_, id)| (key, id.clone()))
+            })
+            .collect();
+
+        for chunk in chunks.iter_mut() {
+            let Some(part_snapshot) = chunk.part.clone() else {
+                continue;
+            };
+            let Some(entry_id) = entry_id_by_group.get(&key_for(chunk, &part_snapshot)) else {
+                continue;
+            };
+            if live_ids.contains(entry_id) {
+                if let Some(part) = chunk.part.as_mut() {
+                    part.parent_id = entry_id.clone();
+                }
+            }
         }
     }
 
@@ -926,6 +1027,11 @@ impl EmbedChunker {
         // Split container parts are logical views of the same parent symbol, but
         // child links should stay fragment-local. Attach children only to the
         // parent part(s) whose line range overlaps the child.
+        for chunk in chunks.iter_mut() {
+            chunk.children_ids.clear();
+            chunk.source.parent_chunk_id = None;
+        }
+
         let mut container_map: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
         for (i, chunk) in chunks.iter().enumerate() {
             if matches!(
@@ -936,7 +1042,8 @@ impl EmbedChunker {
                     | ChunkKind::Trait
                     | ChunkKind::Interface
                     | ChunkKind::ClassPart
-            ) {
+            ) && !chunk.content.trim().is_empty()
+            {
                 container_map
                     .entry((chunk.source.file.clone(), chunk.source.symbol.clone()))
                     .or_default()
@@ -958,6 +1065,11 @@ impl EmbedChunker {
                         parent_indexes,
                         chunks,
                     );
+                    if selected_parent_indexes.is_empty() {
+                        orphaned_count += 1;
+                        orphaned_files.insert(chunks[i].source.file.clone());
+                        continue;
+                    }
                     let parent_id = chunks[selected_parent_indexes[0]].id.clone();
                     chunks[i].source.parent_chunk_id = Some(parent_id);
 
@@ -1001,8 +1113,9 @@ impl EmbedChunker {
             .copied()
             .filter(|&idx| {
                 let parent = &chunks[idx];
-                !parent.kind.is_part()
-                    || Self::line_ranges_overlap(parent.source.lines, child.source.lines)
+                !parent.content.trim().is_empty()
+                    && (!parent.kind.is_part()
+                        || Self::line_ranges_overlap(parent.source.lines, child.source.lines))
             })
             .collect();
 
@@ -1479,8 +1592,6 @@ impl EmbedChunker {
             0
         };
 
-        // Parent ID for linking parts
-        let parent_hash = hash_content(content);
         let part_kind = match original_kind {
             ChunkKind::Class
             | ChunkKind::Struct
@@ -1488,39 +1599,25 @@ impl EmbedChunker {
             | ChunkKind::Interface
             | ChunkKind::Trait
             | ChunkKind::Module => ChunkKind::ClassPart,
+            ChunkKind::Imports => ChunkKind::Imports,
             _ => ChunkKind::FunctionPart,
         };
         let original_fqn = self.compute_fqn(file, symbol);
-        let original_context = self.extract_context(symbol, content, file, source_path);
-        let parent_source = ChunkSource {
-            repo: self.repo_id.clone(),
-            file: file.to_owned(),
-            lines: (base_line, base_line + total_lines as u32 - 1),
-            symbol: symbol.name.clone(),
-            fqn: Some(original_fqn.clone()),
-            language: language.to_owned(),
-            parent: symbol.parent.clone(),
-            visibility: symbol.visibility.into(),
-            is_test: self.is_test_code(source_path, symbol),
-            module_path: Some(derive_module_path(file, language)),
-            parent_chunk_id: None,
-        };
-        let parent_repr = default_repr();
-        let parent_location_key = EmbedChunk::build_location_key(
-            &parent_source,
-            original_kind,
-            &parent_repr,
-            original_context.signature.as_deref(),
-            None,
-        );
-        let parent_id = EmbedChunk::build_chunk_id(&parent_location_key, &parent_hash.full_hash);
-        let segments = self.split_lines_to_budgeted_segments(
-            &line_refs,
-            base_line,
-            token_model,
-            max_tokens,
-            overlap_lines,
-        );
+        let segments: Vec<BudgetedSegment> = self
+            .split_lines_to_budgeted_segments(
+                &line_refs,
+                base_line,
+                token_model,
+                max_tokens,
+                overlap_lines,
+            )
+            .into_iter()
+            .filter_map(|segment| self.trim_blank_segment_edges(segment, token_model))
+            .collect();
+        if segments.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let total_parts = segments.len() as u32;
         let mut chunks = Vec::with_capacity(segments.len());
 
@@ -1551,7 +1648,7 @@ impl EmbedChunker {
             let part = ChunkPart {
                 part: (index as u32) + 1,
                 of: total_parts,
-                parent_id: parent_id.clone(),
+                parent_id: String::new(),
                 parent_signature: symbol.signature.clone().unwrap_or_default(),
                 overlap_lines: segment.overlap_lines,
             };
@@ -1580,7 +1677,60 @@ impl EmbedChunker {
             });
         }
 
+        Self::assign_entry_part_parent_id(&mut chunks);
+
         Ok(chunks)
+    }
+
+    fn assign_entry_part_parent_id(chunks: &mut [EmbedChunk]) {
+        let Some(entry_id) = chunks.first().map(|chunk| chunk.id.clone()) else {
+            return;
+        };
+        for chunk in chunks {
+            if let Some(part) = chunk.part.as_mut() {
+                part.parent_id = entry_id.clone();
+            }
+        }
+    }
+
+    fn trim_blank_segment_edges(
+        &self,
+        segment: BudgetedSegment,
+        token_model: TokenModel,
+    ) -> Option<BudgetedSegment> {
+        let lines: Vec<&str> = segment.content.lines().collect();
+        if lines.is_empty() {
+            return None;
+        }
+
+        let leading_blank = lines
+            .iter()
+            .take_while(|line| line.trim().is_empty())
+            .count();
+        let trailing_blank = lines
+            .iter()
+            .rev()
+            .take_while(|line| line.trim().is_empty())
+            .count();
+
+        if leading_blank + trailing_blank >= lines.len() {
+            return None;
+        }
+
+        let end = lines.len() - trailing_blank;
+        let content = lines[leading_blank..end].join("\n");
+        let tokens = self.tokenizer.count(&content, token_model);
+        if tokens == 0 {
+            return None;
+        }
+
+        Some(BudgetedSegment {
+            content,
+            start_line: segment.start_line + leading_blank as u32,
+            end_line: segment.end_line.saturating_sub(trailing_blank as u32),
+            tokens,
+            overlap_lines: segment.overlap_lines.saturating_sub(leading_blank as u32),
+        })
     }
 
     /// Extract metadata that is true for this exact chunk fragment.
@@ -1624,7 +1774,7 @@ impl EmbedChunker {
             signature,
             calls: self.extract_local_calls(content, lang),
             called_by: Vec::new(),
-            imports: Self::imports_for_symbol(symbol),
+            imports: Self::fragment_imports_for_symbol(symbol, content),
             tags,
             keywords: extract_keywords(content),
             context_prefix: Some(generate_context_prefix(
@@ -1690,7 +1840,7 @@ impl EmbedChunker {
             return Vec::new();
         }
 
-        // Find gaps between merged symbol ranges.
+        // Find contiguous gaps between merged symbol ranges.
         let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             let start = symbol.start_line.saturating_sub(1) as usize;
@@ -1701,23 +1851,65 @@ impl EmbedChunker {
         }
         ranges.sort_unstable_by_key(|range| range.0);
 
-        let mut top_level_lines: Vec<&str> = Vec::new();
+        let mut spans: Vec<(usize, usize)> = Vec::new();
         let mut cursor = 0usize;
         for (start, end) in ranges {
             if cursor < start {
-                top_level_lines.extend_from_slice(&lines[cursor..start]);
+                spans.push((cursor, start));
             }
             cursor = cursor.max(end);
         }
         if cursor < lines.len() {
-            top_level_lines.extend_from_slice(&lines[cursor..]);
+            spans.push((cursor, lines.len()));
         }
 
-        if top_level_lines.is_empty() {
+        let mut chunks = Vec::new();
+        for (span_start, span_end) in spans {
+            chunks.extend(self.extract_top_level_span(
+                lines,
+                span_start,
+                span_end,
+                file,
+                language,
+                lang_enum,
+                token_model,
+            ));
+        }
+
+        chunks
+    }
+
+    fn extract_top_level_span(
+        &self,
+        lines: &[&str],
+        span_start: usize,
+        span_end: usize,
+        file: &str,
+        language: &str,
+        lang_enum: Option<Language>,
+        token_model: TokenModel,
+    ) -> Vec<EmbedChunk> {
+        if span_start >= span_end || span_end > lines.len() {
             return Vec::new();
         }
 
-        let content = top_level_lines.join("\n").trim().to_owned();
+        let span_lines = &lines[span_start..span_end];
+        let leading_blank = span_lines
+            .iter()
+            .take_while(|line| line.trim().is_empty())
+            .count();
+        let trailing_blank = span_lines
+            .iter()
+            .rev()
+            .take_while(|line| line.trim().is_empty())
+            .count();
+        if leading_blank + trailing_blank >= span_lines.len() {
+            return Vec::new();
+        }
+
+        let content_start = span_start + leading_blank;
+        let content_end = span_end - trailing_blank;
+        let content = lines[content_start..content_end].join("\n");
         if content.is_empty() {
             return Vec::new();
         }
@@ -1731,7 +1923,7 @@ impl EmbedChunker {
         let top_source = ChunkSource {
             repo: self.repo_id.clone(),
             file: file.to_owned(),
-            lines: (1, lines.len() as u32),
+            lines: ((content_start + 1) as u32, content_end as u32),
             symbol: "<top_level>".to_owned(),
             fqn: None,
             language: language.to_owned(),
@@ -1782,21 +1974,22 @@ impl EmbedChunker {
         }
 
         let split_lines: Vec<&str> = content.lines().collect();
-        let segments = self.split_lines_to_budgeted_segments(
-            &split_lines,
-            1,
-            token_model,
-            self.settings.max_tokens,
-            0,
-        );
+        let base_line = (content_start + 1) as u32;
+        let segments: Vec<BudgetedSegment> = self
+            .split_lines_to_budgeted_segments(
+                &split_lines,
+                base_line,
+                token_model,
+                self.settings.max_tokens,
+                0,
+            )
+            .into_iter()
+            .filter_map(|segment| self.trim_blank_segment_edges(segment, token_model))
+            .collect();
         if segments.is_empty() {
             return Vec::new();
         }
 
-        let hash = hash_content(&content);
-        let location_key =
-            EmbedChunk::build_location_key(&top_source, ChunkKind::TopLevel, &repr, None, None);
-        let parent_id = EmbedChunk::build_chunk_id(&location_key, &hash.full_hash);
         let total_parts = segments.len() as u32;
         let mut chunks = Vec::with_capacity(segments.len());
 
@@ -1807,7 +2000,7 @@ impl EmbedChunker {
             let part = ChunkPart {
                 part: (index as u32) + 1,
                 of: total_parts,
-                parent_id: parent_id.clone(),
+                parent_id: String::new(),
                 parent_signature: String::new(),
                 overlap_lines: segment.overlap_lines,
             };
@@ -1844,6 +2037,8 @@ impl EmbedChunker {
                 part: Some(part),
             });
         }
+
+        Self::assign_entry_part_parent_id(&mut chunks);
 
         chunks
     }
@@ -1982,6 +2177,19 @@ impl EmbedChunker {
             vec![symbol.name.clone()]
         } else {
             Vec::new()
+        }
+    }
+
+    fn fragment_imports_for_symbol(symbol: &Symbol, content: &str) -> Vec<String> {
+        if !matches!(symbol.kind, crate::types::SymbolKind::Import) {
+            return Vec::new();
+        }
+
+        let fragment = content.trim();
+        if fragment.is_empty() {
+            Vec::new()
+        } else {
+            vec![fragment.to_owned()]
         }
     }
 
@@ -3945,6 +4153,61 @@ def big():
         let unique_ids: std::collections::HashSet<_> =
             chunks.iter().map(|chunk| chunk.id.clone()).collect();
         assert_eq!(unique_ids.len(), chunks.len(), "split parts must have unique IDs");
+
+        let entry_id = chunks[0].id.clone();
+        assert!(chunks.iter().all(|chunk| {
+            chunk
+                .part
+                .as_ref()
+                .is_some_and(|part| part.parent_id == entry_id)
+        }));
+    }
+
+    #[test]
+    fn test_split_large_import_stays_imports_with_fragment_metadata() {
+        let content = "from very.large.module import (\n    first_symbol,\n    second_symbol,\n    third_symbol,\n    fourth_symbol,\n    fifth_symbol,\n    sixth_symbol,\n)";
+        let mut symbol = Symbol::new(content, crate::types::SymbolKind::Import);
+        symbol.start_line = 1;
+        symbol.end_line = content.lines().count() as u32;
+
+        let settings = EmbedSettings {
+            max_tokens: 12,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let chunks = chunker
+            .split_large_symbol(
+                content,
+                &symbol,
+                "src/imports.py",
+                "Python",
+                Path::new("src/imports.py"),
+                1,
+                0,
+                &[],
+                Some(Language::Python),
+                token_model,
+            )
+            .unwrap();
+
+        assert!(chunks.len() > 1, "test import should split: {chunks:#?}");
+        let entry_id = chunks[0].id.clone();
+        for chunk in chunks {
+            assert_eq!(chunk.kind, ChunkKind::Imports);
+            let part = chunk.part.expect("split import should keep part metadata");
+            assert_eq!(part.parent_id, entry_id);
+            assert_eq!(chunk.context.imports, vec![chunk.content.trim().to_owned()]);
+            assert!(
+                chunk.context.imports[0].as_str() == chunk.content.trim(),
+                "fragment import metadata must be current-fragment text"
+            );
+        }
     }
 
     #[test]
@@ -3999,6 +4262,14 @@ def big():
         let unique_ids: std::collections::HashSet<_> =
             chunks.iter().map(|chunk| chunk.id.clone()).collect();
         assert_eq!(unique_ids.len(), chunks.len(), "top-level split parts must have unique IDs");
+
+        let entry_id = chunks[0].id.clone();
+        assert!(chunks.iter().all(|chunk| {
+            chunk
+                .part
+                .as_ref()
+                .is_some_and(|part| part.parent_id == entry_id)
+        }));
     }
 
     #[test]
@@ -4093,6 +4364,117 @@ def big():
             second_part.children_ids.contains(&child.id),
             "overlapping class part should contain child id {:?}",
             second_part.children_ids
+        );
+    }
+
+    #[test]
+    fn test_finalize_prunes_empty_parts_and_repairs_live_references() {
+        fn chunk(
+            id: &str,
+            kind: ChunkKind,
+            symbol: &str,
+            parent: Option<&str>,
+            lines: (u32, u32),
+            content: &str,
+            part_no: Option<u32>,
+        ) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: content.to_owned(),
+                tokens: 1,
+                kind,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "service.py".to_owned(),
+                    lines,
+                    symbol: symbol.to_owned(),
+                    fqn: Some(format!("service::{symbol}")),
+                    language: "Python".to_owned(),
+                    parent: parent.map(str::to_owned),
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("service".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: part_no.map(|part| ChunkPart {
+                    part,
+                    of: 2,
+                    parent_id: "synthetic_missing_parent".to_owned(),
+                    parent_signature: "class BigService".to_owned(),
+                    overlap_lines: 0,
+                }),
+            }
+        }
+
+        let mut chunks = vec![
+            chunk(
+                "empty_parent_part",
+                ChunkKind::ClassPart,
+                "BigService",
+                None,
+                (1, 10),
+                "\n\n",
+                Some(1),
+            ),
+            chunk(
+                "live_parent_part",
+                ChunkKind::ClassPart,
+                "BigService",
+                None,
+                (11, 20),
+                "class BigService:",
+                Some(2),
+            ),
+            chunk(
+                "child_method",
+                ChunkKind::Method,
+                "run",
+                Some("BigService"),
+                (12, 14),
+                "def run(self):\n    return 1",
+                None,
+            ),
+        ];
+
+        let settings = EmbedSettings {
+            enable_hierarchy: false,
+            include_signatures: false,
+            git_metadata: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let chunker = EmbedChunker::with_defaults(settings);
+        chunker.finalize_chunks(&mut chunks, Path::new("."), &progress);
+
+        let ids: std::collections::HashSet<_> =
+            chunks.iter().map(|chunk| chunk.id.as_str()).collect();
+        assert!(!ids.contains("empty_parent_part"));
+        assert!(ids.contains("live_parent_part"));
+        assert!(ids.contains("child_method"));
+
+        let child = chunks
+            .iter()
+            .find(|chunk| chunk.id == "child_method")
+            .expect("child should remain");
+        assert_eq!(child.source.parent_chunk_id.as_deref(), Some("live_parent_part"));
+
+        let live_parent = chunks
+            .iter()
+            .find(|chunk| chunk.id == "live_parent_part")
+            .expect("live parent should remain");
+        assert_eq!(live_parent.children_ids, vec!["child_method".to_owned()]);
+        assert_eq!(
+            live_parent.part.as_ref().unwrap().parent_id,
+            "live_parent_part",
+            "split part parent_id should be repaired to an emitted chunk id"
         );
     }
 
@@ -4356,7 +4738,7 @@ fn trailing() {}
 
         assert_eq!(top_level.content, expected);
         assert_eq!(top_level.content, "const VALUE: usize = 1;");
-        assert_eq!(top_level.source.lines, (1, lines.len() as u32));
+        assert_eq!(top_level.source.lines, (7, 7));
     }
 
     #[test]
