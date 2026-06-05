@@ -311,6 +311,7 @@ fn extract_python_types(root: tree_sitter::Node<'_>, source: &str) -> Option<Typ
         .filter(|n| python_return_annotation_is_in_header(func_node, *n, source))
         .map(|n| node_text(n, source).trim().to_owned())
         .filter(|text| !python_return_type_text_is_suspicious(text))
+        .map(|text| normalize_type_text(&text))
         .filter(|text| !text.is_empty());
 
     // Build Python-style type signature
@@ -343,6 +344,10 @@ fn python_return_type_text_is_suspicious(text: &str) -> bool {
         || lowered.contains("\nclass ")
         || lowered.contains("\nreturn ")
         || lowered.contains("\nimport ")
+}
+
+fn normalize_type_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn python_return_annotation_is_in_header(

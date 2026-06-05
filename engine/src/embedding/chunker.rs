@@ -530,10 +530,7 @@ impl EmbedChunker {
                 let starts_new_sequence = sequences
                     .last()
                     .and_then(|sequence| sequence.last())
-                    .is_none_or(|previous| {
-                        item.part_no <= previous.part_no
-                            || item.start_line > previous.end_line.saturating_add(1)
-                    });
+                    .is_none_or(|previous| item.part_no <= previous.part_no);
 
                 if starts_new_sequence {
                     sequences.push(vec![item]);
@@ -1728,6 +1725,7 @@ impl EmbedChunker {
                 file,
                 source_path,
                 lang_enum,
+                index > 0,
             );
             let repr = default_repr();
             part_context.summary = generate_summary(part_kind, &part_source, &part_context);
@@ -1832,6 +1830,7 @@ impl EmbedChunker {
         file_path: &str,
         _source_path: &Path,
         lang: Option<Language>,
+        allow_leading_orphan_string_closer: bool,
     ) -> ChunkContext {
         let signature = symbol
             .signature
@@ -1853,12 +1852,18 @@ impl EmbedChunker {
         } else {
             Vec::new()
         };
+        let local_call_content =
+            if lang == Some(Language::Python) && allow_leading_orphan_string_closer {
+                strip_leading_python_orphan_string_closer(content)
+            } else {
+                content
+            };
 
         ChunkContext {
             docstring,
             comments: Vec::new(),
             signature,
-            calls: self.extract_local_calls(content, lang),
+            calls: self.extract_local_calls(local_call_content, lang),
             called_by: Vec::new(),
             imports: Self::fragment_imports_for_symbol(symbol, content),
             tags,
@@ -1901,15 +1906,25 @@ impl EmbedChunker {
         if parser.set_language(&ts_language).is_err() {
             return Vec::new();
         }
-        let Some(tree) = parser.parse(content, None) else {
+        let parse_content;
+        let masked_content;
+        let parse_source = if language == Language::Python {
+            parse_content = dedent_python_fragment(content);
+            masked_content = mask_python_strings_and_comments(&parse_content);
+            masked_content.as_str()
+        } else {
+            content
+        };
+
+        let Some(tree) = parser.parse(parse_source, None) else {
             return Vec::new();
         };
 
         let mut calls = std::collections::HashSet::new();
         if language == Language::Python {
-            Self::collect_python_calls_without_strings(tree.root_node(), content, &mut calls);
+            Self::collect_python_calls_without_strings(tree.root_node(), parse_source, &mut calls);
         } else {
-            collect_calls_recursive(tree.root_node(), content, language, &mut calls);
+            collect_calls_recursive(tree.root_node(), parse_source, language, &mut calls);
         }
         let mut calls: Vec<String> = calls.into_iter().collect();
         calls.sort();
@@ -1921,13 +1936,17 @@ impl EmbedChunker {
         source: &str,
         calls: &mut std::collections::HashSet<String>,
     ) {
+        let ignored_spans = node_spans_by_kind(root, &["string", "comment"]);
         let mut stack = vec![root];
         while let Some(node) = stack.pop() {
             match node.kind() {
-                "string" | "comment" => continue,
+                "string" | "comment" | "ERROR" => continue,
                 "call" => {
                     if let Some(function) = node.child_by_field_name("function") {
-                        if function.kind() == "identifier" {
+                        if function.kind() == "identifier"
+                            && !byte_in_spans(function.start_byte(), &ignored_spans)
+                            && !byte_in_spans(node.start_byte(), &ignored_spans)
+                        {
                             if let Ok(name) = function.utf8_text(source.as_bytes()) {
                                 if !crate::parser::extraction::is_builtin(name, Language::Python) {
                                     calls.insert(name.to_owned());
@@ -3041,6 +3060,214 @@ pub(crate) fn generate_summary(
         },
         _ => None,
     }
+}
+
+fn dedent_python_fragment(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let min_indent = lines
+        .iter()
+        .filter_map(|line| {
+            if line.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    line.chars()
+                        .take_while(|ch| *ch == ' ' || *ch == '\t')
+                        .count(),
+                )
+            }
+        })
+        .min()
+        .unwrap_or(0);
+
+    if min_indent == 0 {
+        return content.to_owned();
+    }
+
+    lines
+        .iter()
+        .map(|line| strip_indent_chars(line, min_indent))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn strip_leading_python_orphan_string_closer(content: &str) -> &str {
+    let trimmed = content.trim_start_matches(|ch: char| ch.is_whitespace() && ch != '\n');
+    for quote in ["\"\"\"", "'''"] {
+        if let Some(rest) = trimmed.strip_prefix(quote) {
+            let rest = rest.trim_start_matches(|ch: char| ch == ' ' || ch == '\t');
+            if let Some(after_newline) = rest.strip_prefix('\n') {
+                return after_newline;
+            }
+            if rest.is_empty() {
+                return "";
+            }
+        }
+    }
+    content
+}
+
+fn mask_python_strings_and_comments(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut output = String::with_capacity(source.len());
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        if chars[index] == '#' {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+            continue;
+        }
+
+        if let Some(start) = python_string_start(&chars, index) {
+            mask_python_string(&chars, &mut output, &mut index, start);
+            continue;
+        }
+
+        output.push(chars[index]);
+        index += 1;
+    }
+
+    output
+}
+
+struct PythonStringStart {
+    quote_index: usize,
+    quote: char,
+    triple: bool,
+}
+
+fn python_string_start(chars: &[char], index: usize) -> Option<PythonStringStart> {
+    if matches!(chars.get(index), Some('\'' | '"')) {
+        let quote = chars[index];
+        return Some(PythonStringStart {
+            quote_index: index,
+            quote,
+            triple: python_has_triple_quote(chars, index, quote),
+        });
+    }
+
+    for prefix_len in (1..=2).rev() {
+        let quote_index = index + prefix_len;
+        let Some(quote @ ('\'' | '"')) = chars.get(quote_index).copied() else {
+            continue;
+        };
+        let prefix: String = chars[index..quote_index]
+            .iter()
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if matches!(
+            prefix.as_str(),
+            "r" | "u" | "b" | "f" | "br" | "rb" | "fr" | "rf" | "ur" | "ru"
+        ) {
+            return Some(PythonStringStart {
+                quote_index,
+                quote,
+                triple: python_has_triple_quote(chars, quote_index, quote),
+            });
+        }
+    }
+
+    None
+}
+
+fn python_has_triple_quote(chars: &[char], quote_index: usize, quote: char) -> bool {
+    quote_index + 2 < chars.len()
+        && chars[quote_index + 1] == quote
+        && chars[quote_index + 2] == quote
+}
+
+fn mask_python_string(
+    chars: &[char],
+    output: &mut String,
+    index: &mut usize,
+    start: PythonStringStart,
+) {
+    output.push_str("None");
+
+    *index = if start.triple {
+        start.quote_index + 3
+    } else {
+        start.quote_index + 1
+    };
+
+    while *index < chars.len() {
+        if start.triple {
+            if python_has_triple_quote(chars, *index, start.quote) {
+                *index += 3;
+                return;
+            }
+            push_masked_python_literal_char(output, chars[*index]);
+            *index += 1;
+            continue;
+        }
+
+        if chars[*index] == '\\' {
+            *index += 1;
+            if *index < chars.len() {
+                *index += 1;
+            }
+            continue;
+        }
+        if chars[*index] == start.quote {
+            *index += 1;
+            return;
+        }
+        if chars[*index] == '\n' {
+            output.push('\n');
+            *index += 1;
+            return;
+        }
+
+        *index += 1;
+    }
+}
+
+fn push_masked_python_literal_char(output: &mut String, ch: char) {
+    if ch == '\n' || ch == '\r' {
+        output.push(ch);
+    }
+}
+
+fn strip_indent_chars(line: &str, count: usize) -> &str {
+    if line.trim().is_empty() {
+        return "";
+    }
+
+    let mut removed = 0usize;
+    for (byte_index, ch) in line.char_indices() {
+        if removed >= count || (ch != ' ' && ch != '\t') {
+            return &line[byte_index..];
+        }
+        removed += 1;
+    }
+    ""
+}
+
+fn node_spans_by_kind(root: tree_sitter::Node<'_>, kinds: &[&str]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if kinds.contains(&node.kind()) {
+            spans.push((node.start_byte(), node.end_byte()));
+            continue;
+        }
+
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index as u32) {
+                stack.push(child);
+            }
+        }
+    }
+    spans.sort_unstable();
+    spans
+}
+
+fn byte_in_spans(byte: usize, spans: &[(usize, usize)]) -> bool {
+    spans
+        .iter()
+        .any(|(start, end)| *start <= byte && byte < *end)
 }
 
 /// Strip common doc-comment markers from a docstring.
@@ -4432,9 +4659,9 @@ def big():
 
         let mut chunks = vec![
             top_part("first_entry", (1, 3), 1, "stale"),
-            top_part("first_tail", (4, 5), 2, "stale"),
+            top_part("first_tail", (8, 10), 2, "stale"),
             top_part("second_entry", (20, 22), 1, "stale"),
-            top_part("second_tail", (23, 25), 2, "stale"),
+            top_part("second_tail", (27, 29), 2, "stale"),
         ];
         let live_ids = chunks.iter().map(|chunk| chunk.id.clone()).collect();
 
@@ -5493,6 +5720,42 @@ impl User {
         let calls = chunker.extract_local_calls(content, Some(Language::Python));
 
         assert!(calls.is_empty(), "docstring prose should not become calls: {calls:?}");
+    }
+
+    #[test]
+    fn test_python_fragment_calls_ignore_unclosed_docstring_text() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = "def order_at(a: PolyType) -> Union[int, float]:\n    \"\"\"\n    For a nonzero polynomial `a`, the order ν_p(a) is finite.\n\n    Parameters";
+
+        let calls = chunker.extract_local_calls(content, Some(Language::Python));
+
+        assert!(calls.is_empty(), "truncated docstring prose should not become calls: {calls:?}");
+    }
+
+    #[test]
+    fn test_python_fragment_calls_dedent_method_body() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = "    def compute(self):\n        helper()\n        print('debug')";
+
+        let calls = chunker.extract_local_calls(content, Some(Language::Python));
+
+        assert_eq!(calls, vec!["helper".to_owned()]);
+    }
+
+    #[test]
+    fn test_python_fragment_calls_dedent_bare_body_statements() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = "    later_call(0)\n    later_call(1)\n";
+
+        let calls = chunker.extract_local_calls(content, Some(Language::Python));
+
+        assert_eq!(calls, vec!["later_call".to_owned()]);
     }
 
     #[test]
