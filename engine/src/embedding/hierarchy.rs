@@ -241,6 +241,8 @@ impl HierarchyBuilder {
             is_test: container.source.is_test,
             module_path: container.source.module_path.clone(),
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let location_key = EmbedChunk::build_location_key(
             &source,
@@ -448,6 +450,8 @@ mod tests {
                 is_test: false,
                 module_path: None,
                 parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
             },
             children_ids: Vec::new(),
             dedup_alias_chunk_ids: Vec::new(),

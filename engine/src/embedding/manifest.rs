@@ -537,6 +537,8 @@ mod tests {
                 is_test: false,
                 module_path: None,
                 parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
             },
             children_ids: Vec::new(),
             dedup_alias_chunk_ids: Vec::new(),

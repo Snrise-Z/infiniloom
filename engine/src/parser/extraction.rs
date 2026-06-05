@@ -25,28 +25,53 @@ fn safe_char_boundary(s: &str, mut index: usize) -> usize {
     index
 }
 
+fn valid_python_signature(signature: &str, node_kind: &str) -> bool {
+    let body = if node_kind == "class_definition" {
+        format!("{signature}\n    pass\n")
+    } else {
+        format!("{signature}\n    pass\n")
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
+        .is_err()
+    {
+        return false;
+    }
+    let Some(tree) = parser.parse(&body, None) else {
+        return false;
+    };
+    let root = tree.root_node();
+    if root.has_error() || root.child_count() != 1 {
+        return false;
+    }
+    root.child(0)
+        .is_some_and(|child| child.kind() == node_kind && !child.has_error())
+}
+
 /// Extract function/method signature
 pub fn extract_signature(node: Node<'_>, source_code: &str, language: Language) -> Option<String> {
     let sig_node = match language {
         Language::Python => {
-            if node.kind() == "function_definition" {
-                let start = node.start_byte();
-                let mut end = start;
-                for byte in &source_code.as_bytes()[start..] {
-                    end += 1;
-                    if *byte == b':' || *byte == b'\n' {
-                        break;
+            if node.kind() == "function_definition" || node.kind() == "class_definition" {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "block" {
+                        let start = node.start_byte();
+                        let end = child.start_byte();
+                        // SAFETY: Ensure we slice at valid UTF-8 char boundaries.
+                        let safe_start = safe_char_boundary(source_code, start);
+                        let safe_end = safe_char_boundary(source_code, end);
+                        if safe_start >= safe_end {
+                            return None;
+                        }
+                        let signature = source_code[safe_start..safe_end]
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        return valid_python_signature(&signature, node.kind())
+                            .then_some(signature);
                     }
                 }
-                // SAFETY: Ensure we slice at valid UTF-8 char boundaries
-                let safe_start = safe_char_boundary(source_code, start);
-                let safe_end = safe_char_boundary(source_code, end);
-                return Some(
-                    source_code[safe_start..safe_end]
-                        .trim()
-                        .to_owned()
-                        .replace('\n', " "),
-                );
             }
             None
         },
@@ -2595,9 +2620,7 @@ mod tests {
 
     #[test]
     fn test_extract_signature_python() {
-        // Note: Python signature extraction stops at first ':' or '\n'
-        // So type annotations in parameters are cut off at the first ':'
-        let code = "def hello(name):\n    return f'Hello {name}'";
+        let code = "def hello(name: str) -> str:\n    return f'Hello {name}'";
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -2608,8 +2631,48 @@ mod tests {
         let sig = extract_signature(func_node, code, Language::Python);
         assert!(sig.is_some());
         let sig = sig.unwrap();
-        assert!(sig.contains("def hello"));
-        assert!(sig.contains("name"));
+        assert_eq!(sig, "def hello(name: str) -> str:");
+    }
+
+    #[test]
+    fn test_extract_signature_python_multiline_annotations() {
+        let code = r#"def balance_class_weights(
+    label_list: list[int],
+    num_classes: int,
+) -> tuple[list[float], list[int]]:
+    return [], []
+"#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(code, None).unwrap();
+        let func_node = find_node_in_tree(tree.root_node(), "function_definition").unwrap();
+
+        let sig = extract_signature(func_node, code, Language::Python).unwrap();
+        assert_eq!(
+            sig,
+            "def balance_class_weights( label_list: list[int], num_classes: int, ) -> tuple[list[float], list[int]]:"
+        );
+    }
+
+    #[test]
+    fn test_extract_signature_python_drops_parse_error_signature() {
+        let code = r#"class Logger:
+    def log(self, title: str, message: str) -> None:
+        print(f"[LOG] {title}: {message}"
+
+# Mock DateTime
+from datetime import timedelta
+"#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(code, None).unwrap();
+        let func_node = find_node_in_tree(tree.root_node(), "function_definition").unwrap();
+
+        assert_eq!(extract_signature(func_node, code, Language::Python), None);
     }
 
     #[test]

@@ -240,6 +240,13 @@ pub struct ChunkSource {
     /// Line range (1-indexed, inclusive)
     pub lines: (u32, u32),
 
+    /// Byte range within a single source line for token-budget slices.
+    ///
+    /// Present only when a single physical line is split into multiple chunks.
+    /// The range is 0-indexed and end-exclusive within `lines.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_byte_range: Option<(u32, u32)>,
+
     /// Symbol name
     pub symbol: String,
 
@@ -270,6 +277,12 @@ pub struct ChunkSource {
     /// Enables hierarchical navigation in RAG systems
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_chunk_id: Option<String>,
+
+    /// Source content transform applied before chunking.
+    ///
+    /// Examples: `redacted_secrets`, `masked_container_child_bodies`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_transform: Option<String>,
 }
 
 /// Helper for skip_serializing_if - skip if repo is default (empty)
@@ -833,6 +846,8 @@ mod tests {
                 is_test: false,
                 module_path: None,
                 parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
             }
         }
 

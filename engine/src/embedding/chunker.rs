@@ -74,6 +74,14 @@ struct BudgetedSegment {
     tokens: u32,
     /// Actual overlap lines included from the previous segment.
     overlap_lines: u32,
+    /// Byte range within a single source line for overlong-line token slices.
+    line_byte_range: Option<(u32, u32)>,
+}
+
+struct LineSlice {
+    content: String,
+    start_byte: usize,
+    end_byte: usize,
 }
 
 /// Core chunker for generating embedding chunks
@@ -698,11 +706,27 @@ impl EmbedChunker {
         if canonical.full_hash.is_empty() {
             canonical.full_hash = alias.full_hash;
         }
-        if canonical.source.fqn.is_none() {
-            canonical.source.fqn = alias.source.fqn;
-        }
+        let alias_parent = alias.source.parent.clone();
+        let alias_fqn = alias.source.fqn.clone();
         if canonical.source.parent.is_none() {
-            canonical.source.parent = alias.source.parent;
+            canonical.source.parent = alias_parent.clone();
+            if alias_fqn.is_some() {
+                canonical.source.fqn = alias_fqn.clone();
+            }
+        } else if canonical.source.fqn.is_none() {
+            canonical.source.fqn = alias_fqn.clone();
+        } else if let (Some(parent), Some(alias_fqn)) =
+            (alias_parent.as_deref(), alias_fqn.as_ref())
+        {
+            let canonical_has_parent = canonical
+                .source
+                .fqn
+                .as_deref()
+                .is_some_and(|fqn| fqn.split("::").any(|segment| segment == parent));
+            let alias_has_parent = alias_fqn.split("::").any(|segment| segment == parent);
+            if !canonical_has_parent && alias_has_parent {
+                canonical.source.fqn = Some(alias_fqn.clone());
+            }
         }
         if canonical.source.module_path.is_none() {
             canonical.source.module_path = alias.source.module_path;
@@ -1309,6 +1333,8 @@ impl EmbedChunker {
         // Get relative path (safe, validated)
         let relative_path = self.safe_relative_path(path, repo_root)?;
 
+        let mut content_transform = None;
+
         // Security scanning (if enabled)
         if let Some(ref scanner) = self.security_scanner {
             let findings = scanner.scan(&content, &relative_path);
@@ -1325,7 +1351,11 @@ impl EmbedChunker {
 
                 // Redact secrets if configured
                 if self.settings.redact_secrets {
-                    content = scanner.redact_content(&content, &relative_path);
+                    let redacted = scanner.redact_content(&content, &relative_path);
+                    if redacted != content {
+                        content = redacted;
+                        content_transform = Some("redacted_secrets".to_owned());
+                    }
                 }
             }
         }
@@ -1375,6 +1405,7 @@ impl EmbedChunker {
                     &symbols,
                     lang_enum,
                     token_model,
+                    content_transform.as_deref(),
                 )?;
                 chunks.extend(split_chunks);
             } else {
@@ -1401,6 +1432,8 @@ impl EmbedChunker {
                     is_test: self.is_test_code(path, symbol),
                     module_path: Some(derive_module_path(&relative_path, &language)),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: content_transform.clone(),
                 };
 
                 // Generate natural language summary
@@ -1441,6 +1474,7 @@ impl EmbedChunker {
                 &language,
                 lang_enum,
                 token_model,
+                content_transform.as_deref(),
             );
             chunks.extend(top_level_chunks);
         }
@@ -1513,17 +1547,20 @@ impl EmbedChunker {
                     for piece in
                         self.split_overlong_line_to_budget(single_line, token_model, max_tokens)
                     {
-                        let tokens = self.tokenizer.count(&piece, token_model);
+                        let start_byte = (piece.start_byte).min(u32::MAX as usize) as u32;
+                        let end_byte = (piece.end_byte).min(u32::MAX as usize) as u32;
+                        let tokens = self.tokenizer.count(&piece.content, token_model);
                         if tokens == 0 {
                             continue;
                         }
                         let line = base_line + content_start as u32;
                         segments.push(BudgetedSegment {
-                            content: piece,
+                            content: piece.content,
                             start_line: line,
                             end_line: line,
                             tokens,
                             overlap_lines: 0,
+                            line_byte_range: Some((start_byte, end_byte)),
                         });
                         emitted_any = true;
                     }
@@ -1547,6 +1584,7 @@ impl EmbedChunker {
                     end_line: base_line + content_end as u32 - 1,
                     tokens,
                     overlap_lines: overlap,
+                    line_byte_range: None,
                 });
                 emitted_any = true;
             }
@@ -1588,9 +1626,10 @@ impl EmbedChunker {
         line: &str,
         token_model: TokenModel,
         max_tokens: u32,
-    ) -> Vec<String> {
+    ) -> Vec<LineSlice> {
         let mut pieces = Vec::new();
         let mut remaining = line;
+        let mut offset = 0usize;
 
         while !remaining.is_empty() {
             let prefix = self
@@ -1610,10 +1649,15 @@ impl EmbedChunker {
                 break;
             }
 
-            pieces.push(remaining[..cut].to_owned());
+            pieces.push(LineSlice {
+                content: remaining[..cut].to_owned(),
+                start_byte: offset,
+                end_byte: offset + cut,
+            });
             if cut >= remaining.len() {
                 break;
             }
+            offset += cut;
             remaining = &remaining[cut..];
         }
 
@@ -1638,6 +1682,7 @@ impl EmbedChunker {
         all_symbols: &[Symbol],
         lang_enum: Option<Language>,
         token_model: TokenModel,
+        inherited_content_transform: Option<&str>,
     ) -> Result<Vec<EmbedChunk>, EmbedError> {
         // Depth limit to prevent stack overflow
         if !self.limits.check_recursion_depth(depth) {
@@ -1650,9 +1695,18 @@ impl EmbedChunker {
 
         let original_kind: ChunkKind = symbol.kind.into();
         let mut content_lines: Vec<String> = content.lines().map(ToOwned::to_owned).collect();
-        if self.should_mask_container_child_bodies(original_kind) {
+        let masks_container_child_bodies = self.should_mask_container_child_bodies(original_kind);
+        if masks_container_child_bodies {
             self.mask_container_child_bodies(&mut content_lines, symbol, all_symbols, base_line);
         }
+        let content_transform = Self::combine_content_transforms(
+            inherited_content_transform,
+            if masks_container_child_bodies {
+                Some("masked_container_child_bodies")
+            } else {
+                None
+            },
+        );
         let line_refs: Vec<&str> = content_lines.iter().map(String::as_str).collect();
         let total_lines = line_refs.len();
         let max_tokens = self.settings.max_tokens;
@@ -1718,6 +1772,8 @@ impl EmbedChunker {
                 is_test: self.is_test_code(source_path, symbol),
                 module_path: Some(derive_module_path(file, language)),
                 parent_chunk_id: None,
+                line_byte_range: segment.line_byte_range,
+                content_transform: content_transform.clone(),
             };
             let mut part_context = self.extract_fragment_context(
                 symbol,
@@ -1822,6 +1878,7 @@ impl EmbedChunker {
             end_line: segment.end_line.saturating_sub(trailing_blank as u32),
             tokens,
             overlap_lines: segment.overlap_lines.saturating_sub(leading_blank as u32),
+            line_byte_range: segment.line_byte_range,
         })
     }
 
@@ -2043,6 +2100,7 @@ impl EmbedChunker {
         language: &str,
         lang_enum: Option<Language>,
         token_model: TokenModel,
+        content_transform: Option<&str>,
     ) -> Vec<EmbedChunk> {
         if lines.is_empty() || symbols.is_empty() {
             return Vec::new();
@@ -2081,6 +2139,7 @@ impl EmbedChunker {
                 language,
                 lang_enum,
                 token_model,
+                content_transform,
             ));
         }
 
@@ -2096,6 +2155,7 @@ impl EmbedChunker {
         language: &str,
         lang_enum: Option<Language>,
         token_model: TokenModel,
+        content_transform: Option<&str>,
     ) -> Vec<EmbedChunk> {
         if span_start >= span_end || span_end > lines.len() {
             return Vec::new();
@@ -2137,9 +2197,11 @@ impl EmbedChunker {
             language: language.to_owned(),
             parent: None,
             visibility: Visibility::Public,
-            is_test: false,
+            is_test: self.is_test_path(Path::new(file)),
             module_path: Some(derive_module_path(file, language)),
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: content_transform.map(str::to_owned),
         };
         let context_prefix =
             Some(generate_context_prefix(file, None, &crate::types::SymbolKind::Module));
@@ -2219,8 +2281,11 @@ impl EmbedChunker {
                 ..Default::default()
             };
             top_context.summary = generate_summary(ChunkKind::TopLevel, &top_source, &top_context);
-            let part_source =
-                ChunkSource { lines: (segment.start_line, segment.end_line), ..top_source.clone() };
+            let part_source = ChunkSource {
+                lines: (segment.start_line, segment.end_line),
+                line_byte_range: segment.line_byte_range,
+                ..top_source.clone()
+            };
             let location_key = EmbedChunk::build_location_key(
                 &part_source,
                 ChunkKind::TopLevel,
@@ -2531,11 +2596,7 @@ impl EmbedChunker {
 
     /// Detect if code is test code
     fn is_test_code(&self, path: &Path, symbol: &Symbol) -> bool {
-        let path_str = path.to_string_lossy().to_lowercase();
-
-        // Path-based detection
-        if path_str.contains("test") || path_str.contains("spec") || path_str.contains("__tests__")
-        {
+        if self.is_test_path(path) {
             return true;
         }
 
@@ -2546,6 +2607,31 @@ impl EmbedChunker {
         }
 
         false
+    }
+
+    fn is_test_path(&self, path: &Path) -> bool {
+        let path_str = path.to_string_lossy().to_lowercase();
+        path_str.contains("test") || path_str.contains("spec") || path_str.contains("__tests__")
+    }
+
+    fn combine_content_transforms(left: Option<&str>, right: Option<&str>) -> Option<String> {
+        let mut transforms = Vec::new();
+        for value in [left, right].into_iter().flatten() {
+            for transform in value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                if !transforms.contains(&transform) {
+                    transforms.push(transform);
+                }
+            }
+        }
+        if transforms.is_empty() {
+            None
+        } else {
+            Some(transforms.join(","))
+        }
     }
 
     /// Validate repository path
@@ -4560,6 +4646,258 @@ def test_layer_global_max_pooling1d(system_dict):
     }
 
     #[test]
+    fn test_split_part_does_not_keep_partial_signature_from_recursive_call() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut body = String::new();
+        for index in 0..60 {
+            body.push_str(&format!("    return find_paths(node_{index})\n"));
+        }
+        create_test_file(
+            temp_dir.path(),
+            "argtree.py",
+            &format!(
+                r#"
+def find_paths(
+    node,
+    prefix=None,
+):
+{body}
+"#
+            ),
+        );
+
+        let settings = EmbedSettings {
+            max_tokens: 24,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let recursive_tail = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::FunctionPart
+                    && chunk.source.symbol == "find_paths"
+                    && chunk.content.contains("find_paths(")
+                    && !chunk.content.contains("def find_paths(")
+            })
+            .expect("a split tail should contain only the recursive call");
+
+        assert_eq!(
+            recursive_tail.context.signature, None,
+            "split tail must not keep a partial parent signature from a call expression"
+        );
+    }
+
+    #[test]
+    fn test_top_level_chunks_in_test_named_file_are_marked_test() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "pkg/DistributedTestObject.py",
+            "SETUP_VALUE = build_setup()\n\n\ndef keep():\n    return 1\n",
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: true,
+            include_tests: true,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let top_level = chunks
+            .iter()
+            .find(|chunk| chunk.kind == ChunkKind::TopLevel)
+            .expect("test-named file should emit a top-level chunk");
+        assert!(top_level.source.is_test);
+    }
+
+    #[test]
+    fn test_overlong_line_segments_include_line_byte_range() {
+        let repeated = (0..80)
+            .map(|index| format!("item_{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let source_line = format!("VALUES = [{repeated}]");
+        let lines = vec![source_line.as_str(), "def keep():", "    return VALUES"];
+        let mut symbol = Symbol::new("keep", crate::types::SymbolKind::Function);
+        symbol.start_line = 2;
+        symbol.end_line = 3;
+        let symbols = vec![symbol];
+
+        let settings = EmbedSettings {
+            max_tokens: 20,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: true,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let chunks = chunker.extract_top_level(
+            &lines,
+            &symbols,
+            "src/constants.py",
+            "Python",
+            Some(Language::Python),
+            token_model,
+            None,
+        );
+
+        let slices: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| chunk.source.line_byte_range.is_some())
+            .collect();
+        assert!(slices.len() > 1, "overlong line should split into byte-addressed slices");
+        let mut previous_end = 0;
+        for chunk in slices {
+            let (start, end) = chunk.source.line_byte_range.expect("byte range");
+            assert_eq!(chunk.source.lines, (1, 1));
+            assert!(start >= previous_end);
+            assert!(end > start);
+            assert_eq!(
+                chunk.content,
+                source_line[start as usize..end as usize],
+                "slice content must reconstruct from line_byte_range"
+            );
+            previous_end = end;
+        }
+    }
+
+    #[test]
+    fn test_redacted_secret_chunks_mark_content_transform() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "config.py",
+            "def load_key():\n    return 'AKIAIOSFODNN7REALKEY1'\n",
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: true,
+            fail_on_secrets: false,
+            redact_secrets: true,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let load_key = chunks
+            .iter()
+            .find(|chunk| chunk.source.symbol == "load_key")
+            .expect("redacted function chunk should exist");
+        assert!(!load_key.content.contains("AKIAIOSFODNN7REALKEY1"));
+        assert_eq!(load_key.source.content_transform.as_deref(), Some("redacted_secrets"));
+    }
+
+    #[test]
+    fn test_duplicate_canonicalization_keeps_parent_fqn_consistent() {
+        let content = "def randomize(self):\n    return helper()".to_owned();
+        let full_hash = hash_content(&content).full_hash;
+        let mut chunks = vec![
+            EmbedChunk {
+                id: "function_alias".to_owned(),
+                full_hash: full_hash.clone(),
+                content: content.clone(),
+                tokens: 8,
+                kind: ChunkKind::Function,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "effects/LavaBurst.py".to_owned(),
+                    lines: (10, 11),
+                    symbol: "randomize".to_owned(),
+                    fqn: Some("effects::LavaBurst::randomize".to_owned()),
+                    language: "Python".to_owned(),
+                    parent: None,
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("effects.LavaBurst".to_owned()),
+                    parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: None,
+            },
+            EmbedChunk {
+                id: "method_alias".to_owned(),
+                full_hash,
+                content,
+                tokens: 8,
+                kind: ChunkKind::Function,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "effects/LavaBurst.py".to_owned(),
+                    lines: (10, 11),
+                    symbol: "randomize".to_owned(),
+                    fqn: Some("effects::LavaBurst::LavaBurst::randomize".to_owned()),
+                    language: "Python".to_owned(),
+                    parent: Some("LavaBurst".to_owned()),
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("effects.LavaBurst".to_owned()),
+                    parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: None,
+            },
+        ];
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let aliases = chunker.canonicalize_duplicate_chunks(&mut chunks);
+
+        assert_eq!(aliases, 1);
+        let chunk = &chunks[0];
+        assert_eq!(chunk.source.parent.as_deref(), Some("LavaBurst"));
+        assert!(
+            chunk
+                .source
+                .fqn
+                .as_deref()
+                .is_some_and(|fqn| fqn.ends_with("::LavaBurst::randomize")),
+            "canonical fqn should preserve the parent scope: {:?}",
+            chunk.source.fqn
+        );
+    }
+
+    #[test]
     fn test_python_line_range_calls_ignore_docstring_continuation() {
         let settings =
             EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
@@ -4671,6 +5009,7 @@ def test_layer_global_max_pooling1d(system_dict):
                 &[],
                 Some(Language::Python),
                 token_model,
+                None,
             )
             .unwrap();
 
@@ -4718,6 +5057,7 @@ def test_layer_global_max_pooling1d(system_dict):
                 &[],
                 Some(Language::Python),
                 token_model,
+                None,
             )
             .unwrap();
 
@@ -4781,6 +5121,7 @@ def test_layer_global_max_pooling1d(system_dict):
             "Python",
             Some(Language::Python),
             token_model,
+            None,
         );
 
         assert!(chunks.len() > 1);
@@ -4818,6 +5159,8 @@ def test_layer_global_max_pooling1d(system_dict):
                     is_test: false,
                     module_path: Some("module".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
@@ -4885,6 +5228,8 @@ def test_layer_global_max_pooling1d(system_dict):
                     is_test: false,
                     module_path: Some("module".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
@@ -4936,6 +5281,8 @@ def test_layer_global_max_pooling1d(system_dict):
                     is_test: false,
                     module_path: Some("service".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
@@ -5033,6 +5380,8 @@ def test_layer_global_max_pooling1d(system_dict):
                     is_test: false,
                     module_path: Some("service".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
@@ -5138,6 +5487,8 @@ def test_layer_global_max_pooling1d(system_dict):
                     is_test: false,
                     module_path: Some("service".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext {
                     calls: vec![format!("{id}_call")],
@@ -5369,6 +5720,7 @@ fn trailing() {}
             "Rust",
             Some(Language::Rust),
             token_model,
+            None,
         );
         assert_eq!(top_levels.len(), 1);
         let top_level = &top_levels[0];
@@ -5405,6 +5757,7 @@ fn trailing() {}
             "Rust",
             Some(Language::Rust),
             token_model,
+            None,
         );
 
         assert!(chunks.len() > 1, "real file top-level content should be split");
@@ -5825,6 +6178,8 @@ impl User {
                     is_test: false,
                     module_path: Some("service".to_owned()),
                     parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
@@ -5884,6 +6239,7 @@ impl User {
             end_line: 11,
             tokens: 1,
             overlap_lines: 0,
+            line_byte_range: None,
         };
 
         let trimmed = chunker
@@ -6013,6 +6369,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext {
             docstring: Some("/// Verify a JWT token and return the claims.".to_owned()),
@@ -6038,6 +6396,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext {
             signature: Some("pub fn verify_token(token: &str) -> Result<Claims>".to_owned()),
@@ -6068,6 +6428,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext::default();
 
@@ -6089,6 +6451,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext::default();
 
@@ -6117,6 +6481,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext { signature: Some(long_sig), ..Default::default() };
 
@@ -6141,6 +6507,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let docstring = format!(
             "/** {} */",
@@ -6167,6 +6535,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let signature = "int CheckItemInBox(string _itemID, string _locationID, string _box) // Addon 2016-1 Jason подсчет указанных предметов в конкретном сундуке конкретной локации".repeat(4);
         let context = ChunkContext { signature: Some(signature), ..Default::default() };
@@ -6190,6 +6560,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext::default();
 
@@ -6230,6 +6602,8 @@ impl User {
             is_test: false,
             module_path: None,
             parent_chunk_id: None,
+            line_byte_range: None,
+            content_transform: None,
         };
         let context = ChunkContext {
             docstring: Some("\"\"\"Parse configuration from a YAML file.\"\"\"".to_owned()),

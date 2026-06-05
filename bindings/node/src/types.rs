@@ -802,6 +802,9 @@ pub struct EmbedChunkSource {
     /// Line range (start, end) - 1-indexed
     pub lines_start: u32,
     pub lines_end: u32,
+    /// Byte range within a single source line for overlong-line slices
+    pub line_byte_start: Option<u32>,
+    pub line_byte_end: Option<u32>,
     /// Symbol name
     pub symbol: String,
     /// Fully qualified name (if available)
@@ -818,6 +821,8 @@ pub struct EmbedChunkSource {
     pub module_path: Option<String>,
     /// Chunk ID of the parent container (class/struct/enum/trait/interface)
     pub parent_chunk_id: Option<String>,
+    /// Source content transform applied before chunking
+    pub content_transform: Option<String>,
 }
 
 /// Context information for a chunk

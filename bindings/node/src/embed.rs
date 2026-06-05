@@ -28,6 +28,8 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             file: chunk.source.file.clone(),
             lines_start: chunk.source.lines.0,
             lines_end: chunk.source.lines.1,
+            line_byte_start: chunk.source.line_byte_range.map(|range| range.0),
+            line_byte_end: chunk.source.line_byte_range.map(|range| range.1),
             symbol: chunk.source.symbol.clone(),
             fqn: chunk.source.fqn.clone(),
             language: chunk.source.language.clone(),
@@ -36,6 +38,7 @@ fn engine_chunk_to_napi(chunk: &EngineChunk) -> EmbedChunk {
             is_test: chunk.source.is_test,
             module_path: chunk.source.module_path.clone(),
             parent_chunk_id: chunk.source.parent_chunk_id.clone(),
+            content_transform: chunk.source.content_transform.clone(),
         },
         context: EmbedChunkContext {
             docstring: chunk.context.docstring.clone(),

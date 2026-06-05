@@ -848,6 +848,8 @@ mod tests {
                 is_test: false,
                 module_path: Some(module_path),
                 parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
             },
             context: ChunkContext {
                 imports: imports.iter().map(|s| s.to_string()).collect(),

@@ -390,6 +390,8 @@ mod tests {
                 is_test: false,
                 module_path: None,
                 parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
             },
             context: ChunkContext { calls, ..Default::default() },
             children_ids: Vec::new(),

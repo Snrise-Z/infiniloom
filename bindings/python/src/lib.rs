@@ -3086,6 +3086,9 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
     source
         .set_item("lines", (chunk.source.lines.0, chunk.source.lines.1))
         .unwrap();
+    if let Some((start, end)) = chunk.source.line_byte_range {
+        source.set_item("line_byte_range", (start, end)).unwrap();
+    }
     source.set_item("symbol", &chunk.source.symbol).unwrap();
     if let Some(ref fqn) = chunk.source.fqn {
         source.set_item("fqn", fqn).unwrap();
@@ -3103,6 +3106,11 @@ fn embed_chunk_to_py<'py>(py: Python<'py>, chunk: &EmbedChunk) -> Bound<'py, PyD
     }
     if let Some(ref parent_chunk_id) = chunk.source.parent_chunk_id {
         source.set_item("parent_chunk_id", parent_chunk_id).unwrap();
+    }
+    if let Some(ref content_transform) = chunk.source.content_transform {
+        source
+            .set_item("content_transform", content_transform)
+            .unwrap();
     }
     dict.set_item("source", source).unwrap();
 

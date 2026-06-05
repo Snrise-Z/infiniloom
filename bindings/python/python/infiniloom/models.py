@@ -900,12 +900,23 @@ class EmbedChunkSource(BaseModel):
         description="Start line (1-indexed)"
     )
     lines_end: Annotated[int, Field(gt=0)] = Field(description="End line (1-indexed)")
+    line_byte_range: tuple[int, int] | None = Field(
+        default=None,
+        description="0-indexed byte range within a single source line for overlong-line slices",
+    )
     symbol: str = Field(description="Symbol name")
     fqn: str | None = Field(default=None, description="Fully qualified name")
     language: str = Field(description="Programming language")
     parent: str | None = Field(default=None, description="Parent symbol (if any)")
     visibility: str = Field(description="Visibility")
     is_test: bool = Field(description="Whether this is test code")
+    module_path: str | None = Field(default=None, description="Derived module path")
+    parent_chunk_id: str | None = Field(
+        default=None, description="Chunk ID of the parent container"
+    )
+    content_transform: str | None = Field(
+        default=None, description="Source content transform applied before chunking"
+    )
 
 
 class EmbedChunkContext(BaseModel):
