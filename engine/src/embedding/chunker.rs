@@ -568,7 +568,7 @@ impl EmbedChunker {
                 });
                 let Some(entry_id) = sequence
                     .iter()
-                    .find(|part| live_ids.contains(&part.chunk_id))
+                    .find(|part| part.part_no == 1 && live_ids.contains(&part.chunk_id))
                     .map(|part| part.chunk_id.clone())
                 else {
                     continue;
@@ -580,12 +580,12 @@ impl EmbedChunker {
         }
 
         for chunk in chunks.iter_mut() {
-            let Some(entry_id) = repaired_parent_by_child.get(&chunk.id) else {
-                continue;
-            };
-            if live_ids.contains(entry_id) {
-                if let Some(part) = chunk.part.as_mut() {
+            if let Some(part) = chunk.part.as_mut() {
+                if let Some(entry_id) = repaired_parent_by_child.get(&chunk.id) {
+                    debug_assert!(live_ids.contains(entry_id));
                     part.parent_id = entry_id.clone();
+                } else {
+                    part.parent_id.clear();
                 }
             }
         }
@@ -4688,6 +4688,51 @@ def big():
     }
 
     #[test]
+    fn test_repair_split_part_parent_ids_does_not_self_parent_orphan_tail() {
+        fn part_chunk(id: &str, part_no: u32) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: "tail body".to_owned(),
+                tokens: 2,
+                kind: ChunkKind::FunctionPart,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "module.py".to_owned(),
+                    lines: (20, 25),
+                    symbol: "local_callback".to_owned(),
+                    fqn: Some("module::local_callback".to_owned()),
+                    language: "Python".to_owned(),
+                    parent: None,
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("module".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: Some(ChunkPart {
+                    part: part_no,
+                    of: 2,
+                    parent_id: id.to_owned(),
+                    parent_signature: "def local_callback(value:".to_owned(),
+                    overlap_lines: 0,
+                }),
+            }
+        }
+
+        let mut chunks = vec![part_chunk("tail_only", 2)];
+        let live_ids = chunks.iter().map(|chunk| chunk.id.clone()).collect();
+
+        EmbedChunker::repair_split_part_parent_ids(&mut chunks, &live_ids);
+
+        assert_eq!(chunks[0].part.as_ref().unwrap().parent_id, "");
+    }
+
+    #[test]
     fn test_split_class_parts_use_fragment_level_children_hierarchy() {
         fn chunk(
             id: &str,
@@ -4888,8 +4933,8 @@ def big():
         assert_eq!(live_parent.children_ids, vec!["child_method".to_owned()]);
         assert_eq!(
             live_parent.part.as_ref().unwrap().parent_id,
-            "live_parent_part",
-            "split part parent_id should be repaired to an emitted chunk id"
+            "",
+            "orphaned non-entry split part must not be repaired into a self-parent"
         );
     }
 
