@@ -248,6 +248,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
+use std::path::Path;
 
 // Helper regex for word-boundary "example" detection (to skip documentation lines)
 static RE_EXAMPLE_WORD: Lazy<Regex> = Lazy::new(|| {
@@ -697,12 +698,32 @@ impl SecurityScanner {
             }
 
             for pattern in &self.patterns {
-                // Use find_iter to catch ALL matches on a line, not just the first
-                for m in pattern.regex.find_iter(line) {
-                    let matched = m.as_str();
+                // Use captures_iter to catch all matches and redact only the
+                // captured secret value for key/value patterns.
+                for captures in pattern.regex.captures_iter(line) {
+                    let Some(whole_match) = captures.get(0) else {
+                        continue;
+                    };
+                    let target_match = captures.get(1).unwrap_or(whole_match);
+                    let matched = target_match.as_str();
 
                     // Check allowlist
-                    if self.allowlist.iter().any(|a| matched.contains(a)) {
+                    if self
+                        .allowlist
+                        .iter()
+                        .any(|a| matched.contains(a) || whole_match.as_str().contains(a))
+                    {
+                        continue;
+                    }
+
+                    if captures.get(1).is_some()
+                        && !is_redactable_value_match(
+                            line,
+                            target_match.start(),
+                            target_match.end(),
+                            file_path,
+                        )
+                    {
                         continue;
                     }
 
@@ -795,16 +816,35 @@ impl SecurityScanner {
                 // Check built-in patterns
                 for pattern in &self.patterns {
                     if pattern.severity >= Severity::High {
-                        for m in pattern.regex.find_iter(line) {
-                            let matched = m.as_str();
+                        for captures in pattern.regex.captures_iter(line) {
+                            let Some(whole_match) = captures.get(0) else {
+                                continue;
+                            };
+                            let target_match = captures.get(1).unwrap_or(whole_match);
+                            let matched = target_match.as_str();
 
                             // Check allowlist
-                            if self.allowlist.iter().any(|a| matched.contains(a)) {
+                            if self
+                                .allowlist
+                                .iter()
+                                .any(|a| matched.contains(a) || whole_match.as_str().contains(a))
+                            {
                                 continue;
                             }
 
-                            let start = current_byte_offset + m.start();
-                            let end = current_byte_offset + m.end();
+                            if captures.get(1).is_some()
+                                && !is_redactable_value_match(
+                                    line,
+                                    target_match.start(),
+                                    target_match.end(),
+                                    _file_path,
+                                )
+                            {
+                                continue;
+                            }
+
+                            let start = current_byte_offset + target_match.start();
+                            let end = current_byte_offset + target_match.end();
                             replacements.push((start, end, redact(matched)));
                         }
                     }
@@ -897,6 +937,70 @@ impl SecurityScanner {
         let redacted = self.redact_content(content, file_path);
         (redacted, findings)
     }
+}
+
+fn is_redactable_value_match(
+    line: &str,
+    value_start: usize,
+    value_end: usize,
+    file_path: &str,
+) -> bool {
+    if value_start >= value_end || value_end > line.len() {
+        return false;
+    }
+
+    if value_is_quoted(line, value_start, value_end) {
+        return true;
+    }
+
+    // In source files, unquoted key/value regex matches are usually code
+    // expressions such as `password = auth_info.split(...)`. Redacting those
+    // before parsing corrupts the AST and can manufacture bogus call metadata.
+    if is_source_code_file(file_path) {
+        return false;
+    }
+
+    true
+}
+
+fn value_is_quoted(line: &str, value_start: usize, value_end: usize) -> bool {
+    let before = line[..value_start].chars().next_back();
+    let after = line[value_end..].chars().next();
+    matches!((before, after), (Some('\''), Some('\'')) | (Some('"'), Some('"')))
+}
+
+fn is_source_code_file(file_path: &str) -> bool {
+    let Some(ext) = Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+    else {
+        return false;
+    };
+
+    matches!(
+        ext.as_str(),
+        "c" | "cc"
+            | "cpp"
+            | "cs"
+            | "go"
+            | "h"
+            | "hpp"
+            | "java"
+            | "js"
+            | "jsx"
+            | "kt"
+            | "kts"
+            | "php"
+            | "py"
+            | "pyw"
+            | "rb"
+            | "rs"
+            | "scala"
+            | "swift"
+            | "ts"
+            | "tsx"
+    )
 }
 
 /// Redact a matched secret for display
@@ -1144,6 +1248,45 @@ mod tests {
         assert_eq!(lines.len(), 3, "Should preserve line count");
         assert_eq!(lines[0], "line1");
         assert_eq!(lines[2], "line3");
+    }
+
+    #[test]
+    fn test_python_code_expressions_are_not_redacted_as_passwords() {
+        let scanner = SecurityScanner::new();
+        let content = r#"
+def authenticate(request):
+    authenticated_user, password = self._authenticate_user(
+        request, auth_info.password
+    )
+    username, password = auth_info.split(":", 1)
+"#;
+
+        let findings = scanner.scan(content, "auth.py");
+        let redacted = scanner.redact_content(content, "auth.py");
+
+        assert!(findings.is_empty(), "code expressions should not be reported as secrets");
+        assert_eq!(redacted, content, "redaction must not corrupt Python expressions");
+        assert!(
+            !redacted.contains("pass***"),
+            "redaction must not manufacture a fake password-shaped call"
+        );
+    }
+
+    #[test]
+    fn test_quoted_python_secret_value_is_redacted_without_corrupting_assignment() {
+        let scanner = SecurityScanner::new();
+        let content = "password = 'very_secret_password_12345'";
+
+        let findings = scanner.scan(content, "settings.py");
+        let redacted = scanner.redact_content(content, "settings.py");
+
+        assert!(!findings.is_empty(), "quoted Python secrets should still be detected");
+        assert!(redacted.starts_with("password = '"));
+        assert!(redacted.ends_with('\''));
+        assert!(
+            !redacted.contains("very_secret_password_12345"),
+            "secret value should be redacted"
+        );
     }
 
     #[test]
