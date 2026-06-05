@@ -527,9 +527,9 @@ pub struct ChunkPart {
 
     /// Chunk ID of the entry fragment for this split symbol.
     ///
-    /// This is an emitted part-1 chunk ID when the entry fragment survived
-    /// pruning/canonicalization. It is empty when only tail fragments remain,
-    /// so downstream metadata never points at a synthetic or self-parent chunk.
+    /// This is the emitted part-1 chunk ID when the entry fragment survived
+    /// pruning/canonicalization. If only tail fragments remain, it points to the
+    /// first surviving fragment in the same split sequence.
     pub parent_id: String,
 
     /// Signature repeated for context

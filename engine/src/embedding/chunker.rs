@@ -375,6 +375,9 @@ impl EmbedChunker {
         progress: &dyn ProgressReporter,
     ) {
         // Phase 3: Build reverse call graph (called_by + dependents_count)
+        progress.set_phase("Sanitizing chunk metadata...");
+        Self::sanitize_chunk_metadata(all_chunks);
+
         progress.set_phase("Building call graph...");
         self.populate_called_by(all_chunks);
 
@@ -392,6 +395,8 @@ impl EmbedChunker {
             // function query. Rebuild the graph from the canonical chunk set so
             // called_by/dependents_count never retain alias FQNs or parent-level
             // metadata on non-entry split fragments.
+            progress.set_phase("Sanitizing canonical chunk metadata...");
+            Self::sanitize_chunk_metadata(all_chunks);
             progress.set_phase("Rebuilding canonical call graph...");
             self.populate_called_by(all_chunks);
         }
@@ -403,6 +408,7 @@ impl EmbedChunker {
         let pruned = self.prune_empty_chunks(all_chunks);
         if pruned > 0 {
             progress.warn(&format!("Pruned {pruned} empty chunks after fragment generation"));
+            Self::sanitize_chunk_metadata(all_chunks);
             self.populate_called_by(all_chunks);
         }
 
@@ -465,6 +471,9 @@ impl EmbedChunker {
             progress.set_phase("Collecting git metadata...");
             self.enrich_with_git_metadata(all_chunks, repo_root);
         }
+
+        progress.set_phase("Sanitizing final chunk metadata...");
+        Self::sanitize_chunk_metadata(all_chunks);
     }
 
     fn prune_empty_chunks(&self, chunks: &mut Vec<EmbedChunk>) -> usize {
@@ -503,7 +512,7 @@ impl EmbedChunker {
     }
 
     fn repair_split_part_parent_ids(chunks: &mut [EmbedChunk], live_ids: &BTreeSet<String>) {
-        type SplitGroupKey = (String, String, String, Option<String>, String, u32);
+        type SplitGroupKey = (String, String, String, String, u32);
 
         #[derive(Clone)]
         struct SplitPartRef {
@@ -518,7 +527,6 @@ impl EmbedChunker {
                 chunk.source.repo.qualified_name(),
                 chunk.source.file.clone(),
                 chunk.source.symbol.clone(),
-                chunk.source.fqn.clone(),
                 part.parent_signature.clone(),
                 part.of,
             )
@@ -577,6 +585,11 @@ impl EmbedChunker {
                 let Some(entry_id) = sequence
                     .iter()
                     .find(|part| part.part_no == 1 && live_ids.contains(&part.chunk_id))
+                    .or_else(|| {
+                        sequence
+                            .iter()
+                            .find(|part| live_ids.contains(&part.chunk_id))
+                    })
                     .map(|part| part.chunk_id.clone())
                 else {
                     continue;
@@ -597,6 +610,61 @@ impl EmbedChunker {
                 }
             }
         }
+    }
+
+    fn sanitize_chunk_metadata(chunks: &mut [EmbedChunk]) {
+        for chunk in chunks {
+            Self::sanitize_source_identity(&mut chunk.source);
+            Self::sanitize_context_signature(&chunk.source, &mut chunk.context);
+        }
+    }
+
+    fn sanitize_source_identity(source: &mut ChunkSource) {
+        if source.symbol == "<top_level>" {
+            source.fqn = None;
+            return;
+        }
+        if source
+            .fqn
+            .as_deref()
+            .is_some_and(|fqn| !Self::fqn_matches_symbol(fqn, &source.symbol))
+        {
+            source.fqn = None;
+        }
+    }
+
+    fn sanitize_context_signature(source: &ChunkSource, context: &mut ChunkContext) {
+        let Some(signature) = context.signature.as_deref() else {
+            return;
+        };
+        if let Some(signature_name) = Self::python_signature_name(signature) {
+            if signature_name != source.symbol {
+                context.signature = None;
+                context.type_signature = None;
+                context.parameter_types.clear();
+                context.return_type = None;
+                context.error_types.clear();
+            }
+        }
+    }
+
+    fn fqn_matches_symbol(fqn: &str, symbol: &str) -> bool {
+        fqn.rsplit("::").next() == Some(symbol)
+    }
+
+    fn python_signature_name(signature: &str) -> Option<&str> {
+        let trimmed = signature.trim_start();
+        let rest = trimmed
+            .strip_prefix("async def ")
+            .or_else(|| trimmed.strip_prefix("def "))
+            .or_else(|| trimmed.strip_prefix("class "))?;
+        let end = rest
+            .char_indices()
+            .find_map(|(index, ch)| {
+                (!matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9')).then_some(index)
+            })
+            .unwrap_or(rest.len());
+        (end > 0).then_some(&rest[..end])
     }
 
     /// Canonicalize chunks that describe the exact same source span and content.
@@ -706,26 +774,33 @@ impl EmbedChunker {
         if canonical.full_hash.is_empty() {
             canonical.full_hash = alias.full_hash;
         }
-        let alias_parent = alias.source.parent.clone();
-        let alias_fqn = alias.source.fqn.clone();
-        if canonical.source.parent.is_none() {
-            canonical.source.parent = alias_parent.clone();
-            if alias_fqn.is_some() {
-                canonical.source.fqn = alias_fqn.clone();
-            }
-        } else if canonical.source.fqn.is_none() {
-            canonical.source.fqn = alias_fqn.clone();
-        } else if let (Some(parent), Some(alias_fqn)) =
-            (alias_parent.as_deref(), alias_fqn.as_ref())
-        {
-            let canonical_has_parent = canonical
+        let same_source_symbol = alias.source.symbol == canonical.source.symbol;
+        if same_source_symbol {
+            let alias_parent = alias.source.parent.clone();
+            let alias_fqn = alias
                 .source
                 .fqn
-                .as_deref()
-                .is_some_and(|fqn| fqn.split("::").any(|segment| segment == parent));
-            let alias_has_parent = alias_fqn.split("::").any(|segment| segment == parent);
-            if !canonical_has_parent && alias_has_parent {
-                canonical.source.fqn = Some(alias_fqn.clone());
+                .clone()
+                .filter(|fqn| Self::fqn_matches_symbol(fqn, &canonical.source.symbol));
+            if canonical.source.parent.is_none() {
+                canonical.source.parent = alias_parent.clone();
+                if alias_fqn.is_some() {
+                    canonical.source.fqn = alias_fqn.clone();
+                }
+            } else if canonical.source.fqn.is_none() {
+                canonical.source.fqn = alias_fqn.clone();
+            } else if let (Some(parent), Some(alias_fqn)) =
+                (alias_parent.as_deref(), alias_fqn.as_ref())
+            {
+                let canonical_has_parent = canonical
+                    .source
+                    .fqn
+                    .as_deref()
+                    .is_some_and(|fqn| fqn.split("::").any(|segment| segment == parent));
+                let alias_has_parent = alias_fqn.split("::").any(|segment| segment == parent);
+                if !canonical_has_parent && alias_has_parent {
+                    canonical.source.fqn = Some(alias_fqn.clone());
+                }
             }
         }
         if canonical.source.module_path.is_none() {
@@ -738,10 +813,10 @@ impl EmbedChunker {
             canonical.code_chunk_id = alias.code_chunk_id;
         }
 
-        if canonical.context.docstring.is_none() {
+        if same_source_symbol && canonical.context.docstring.is_none() {
             canonical.context.docstring = alias.context.docstring;
         }
-        if canonical.context.signature.is_none() {
+        if same_source_symbol && canonical.context.signature.is_none() {
             canonical.context.signature = alias.context.signature;
         }
         if canonical.context.context_prefix.is_none() {
@@ -753,10 +828,10 @@ impl EmbedChunker {
         if canonical.context.identifiers.is_none() {
             canonical.context.identifiers = alias.context.identifiers;
         }
-        if canonical.context.type_signature.is_none() {
+        if same_source_symbol && canonical.context.type_signature.is_none() {
             canonical.context.type_signature = alias.context.type_signature;
         }
-        if canonical.context.return_type.is_none() {
+        if same_source_symbol && canonical.context.return_type.is_none() {
             canonical.context.return_type = alias.context.return_type;
         }
         if canonical.context.git.is_none() {
@@ -4898,6 +4973,52 @@ def find_paths(
     }
 
     #[test]
+    fn test_sanitize_chunk_metadata_drops_mismatched_fqn_and_nested_signature() {
+        let mut chunks = vec![EmbedChunk {
+            id: "outer_part".to_owned(),
+            full_hash: "outer_hash".to_owned(),
+            content: "    def inner():\n        return 1".to_owned(),
+            tokens: 8,
+            kind: ChunkKind::FunctionPart,
+            source: ChunkSource {
+                repo: RepoIdentifier::default(),
+                file: "service.py".to_owned(),
+                lines: (10, 11),
+                symbol: "outer".to_owned(),
+                fqn: Some("service::inner".to_owned()),
+                language: "Python".to_owned(),
+                parent: None,
+                visibility: Visibility::Public,
+                is_test: false,
+                module_path: Some("service".to_owned()),
+                parent_chunk_id: None,
+                line_byte_range: None,
+                content_transform: None,
+            },
+            context: ChunkContext {
+                signature: Some("def inner():".to_owned()),
+                type_signature: Some("()".to_owned()),
+                return_type: Some("Any".to_owned()),
+                parameter_types: vec!["Any".to_owned()],
+                ..Default::default()
+            },
+            children_ids: Vec::new(),
+            dedup_alias_chunk_ids: Vec::new(),
+            repr: default_repr(),
+            code_chunk_id: None,
+            part: None,
+        }];
+
+        EmbedChunker::sanitize_chunk_metadata(&mut chunks);
+
+        assert_eq!(chunks[0].source.fqn, None);
+        assert_eq!(chunks[0].context.signature, None);
+        assert_eq!(chunks[0].context.type_signature, None);
+        assert_eq!(chunks[0].context.return_type, None);
+        assert!(chunks[0].context.parameter_types.is_empty());
+    }
+
+    #[test]
     fn test_python_line_range_calls_ignore_docstring_continuation() {
         let settings =
             EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
@@ -5208,7 +5329,7 @@ def find_paths(
     }
 
     #[test]
-    fn test_repair_split_part_parent_ids_does_not_self_parent_orphan_tail() {
+    fn test_repair_split_part_parent_ids_anchors_orphan_tail_to_live_part() {
         fn part_chunk(id: &str, part_no: u32) -> EmbedChunk {
             EmbedChunk {
                 id: id.to_owned(),
@@ -5251,7 +5372,58 @@ def find_paths(
 
         EmbedChunker::repair_split_part_parent_ids(&mut chunks, &live_ids);
 
-        assert_eq!(chunks[0].part.as_ref().unwrap().parent_id, "");
+        assert_eq!(chunks[0].part.as_ref().unwrap().parent_id, "tail_only");
+    }
+
+    #[test]
+    fn test_repair_split_part_parent_ids_ignores_dirty_fqn_for_grouping() {
+        fn part_chunk(id: &str, part_no: u32, fqn: &str, lines: (u32, u32)) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: format!("part {part_no}"),
+                tokens: 2,
+                kind: ChunkKind::ClassPart,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "models.py".to_owned(),
+                    lines,
+                    symbol: "Issue".to_owned(),
+                    fqn: Some(fqn.to_owned()),
+                    language: "Python".to_owned(),
+                    parent: None,
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("models".to_owned()),
+                    parent_chunk_id: None,
+                    line_byte_range: None,
+                    content_transform: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: Some(ChunkPart {
+                    part: part_no,
+                    of: 2,
+                    parent_id: "stale".to_owned(),
+                    parent_signature: "class Issue(models.Model):".to_owned(),
+                    overlap_lines: 0,
+                }),
+            }
+        }
+
+        let mut chunks = vec![
+            part_chunk("entry", 1, "models::Issue", (1, 10)),
+            part_chunk("tail", 2, "models::Meta", (11, 20)),
+        ];
+        let live_ids = chunks.iter().map(|chunk| chunk.id.clone()).collect();
+
+        EmbedChunker::repair_split_part_parent_ids(&mut chunks, &live_ids);
+
+        let tail = chunks.iter().find(|chunk| chunk.id == "tail").unwrap();
+        assert_eq!(tail.part.as_ref().unwrap().parent_id, "entry");
     }
 
     #[test]
@@ -5459,8 +5631,8 @@ def find_paths(
         assert_eq!(live_parent.children_ids, vec!["child_method".to_owned()]);
         assert_eq!(
             live_parent.part.as_ref().unwrap().parent_id,
-            "",
-            "orphaned non-entry split part must not be repaired into a self-parent"
+            "live_parent_part",
+            "orphaned non-entry split part should anchor to the first surviving split fragment"
         );
     }
 
