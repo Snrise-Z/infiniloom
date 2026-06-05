@@ -497,6 +497,14 @@ impl EmbedChunker {
     fn repair_split_part_parent_ids(chunks: &mut [EmbedChunk], live_ids: &BTreeSet<String>) {
         type SplitGroupKey = (String, String, String, Option<String>, String, u32);
 
+        #[derive(Clone)]
+        struct SplitPartRef {
+            part_no: u32,
+            start_line: u32,
+            end_line: u32,
+            chunk_id: String,
+        }
+
         fn key_for(chunk: &EmbedChunk, part: &ChunkPart) -> SplitGroupKey {
             (
                 chunk.source.repo.qualified_name(),
@@ -508,30 +516,74 @@ impl EmbedChunker {
             )
         }
 
-        let mut grouped_parts: BTreeMap<SplitGroupKey, Vec<(u32, String)>> = BTreeMap::new();
+        fn split_sequences(mut parts: Vec<SplitPartRef>) -> Vec<Vec<SplitPartRef>> {
+            parts.sort_by(|left, right| {
+                left.start_line
+                    .cmp(&right.start_line)
+                    .then_with(|| left.end_line.cmp(&right.end_line))
+                    .then_with(|| left.part_no.cmp(&right.part_no))
+                    .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+            });
+
+            let mut sequences: Vec<Vec<SplitPartRef>> = Vec::new();
+            for item in parts {
+                let starts_new_sequence = sequences
+                    .last()
+                    .and_then(|sequence| sequence.last())
+                    .is_none_or(|previous| {
+                        item.part_no <= previous.part_no
+                            || item.start_line > previous.end_line.saturating_add(1)
+                    });
+
+                if starts_new_sequence {
+                    sequences.push(vec![item]);
+                } else if let Some(sequence) = sequences.last_mut() {
+                    sequence.push(item);
+                }
+            }
+            sequences
+        }
+
+        let mut grouped_parts: BTreeMap<SplitGroupKey, Vec<SplitPartRef>> = BTreeMap::new();
         for chunk in chunks.iter() {
             if let Some(part) = chunk.part.as_ref() {
                 grouped_parts
                     .entry(key_for(chunk, part))
                     .or_default()
-                    .push((part.part, chunk.id.clone()));
+                    .push(SplitPartRef {
+                        part_no: part.part,
+                        start_line: chunk.source.lines.0,
+                        end_line: chunk.source.lines.1,
+                        chunk_id: chunk.id.clone(),
+                    });
             }
         }
 
-        let entry_id_by_group: BTreeMap<SplitGroupKey, String> = grouped_parts
-            .into_iter()
-            .filter_map(|(key, mut parts)| {
-                parts
-                    .sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-                parts.first().map(|(_, id)| (key, id.clone()))
-            })
-            .collect();
+        let mut repaired_parent_by_child: BTreeMap<String, String> = BTreeMap::new();
+        for parts in grouped_parts.into_values() {
+            for mut sequence in split_sequences(parts) {
+                sequence.sort_by(|left, right| {
+                    left.part_no
+                        .cmp(&right.part_no)
+                        .then_with(|| left.start_line.cmp(&right.start_line))
+                        .then_with(|| left.end_line.cmp(&right.end_line))
+                        .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+                });
+                let Some(entry_id) = sequence
+                    .iter()
+                    .find(|part| live_ids.contains(&part.chunk_id))
+                    .map(|part| part.chunk_id.clone())
+                else {
+                    continue;
+                };
+                for part in sequence {
+                    repaired_parent_by_child.insert(part.chunk_id, entry_id.clone());
+                }
+            }
+        }
 
         for chunk in chunks.iter_mut() {
-            let Some(part_snapshot) = chunk.part.clone() else {
-                continue;
-            };
-            let Some(entry_id) = entry_id_by_group.get(&key_for(chunk, &part_snapshot)) else {
+            let Some(entry_id) = repaired_parent_by_child.get(&chunk.id) else {
                 continue;
             };
             if live_ids.contains(entry_id) {
@@ -4339,6 +4391,73 @@ def big():
                 .as_ref()
                 .is_some_and(|part| part.parent_id == entry_id)
         }));
+    }
+
+    #[test]
+    fn test_repair_split_part_parent_ids_keeps_distinct_top_level_sequences() {
+        fn top_part(id: &str, lines: (u32, u32), part_no: u32, parent_id: &str) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: format!("line {}", lines.0),
+                tokens: 1,
+                kind: ChunkKind::TopLevel,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "module.py".to_owned(),
+                    lines,
+                    symbol: "<top_level>".to_owned(),
+                    fqn: None,
+                    language: "Python".to_owned(),
+                    parent: None,
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("module".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: Some(ChunkPart {
+                    part: part_no,
+                    of: 2,
+                    parent_id: parent_id.to_owned(),
+                    parent_signature: String::new(),
+                    overlap_lines: 0,
+                }),
+            }
+        }
+
+        let mut chunks = vec![
+            top_part("first_entry", (1, 3), 1, "stale"),
+            top_part("first_tail", (4, 5), 2, "stale"),
+            top_part("second_entry", (20, 22), 1, "stale"),
+            top_part("second_tail", (23, 25), 2, "stale"),
+        ];
+        let live_ids = chunks.iter().map(|chunk| chunk.id.clone()).collect();
+
+        EmbedChunker::repair_split_part_parent_ids(&mut chunks, &live_ids);
+
+        let parent_ids: BTreeMap<_, _> = chunks
+            .iter()
+            .map(|chunk| {
+                (
+                    chunk.id.as_str(),
+                    chunk
+                        .part
+                        .as_ref()
+                        .expect("part metadata")
+                        .parent_id
+                        .as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(parent_ids["first_entry"], "first_entry");
+        assert_eq!(parent_ids["first_tail"], "first_entry");
+        assert_eq!(parent_ids["second_entry"], "second_entry");
+        assert_eq!(parent_ids["second_tail"], "second_entry");
     }
 
     #[test]
