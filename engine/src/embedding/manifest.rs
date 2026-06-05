@@ -541,7 +541,6 @@ mod tests {
                 content_transform: None,
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext::default(),
             repr: "code".to_string(),
             code_chunk_id: None,

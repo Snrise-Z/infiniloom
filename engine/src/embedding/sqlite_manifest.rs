@@ -430,7 +430,6 @@ mod tests {
             },
             context: ChunkContext::default(),
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: "code".to_owned(),
             code_chunk_id: None,
             part: None,

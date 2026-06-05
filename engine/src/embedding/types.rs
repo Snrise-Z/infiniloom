@@ -131,11 +131,6 @@ pub struct EmbedChunk {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children_ids: Vec<String>,
 
-    /// Chunk IDs that were canonicalized into this chunk because they had the
-    /// same source position and content but a less specific AST role.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub dedup_alias_chunk_ids: Vec<String>,
-
     /// Representation type: "code" (default) or "signature"
     ///
     /// Code chunks contain the full implementation. Signature chunks contain only
@@ -374,10 +369,6 @@ pub struct ChunkContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub qualified_calls: Vec<String>,
 
-    /// Calls that could not be resolved via imports or same-file symbols.
-    /// These are raw call names that had no matching import or local definition.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unresolved_calls: Vec<String>,
     /// Space-separated string of all unique identifiers extracted from the chunk,
     /// optimized for BM25/sparse text indexing. Includes both original identifiers
     /// and their camelCase/snake_case split parts, all lowercased.

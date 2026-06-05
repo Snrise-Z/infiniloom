@@ -492,12 +492,6 @@ impl EmbedChunker {
             chunk.children_ids.sort();
             chunk.children_ids.dedup();
 
-            chunk
-                .dedup_alias_chunk_ids
-                .retain(|id| live_ids.contains(id));
-            chunk.dedup_alias_chunk_ids.sort();
-            chunk.dedup_alias_chunk_ids.dedup();
-
             if chunk
                 .source
                 .parent_chunk_id
@@ -740,7 +734,6 @@ impl EmbedChunker {
     fn sanitize_context_relations(context: &mut ChunkContext) {
         context.called_by.sort();
         context.called_by.dedup();
-        context.unresolved_calls.clear();
         context.dependents_count = if context.called_by.is_empty() {
             None
         } else {
@@ -771,8 +764,7 @@ impl EmbedChunker {
     ///
     /// Some Tree-sitter queries intentionally overlap, for example a Python class
     /// method may also match the generic function rule. Those duplicates should be
-    /// represented by one canonical chunk, while the removed chunk IDs remain
-    /// visible in `dedup_alias_chunk_ids` for auditability.
+    /// represented by one canonical chunk.
     fn canonicalize_duplicate_chunks(&self, chunks: &mut Vec<EmbedChunk>) -> usize {
         use std::collections::BTreeMap;
 
@@ -842,14 +834,6 @@ impl EmbedChunker {
     }
 
     fn merge_alias_chunk(canonical: &mut EmbedChunk, alias: EmbedChunk) {
-        use std::collections::BTreeSet;
-
-        let mut alias_ids: BTreeSet<String> =
-            canonical.dedup_alias_chunk_ids.iter().cloned().collect();
-        alias_ids.insert(alias.id);
-        alias_ids.extend(alias.dedup_alias_chunk_ids);
-        canonical.dedup_alias_chunk_ids = alias_ids.into_iter().collect();
-
         Self::merge_sorted_unique(&mut canonical.children_ids, alias.children_ids);
         Self::merge_sorted_unique(&mut canonical.context.calls, alias.context.calls);
         Self::merge_sorted_unique(&mut canonical.context.called_by, alias.context.called_by);
@@ -860,10 +844,6 @@ impl EmbedChunker {
         Self::merge_sorted_unique(
             &mut canonical.context.qualified_calls,
             alias.context.qualified_calls,
-        );
-        Self::merge_sorted_unique(
-            &mut canonical.context.unresolved_calls,
-            alias.context.unresolved_calls,
         );
         Self::merge_sorted_unique(
             &mut canonical.context.parameter_types,
@@ -1158,13 +1138,12 @@ impl EmbedChunker {
     }
     /// Populate the called_by field for all chunks by building a reverse call graph.
     ///
-    /// This method first runs import-aware resolution to populate `qualified_calls`
-    /// and `unresolved_calls`, then builds the reverse map for `called_by` from
-    /// resolved internal targets only.
+    /// This method first runs import-aware resolution to populate `qualified_calls`,
+    /// then builds the reverse map for `called_by` from resolved internal targets only.
     fn populate_called_by(&self, chunks: &mut [EmbedChunk]) {
         use super::import_resolver::ImportResolver;
 
-        // Phase A: Resolve calls via imports (populates qualified_calls / unresolved_calls)
+        // Phase A: Resolve calls via imports (populates qualified_calls)
         let resolver = ImportResolver::from_chunks(chunks);
         resolver.resolve_all_calls(chunks);
 
@@ -1466,7 +1445,6 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
-                    dedup_alias_chunk_ids: Vec::new(),
                     repr,
                     code_chunk_id: Some(chunk.id.clone()),
                     part: None,
@@ -1638,7 +1616,6 @@ impl EmbedChunker {
                     source,
                     context,
                     children_ids: Vec::new(),
-                    dedup_alias_chunk_ids: Vec::new(),
                     repr,
                     code_chunk_id: None,
                     part: None,
@@ -1999,7 +1976,6 @@ impl EmbedChunker {
                 source: part_source,
                 context: part_context,
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr,
                 code_chunk_id: None,
                 part: Some(part),
@@ -2121,7 +2097,6 @@ impl EmbedChunker {
             )),
             summary: None,
             qualified_calls: Vec::new(),
-            unresolved_calls: Vec::new(),
             identifiers: extract_identifiers(content, lang),
             type_signature: type_info
                 .as_ref()
@@ -2423,7 +2398,6 @@ impl EmbedChunker {
                 source: top_source,
                 context: top_context,
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr,
                 code_chunk_id: None,
                 part: None,
@@ -2498,7 +2472,6 @@ impl EmbedChunker {
                 source: part_source,
                 context: top_context,
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: repr.clone(),
                 code_chunk_id: None,
                 part: Some(part),
@@ -2612,9 +2585,8 @@ impl EmbedChunker {
                 symbol.parent.as_deref(),
                 &symbol.kind,
             )),
-            summary: None,                // Populated after source is built
-            qualified_calls: Vec::new(),  // Populated by ImportResolver
-            unresolved_calls: Vec::new(), // Populated by ImportResolver
+            summary: None,               // Populated after source is built
+            qualified_calls: Vec::new(), // Populated by ImportResolver
             identifiers: extract_identifiers(content, lang),
             type_signature,
             parameter_types,
@@ -4606,7 +4578,6 @@ def caller(value):
             "caller should resolve target to pkg/a.py: {:?}",
             caller.context.qualified_calls
         );
-        assert!(caller.context.unresolved_calls.is_empty());
 
         let target_a = chunks
             .iter()
@@ -5244,11 +5215,6 @@ def test_layer_global_max_pooling1d(system_dict):
             "docstring continuation must not produce calls: {:?}",
             docstring_part.context.calls
         );
-        assert!(
-            docstring_part.context.unresolved_calls.is_empty(),
-            "docstring continuation must not produce unresolved calls: {:?}",
-            docstring_part.context.unresolved_calls
-        );
 
         let body_part = chunks
             .iter()
@@ -5569,7 +5535,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,
@@ -5597,7 +5562,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,
@@ -5653,7 +5617,6 @@ def find_paths(
                 ..Default::default()
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: default_repr(),
             code_chunk_id: None,
             part: None,
@@ -5875,11 +5838,9 @@ def find_paths(
                 identifiers: Some("fake_comment_call os".to_owned()),
                 keywords: vec!["fake".to_owned(), "comment".to_owned()],
                 summary: Some("Top-level code in stale parent".to_owned()),
-                unresolved_calls: vec!["fake_comment_call".to_owned()],
                 ..Default::default()
             },
             children_ids: vec!["missing".to_owned()],
-            dedup_alias_chunk_ids: vec!["dead-alias".to_owned()],
             repr: default_repr(),
             code_chunk_id: None,
             part: Some(ChunkPart {
@@ -5907,9 +5868,7 @@ def find_paths(
         assert_eq!(chunk.source.module_path.as_deref(), Some("easyprocess"));
         assert_eq!(chunk.source.fqn, None);
         assert_eq!(chunk.children_ids, Vec::<String>::new());
-        assert_eq!(chunk.dedup_alias_chunk_ids, Vec::<String>::new());
         assert_eq!(chunk.context.called_by, Vec::<String>::new());
-        assert_eq!(chunk.context.unresolved_calls, Vec::<String>::new());
         assert_eq!(chunk.context.dependents_count, None);
         assert_eq!(chunk.context.summary, None);
         assert!(!chunk
@@ -5953,11 +5912,9 @@ def find_paths(
             },
             context: ChunkContext {
                 signature: Some("def parse_http_response(rawBytes):".to_owned()),
-                unresolved_calls: vec!["ValueError".to_owned()],
                 ..Default::default()
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: default_repr(),
             code_chunk_id: None,
             part: None,
@@ -5992,7 +5949,6 @@ def find_paths(
         assert!(!identifiers.split_whitespace().any(|term| term == "return"));
         assert!(!identifiers.split_whitespace().any(|term| term == "raise"));
         assert!(!identifiers.split_whitespace().any(|term| term == "hidden"));
-        assert!(chunks[0].context.unresolved_calls.is_empty());
     }
 
     #[test]
@@ -6020,7 +5976,6 @@ def find_paths(
             },
             context: ChunkContext::default(),
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: default_repr(),
             code_chunk_id: None,
             part: Some(ChunkPart {
@@ -6064,7 +6019,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,
@@ -6092,7 +6046,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,
@@ -6140,7 +6093,6 @@ def find_paths(
                 ..Default::default()
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: default_repr(),
             code_chunk_id: None,
             part: None,
@@ -6342,7 +6294,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: Some(ChunkPart {
@@ -6411,7 +6362,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: Some(ChunkPart {
@@ -6458,7 +6408,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: Some(ChunkPart {
@@ -6515,7 +6464,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: if kind == ChunkKind::ClassPart {
@@ -6614,7 +6562,6 @@ def find_paths(
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: part_no.map(|part| ChunkPart {
@@ -6724,11 +6671,9 @@ def find_paths(
                     called_by: vec![format!("{id}_caller")],
                     imports: vec![format!("{id}_import")],
                     qualified_calls: vec![format!("service::{id}_call")],
-                    unresolved_calls: vec![format!("{id}_unresolved")],
                     ..Default::default()
                 },
                 children_ids: vec![format!("{id}_child")],
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,
@@ -6748,12 +6693,10 @@ def find_paths(
         assert_eq!(chunks.len(), 1);
         let chunk = &chunks[0];
         assert_eq!(chunk.kind, ChunkKind::Method);
-        assert_eq!(chunk.dedup_alias_chunk_ids, vec!["function_alias".to_owned()]);
         assert_eq!(chunk.context.calls.len(), 2);
         assert_eq!(chunk.context.called_by.len(), 2);
         assert_eq!(chunk.context.imports.len(), 2);
         assert_eq!(chunk.context.qualified_calls.len(), 2);
-        assert_eq!(chunk.context.unresolved_calls.len(), 2);
         assert_eq!(chunk.children_ids.len(), 2);
         assert_eq!(chunk.context.dependents_count, Some(2));
     }
@@ -6795,7 +6738,6 @@ def find_paths(
         assert_eq!(worker_chunks.len(), 1, "method/function duplicates should canonicalize");
         let worker = worker_chunks[0];
         assert_eq!(worker.kind, ChunkKind::Method);
-        assert_eq!(worker.dedup_alias_chunk_ids, Vec::<String>::new());
         assert!(worker.content.contains("CHILD_BODY_MARKER_RESULT"));
 
         let class_parts: Vec<_> = chunks
@@ -7484,7 +7426,6 @@ impl User {
                 },
                 context: ChunkContext::default(),
                 children_ids: Vec::new(),
-                dedup_alias_chunk_ids: Vec::new(),
                 repr: default_repr(),
                 code_chunk_id: None,
                 part: None,

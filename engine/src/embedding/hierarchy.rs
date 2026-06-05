@@ -261,7 +261,6 @@ impl HierarchyBuilder {
             kind: container.kind,
             source,
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext {
                 docstring: container.context.docstring.clone(),
                 comments: Vec::new(),
@@ -274,7 +273,6 @@ impl HierarchyBuilder {
                 context_prefix: container.context.context_prefix.clone(),
                 summary: None,
                 qualified_calls: Vec::new(),
-                unresolved_calls: Vec::new(),
                 identifiers: container.context.identifiers.clone(),
                 type_signature: None,
                 parameter_types: Vec::new(),
@@ -454,7 +452,6 @@ mod tests {
                 content_transform: None,
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             context: ChunkContext {
                 docstring: docstring.map(String::from),
                 comments: Vec::new(),
@@ -467,7 +464,6 @@ mod tests {
                 context_prefix: None,
                 summary: None,
                 qualified_calls: Vec::new(),
-                unresolved_calls: Vec::new(),
                 identifiers: None,
                 type_signature: None,
                 parameter_types: Vec::new(),

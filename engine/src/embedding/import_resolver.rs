@@ -12,7 +12,6 @@
 //!
 //! The resolver produces two new fields on `ChunkContext`:
 //! - `qualified_calls`: calls successfully resolved to a qualified name via imports
-//! - `unresolved_calls`: calls that could not be matched to any import or local symbol
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -122,7 +121,7 @@ impl ImportResolver {
         None
     }
 
-    /// Resolve all calls for all chunks, populating `qualified_calls` and `unresolved_calls`.
+    /// Resolve all calls for all chunks, populating `qualified_calls`.
     ///
     /// Also builds an improved reverse call map using qualified names for the
     /// `called_by` pass, reducing false-positive matches.
@@ -131,8 +130,6 @@ impl ImportResolver {
             let file = &chunk.source.file;
             let caller_fqn = chunk.source.fqn.as_deref();
             let mut qualified = BTreeSet::new();
-            let mut unresolved = BTreeSet::new();
-
             for call_name in &chunk.context.calls {
                 match self.resolve_call(file, call_name) {
                     Some(qname) => {
@@ -140,14 +137,11 @@ impl ImportResolver {
                             qualified.insert(qname);
                         }
                     },
-                    None => {
-                        unresolved.insert(call_name.clone());
-                    },
+                    None => {},
                 }
             }
 
             chunk.context.qualified_calls = qualified.into_iter().collect();
-            chunk.context.unresolved_calls = unresolved.into_iter().collect();
         }
     }
 
@@ -750,7 +744,6 @@ mod tests {
         resolver.resolve_all_calls(&mut chunks);
 
         assert_eq!(chunks[0].context.qualified_calls, vec!["src::auth::verify".to_owned()]);
-        assert_eq!(chunks[0].context.unresolved_calls, vec!["unknown".to_owned()]);
     }
 
     #[test]
@@ -857,7 +850,6 @@ mod tests {
                 ..Default::default()
             },
             children_ids: Vec::new(),
-            dedup_alias_chunk_ids: Vec::new(),
             repr: "code".to_string(),
             code_chunk_id: None,
             part: None,
