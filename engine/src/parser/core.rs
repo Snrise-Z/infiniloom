@@ -319,11 +319,11 @@ impl Parser {
 
         let name = name_node.utf8_text(source_code.as_bytes()).ok()?;
 
-        // Find the definition node (usually the largest capture)
-        let def_node = captures
-            .iter()
-            .max_by_key(|c| c.node.byte_range().len())
-            .map_or(name_node, |c| c.node);
+        // The kind capture is placed on the definition node by each query
+        // pattern. Using the largest capture is brittle when a pattern also
+        // captures imports/decorators and can accidentally widen the symbol
+        // span beyond the actual AST definition.
+        let def_node = kind_capture.node;
 
         if language == Language::Kotlin && def_node.kind() == "class_declaration" {
             let mut cursor = def_node.walk();

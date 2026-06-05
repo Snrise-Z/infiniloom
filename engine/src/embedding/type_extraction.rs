@@ -304,10 +304,13 @@ fn extract_python_types(root: tree_sitter::Node<'_>, source: &str) -> Option<Typ
 
     // Find return type from the annotated return field only. A direct
     // child-kind search for "type" is too broad for Python and can capture
-    // body/docstring text in malformed or multi-line definitions.
+    // body/docstring text in malformed or truncated fragments. Only accept
+    // annotations that end before the function header colon.
     let return_type = func_node
         .child_by_field_name("return_type")
+        .filter(|n| python_return_annotation_is_in_header(func_node, *n, source))
         .map(|n| node_text(n, source).trim().to_owned())
+        .filter(|text| !python_return_type_text_is_suspicious(text))
         .filter(|text| !text.is_empty());
 
     // Build Python-style type signature
@@ -330,6 +333,91 @@ fn extract_python_types(root: tree_sitter::Node<'_>, source: &str) -> Option<Typ
         return_type,
         error_types: Vec::new(),
     })
+}
+
+fn python_return_type_text_is_suspicious(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    text.contains("\"\"\"")
+        || text.contains("'''")
+        || lowered.contains("\ndef ")
+        || lowered.contains("\nclass ")
+        || lowered.contains("\nreturn ")
+        || lowered.contains("\nimport ")
+}
+
+fn python_return_annotation_is_in_header(
+    func_node: tree_sitter::Node<'_>,
+    return_node: tree_sitter::Node<'_>,
+    source: &str,
+) -> bool {
+    let header_end = python_function_header_end_byte(func_node, source)
+        .unwrap_or_else(|| return_node.end_byte());
+    return_node.end_byte() <= header_end
+}
+
+fn python_function_header_end_byte(
+    func_node: tree_sitter::Node<'_>,
+    source: &str,
+) -> Option<usize> {
+    let text = node_text(func_node, source);
+    let start = func_node.start_byte();
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    let mut string_quote: Option<char> = None;
+    let mut string_triple = false;
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let (byte_offset, ch) = chars[index];
+
+        if let Some(quote) = string_quote {
+            if string_triple {
+                if index + 2 < chars.len()
+                    && chars[index].1 == quote
+                    && chars[index + 1].1 == quote
+                    && chars[index + 2].1 == quote
+                {
+                    string_quote = None;
+                    string_triple = false;
+                    index += 3;
+                    continue;
+                }
+            } else if ch == '\\' {
+                index += 2;
+                continue;
+            } else if ch == quote {
+                string_quote = None;
+                index += 1;
+                continue;
+            }
+            index += 1;
+            continue;
+        }
+
+        if ch == '\'' || ch == '"' {
+            string_quote = Some(ch);
+            string_triple =
+                index + 2 < chars.len() && chars[index + 1].1 == ch && chars[index + 2].1 == ch;
+            index += if string_triple { 3 } else { 1 };
+            continue;
+        }
+
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => paren_depth = (paren_depth - 1).max(0),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = (bracket_depth - 1).max(0),
+            ':' if paren_depth == 0 && bracket_depth == 0 => {
+                return Some(start + byte_offset);
+            },
+            _ => {},
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -633,6 +721,23 @@ mod tests {
         assert_eq!(info.parameter_types, vec!["list"]);
         assert_eq!(info.return_type.as_deref(), Some("dict[str, int]"));
         assert!(!info.type_signature.unwrap().contains("Return a mapping"));
+    }
+
+    #[test]
+    fn test_python_suspicious_return_type_filter_keeps_multiline_annotations() {
+        let source = r#"def process(data: list) -> dict:
+    """
+    Return a mapping.
+
+    Args:
+        data: Input data."#;
+        let info = extract_types(source, Language::Python).unwrap();
+        assert_eq!(info.parameter_types, vec!["list"]);
+        assert_eq!(info.return_type.as_deref(), Some("dict"));
+        assert!(python_return_type_text_is_suspicious("dict:\n    \"\"\"\n    Return a mapping."));
+        assert!(!python_return_type_text_is_suspicious(
+            "Tuple[\n    List[str],\n    Dict[str, int],\n]"
+        ));
     }
 
     #[test]

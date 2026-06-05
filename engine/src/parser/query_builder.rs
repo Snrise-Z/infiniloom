@@ -63,6 +63,7 @@ pub fn python_super_query() -> Result<Query, ParserError> {
                 name: (identifier) @name) @method)))
 
         ; Imports
+        (future_import_statement) @import
         (import_statement) @import
         (import_from_statement) @import
     "#;

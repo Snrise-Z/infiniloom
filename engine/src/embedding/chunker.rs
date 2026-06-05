@@ -495,7 +495,7 @@ impl EmbedChunker {
     }
 
     fn repair_split_part_parent_ids(chunks: &mut [EmbedChunk], live_ids: &BTreeSet<String>) {
-        type SplitGroupKey = (String, String, String, Option<String>, String, u32, String);
+        type SplitGroupKey = (String, String, String, Option<String>, String, u32);
 
         fn key_for(chunk: &EmbedChunk, part: &ChunkPart) -> SplitGroupKey {
             (
@@ -505,16 +505,12 @@ impl EmbedChunker {
                 chunk.source.fqn.clone(),
                 part.parent_signature.clone(),
                 part.of,
-                part.parent_id.clone(),
             )
         }
 
         let mut grouped_parts: BTreeMap<SplitGroupKey, Vec<(u32, String)>> = BTreeMap::new();
         for chunk in chunks.iter() {
             if let Some(part) = chunk.part.as_ref() {
-                if live_ids.contains(&part.parent_id) {
-                    continue;
-                }
                 grouped_parts
                     .entry(key_for(chunk, part))
                     .or_default()
@@ -1108,26 +1104,64 @@ impl EmbedChunker {
         parent_indexes: &[usize],
         chunks: &[EmbedChunk],
     ) -> Vec<usize> {
-        let matching_parts: Vec<usize> = parent_indexes
+        let mut exact_containing: Vec<usize> = parent_indexes
             .iter()
             .copied()
             .filter(|&idx| {
                 let parent = &chunks[idx];
                 !parent.content.trim().is_empty()
-                    && (!parent.kind.is_part()
-                        || Self::line_ranges_overlap(parent.source.lines, child.source.lines))
+                    && Self::line_range_contains(parent.source.lines, child.source.lines)
             })
             .collect();
 
-        if !matching_parts.is_empty() {
-            return matching_parts;
+        if !exact_containing.is_empty() {
+            exact_containing
+                .sort_by(|left, right| Self::parent_container_cmp(&chunks[*left], &chunks[*right]));
+            return exact_containing.first().copied().into_iter().collect();
         }
 
-        parent_indexes.first().copied().into_iter().collect()
+        let mut overlapping_parts: Vec<usize> = parent_indexes
+            .iter()
+            .copied()
+            .filter(|&idx| {
+                let parent = &chunks[idx];
+                !parent.content.trim().is_empty()
+                    && parent.kind.is_part()
+                    && Self::line_ranges_overlap(parent.source.lines, child.source.lines)
+            })
+            .collect();
+
+        if !overlapping_parts.is_empty() {
+            overlapping_parts
+                .sort_by(|left, right| Self::parent_container_cmp(&chunks[*left], &chunks[*right]));
+            return overlapping_parts.first().copied().into_iter().collect();
+        }
+
+        let mut fallback: Vec<usize> = parent_indexes
+            .iter()
+            .copied()
+            .filter(|&idx| !chunks[idx].content.trim().is_empty())
+            .collect();
+        fallback.sort_by(|left, right| Self::parent_container_cmp(&chunks[*left], &chunks[*right]));
+        fallback.first().copied().into_iter().collect()
+    }
+
+    fn line_range_contains(parent: (u32, u32), child: (u32, u32)) -> bool {
+        parent.0 <= child.0 && child.1 <= parent.1
     }
 
     fn line_ranges_overlap(a: (u32, u32), b: (u32, u32)) -> bool {
         a.0 <= b.1 && b.0 <= a.1
+    }
+
+    fn parent_container_cmp(left: &EmbedChunk, right: &EmbedChunk) -> std::cmp::Ordering {
+        let left_span = left.source.lines.1.saturating_sub(left.source.lines.0);
+        let right_span = right.source.lines.1.saturating_sub(right.source.lines.0);
+        left_span
+            .cmp(&right_span)
+            .then_with(|| left.source.lines.0.cmp(&right.source.lines.0))
+            .then_with(|| left.source.lines.1.cmp(&right.source.lines.1))
+            .then_with(|| left.id.cmp(&right.id))
     }
 
     /// Generate signature-only chunks for code chunks that have signatures
@@ -1698,7 +1732,7 @@ impl EmbedChunker {
         segment: BudgetedSegment,
         token_model: TokenModel,
     ) -> Option<BudgetedSegment> {
-        let lines: Vec<&str> = segment.content.lines().collect();
+        let lines: Vec<&str> = segment.content.split('\n').collect();
         if lines.is_empty() {
             return None;
         }
@@ -1820,10 +1854,45 @@ impl EmbedChunker {
         };
 
         let mut calls = std::collections::HashSet::new();
-        collect_calls_recursive(tree.root_node(), content, language, &mut calls);
+        if language == Language::Python {
+            Self::collect_python_calls_without_strings(tree.root_node(), content, &mut calls);
+        } else {
+            collect_calls_recursive(tree.root_node(), content, language, &mut calls);
+        }
         let mut calls: Vec<String> = calls.into_iter().collect();
         calls.sort();
         calls
+    }
+
+    fn collect_python_calls_without_strings(
+        root: tree_sitter::Node<'_>,
+        source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            match node.kind() {
+                "string" | "comment" => continue,
+                "call" => {
+                    if let Some(function) = node.child_by_field_name("function") {
+                        if function.kind() == "identifier" {
+                            if let Ok(name) = function.utf8_text(source.as_bytes()) {
+                                if !crate::parser::extraction::is_builtin(name, Language::Python) {
+                                    calls.insert(name.to_owned());
+                                }
+                            }
+                        }
+                    }
+                },
+                _ => {},
+            }
+
+            for index in (0..node.child_count()).rev() {
+                if let Some(child) = node.child(index as u32) {
+                    stack.push(child);
+                }
+            }
+        }
     }
 
     /// Extract top-level code (code outside symbols)
@@ -5159,6 +5228,152 @@ impl User {
         {
             assert_eq!(c1.id, c2.id, "Chunk IDs should be identical across runs");
         }
+    }
+
+    #[test]
+    fn test_duplicate_parent_names_link_child_to_containing_parent_only() {
+        fn chunk(
+            id: &str,
+            kind: ChunkKind,
+            symbol: &str,
+            parent: Option<&str>,
+            lines: (u32, u32),
+        ) -> EmbedChunk {
+            EmbedChunk {
+                id: id.to_owned(),
+                full_hash: format!("{id}_full"),
+                content: symbol.to_owned(),
+                tokens: 1,
+                kind,
+                source: ChunkSource {
+                    repo: RepoIdentifier::default(),
+                    file: "service.py".to_owned(),
+                    lines,
+                    symbol: symbol.to_owned(),
+                    fqn: Some(format!("service::{symbol}")),
+                    language: "Python".to_owned(),
+                    parent: parent.map(str::to_owned),
+                    visibility: Visibility::Public,
+                    is_test: false,
+                    module_path: Some("service".to_owned()),
+                    parent_chunk_id: None,
+                },
+                context: ChunkContext::default(),
+                children_ids: Vec::new(),
+                dedup_alias_chunk_ids: Vec::new(),
+                repr: default_repr(),
+                code_chunk_id: None,
+                part: None,
+            }
+        }
+
+        let mut chunks = vec![
+            chunk("first_parent", ChunkKind::Class, "MockPerson", None, (1, 3)),
+            chunk("second_parent", ChunkKind::Class, "MockPerson", None, (10, 12)),
+            chunk(
+                "child_method",
+                ChunkKind::Method,
+                "getRelativeUrl",
+                Some("MockPerson"),
+                (11, 12),
+            ),
+        ];
+
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let progress = QuietProgress;
+        let chunker = EmbedChunker::with_defaults(settings);
+        chunker.link_parent_children(&mut chunks, &progress);
+
+        let child = chunks
+            .iter()
+            .find(|chunk| chunk.id == "child_method")
+            .expect("child should exist");
+        assert_eq!(child.source.parent_chunk_id.as_deref(), Some("second_parent"));
+
+        let first_parent = chunks
+            .iter()
+            .find(|chunk| chunk.id == "first_parent")
+            .expect("first parent should exist");
+        assert!(first_parent.children_ids.is_empty());
+
+        let second_parent = chunks
+            .iter()
+            .find(|chunk| chunk.id == "second_parent")
+            .expect("second parent should exist");
+        assert_eq!(second_parent.children_ids, vec!["child_method".to_owned()]);
+    }
+
+    #[test]
+    fn test_trim_blank_segment_edges_keeps_source_lines_current_fragment_only() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let token_model = chunker.parse_token_model(&chunker.settings.token_model);
+        let segment = BudgetedSegment {
+            content: "useful line\n".to_owned(),
+            start_line: 10,
+            end_line: 11,
+            tokens: 1,
+            overlap_lines: 0,
+        };
+
+        let trimmed = chunker
+            .trim_blank_segment_edges(segment, token_model)
+            .expect("non-empty segment should remain");
+
+        assert_eq!(trimmed.content, "useful line");
+        assert_eq!(trimmed.start_line, 10);
+        assert_eq!(trimmed.end_line, 10);
+    }
+
+    #[test]
+    fn test_python_future_import_is_import_chunk_not_top_level() {
+        let temp_dir = TempDir::new().unwrap();
+        create_test_file(
+            temp_dir.path(),
+            "pkg/module.py",
+            "from __future__ import annotations\nimport os\n\n\ndef keep():\n    return os.getcwd()\n",
+        );
+
+        let settings = EmbedSettings {
+            min_tokens: 1,
+            context_lines: 0,
+            include_top_level: true,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let future_import = chunks
+            .iter()
+            .find(|chunk| chunk.content.trim() == "from __future__ import annotations")
+            .expect("future import should be emitted");
+        assert_eq!(future_import.kind, ChunkKind::Imports);
+        assert!(
+            chunks.iter().all(|chunk| {
+                chunk.kind == ChunkKind::Imports
+                    || !chunk.content.contains("from __future__ import annotations")
+            }),
+            "future import should not leak into top-level chunks: {chunks:#?}"
+        );
+    }
+
+    #[test]
+    fn test_python_fragment_calls_ignore_docstring_text() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = "class TransData2D:\n    \"\"\"\n    This class manages:\n    - Memory allocation (GM buffers)\n    - Format handling (NHWC/NCHW)\n    \"\"\"";
+
+        let calls = chunker.extract_local_calls(content, Some(Language::Python));
+
+        assert!(calls.is_empty(), "docstring prose should not become calls: {calls:?}");
     }
 
     #[test]
