@@ -1063,6 +1063,9 @@ pub fn is_builtin(name: &str, language: Language) -> bool {
                     | "open"
                     | "input"
                     | "format"
+                    | "all"
+                    | "any"
+                    | "callable"
                     | "enumerate"
                     | "zip"
                     | "map"
@@ -1079,6 +1082,73 @@ pub fn is_builtin(name: &str, language: Language) -> bool {
                     | "hex"
                     | "bin"
                     | "oct"
+                    | "BaseException"
+                    | "Exception"
+                    | "ArithmeticError"
+                    | "BufferError"
+                    | "LookupError"
+                    | "AssertionError"
+                    | "AttributeError"
+                    | "EOFError"
+                    | "FloatingPointError"
+                    | "GeneratorExit"
+                    | "ImportError"
+                    | "ModuleNotFoundError"
+                    | "IndexError"
+                    | "KeyError"
+                    | "KeyboardInterrupt"
+                    | "MemoryError"
+                    | "NameError"
+                    | "NotImplementedError"
+                    | "OSError"
+                    | "OverflowError"
+                    | "RecursionError"
+                    | "ReferenceError"
+                    | "RuntimeError"
+                    | "StopIteration"
+                    | "StopAsyncIteration"
+                    | "SyntaxError"
+                    | "IndentationError"
+                    | "TabError"
+                    | "SystemError"
+                    | "SystemExit"
+                    | "TypeError"
+                    | "UnboundLocalError"
+                    | "UnicodeError"
+                    | "UnicodeEncodeError"
+                    | "UnicodeDecodeError"
+                    | "UnicodeTranslateError"
+                    | "ValueError"
+                    | "ZeroDivisionError"
+                    | "EnvironmentError"
+                    | "IOError"
+                    | "WindowsError"
+                    | "BlockingIOError"
+                    | "ChildProcessError"
+                    | "ConnectionError"
+                    | "BrokenPipeError"
+                    | "ConnectionAbortedError"
+                    | "ConnectionRefusedError"
+                    | "ConnectionResetError"
+                    | "FileExistsError"
+                    | "FileNotFoundError"
+                    | "InterruptedError"
+                    | "IsADirectoryError"
+                    | "NotADirectoryError"
+                    | "PermissionError"
+                    | "ProcessLookupError"
+                    | "TimeoutError"
+                    | "Warning"
+                    | "UserWarning"
+                    | "DeprecationWarning"
+                    | "PendingDeprecationWarning"
+                    | "SyntaxWarning"
+                    | "RuntimeWarning"
+                    | "FutureWarning"
+                    | "ImportWarning"
+                    | "UnicodeWarning"
+                    | "BytesWarning"
+                    | "ResourceWarning"
             )
         },
         Language::JavaScript | Language::TypeScript => {
@@ -1988,6 +2058,17 @@ mod tests {
         assert!(is_builtin("max", Language::Python));
         assert!(is_builtin("abs", Language::Python));
         assert!(is_builtin("round", Language::Python));
+    }
+
+    #[test]
+    fn test_is_builtin_python_predicates_and_exceptions() {
+        assert!(is_builtin("all", Language::Python));
+        assert!(is_builtin("any", Language::Python));
+        assert!(is_builtin("callable", Language::Python));
+        assert!(is_builtin("ValueError", Language::Python));
+        assert!(is_builtin("TypeError", Language::Python));
+        assert!(is_builtin("FileNotFoundError", Language::Python));
+        assert!(is_builtin("RuntimeWarning", Language::Python));
     }
 
     #[test]

@@ -1727,6 +1727,14 @@ impl EmbedChunker {
                 lang_enum,
                 index > 0,
             );
+            if lang_enum == Some(Language::Python) {
+                part_context.calls = self.extract_python_calls_in_line_range(
+                    &split_content,
+                    base_line,
+                    segment.start_line,
+                    segment.end_line,
+                );
+            }
             let repr = default_repr();
             part_context.summary = generate_summary(part_kind, &part_source, &part_context);
             let part = ChunkPart {
@@ -1931,9 +1939,66 @@ impl EmbedChunker {
         calls
     }
 
+    fn extract_python_calls_in_line_range(
+        &self,
+        content: &str,
+        base_line: u32,
+        start_line: u32,
+        end_line: u32,
+    ) -> Vec<String> {
+        if start_line > end_line {
+            return Vec::new();
+        }
+
+        let Some(ts_language) = Language::Python.tree_sitter_language() else {
+            return Vec::new();
+        };
+
+        let mut parser = tree_sitter::Parser::new();
+        if parser.set_language(&ts_language).is_err() {
+            return Vec::new();
+        }
+
+        let parse_content = dedent_python_fragment(content);
+        let Some(tree) = parser.parse(&parse_content, None) else {
+            return Vec::new();
+        };
+
+        let mut calls = std::collections::HashSet::new();
+        Self::collect_python_calls_without_strings_in_line_range(
+            tree.root_node(),
+            &parse_content,
+            base_line,
+            start_line,
+            end_line,
+            &mut calls,
+        );
+        let mut calls: Vec<String> = calls.into_iter().collect();
+        calls.sort();
+        calls
+    }
+
     fn collect_python_calls_without_strings(
         root: tree_sitter::Node<'_>,
         source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
+        Self::collect_python_calls_without_strings_in_line_range(
+            root,
+            source,
+            1,
+            1,
+            u32::MAX,
+            calls,
+        );
+    }
+
+    fn collect_python_calls_without_strings_in_line_range(
+        root: tree_sitter::Node<'_>,
+        source: &str,
+        base_line: u32,
+        start_line: u32,
+        end_line: u32,
         calls: &mut std::collections::HashSet<String>,
     ) {
         let ignored_spans = node_spans_by_kind(root, &["string", "comment"]);
@@ -1943,7 +2008,10 @@ impl EmbedChunker {
                 "string" | "comment" | "ERROR" => continue,
                 "call" => {
                     if let Some(function) = node.child_by_field_name("function") {
+                        let call_line = base_line + node.start_position().row as u32;
                         if function.kind() == "identifier"
+                            && start_line <= call_line
+                            && call_line <= end_line
                             && !byte_in_spans(function.start_byte(), &ignored_spans)
                             && !byte_in_spans(node.start_byte(), &ignored_spans)
                         {
@@ -4410,6 +4478,115 @@ def big():
     }
 
     #[test]
+    fn test_python_split_part_calls_ignore_docstring_continuation() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut body = String::new();
+        for index in 0..40 {
+            body.push_str(&format!("    record_metric({index})\n"));
+        }
+        create_test_file(
+            temp_dir.path(),
+            "service.py",
+            &format!(
+                r#"
+def record_metric(value):
+    return value
+
+def test_layer_global_max_pooling1d(system_dict):
+    """
+    Args:
+        system_dict: Dictionary containing test state (counts, logs, etc.).
+
+    Returns:
+        Updated system_dict with results of this test.
+    """
+    test_name = "test_layer_global_max_pooling1d"
+{body}
+"#
+            ),
+        );
+
+        let settings = EmbedSettings {
+            max_tokens: 24,
+            min_tokens: 1,
+            overlap_tokens: 0,
+            context_lines: 0,
+            include_top_level: false,
+            scan_secrets: false,
+            redact_secrets: false,
+            ..Default::default()
+        };
+        let progress = QuietProgress;
+        let mut chunker = EmbedChunker::with_defaults(settings);
+        let chunks = chunker
+            .chunk_repository(temp_dir.path(), &progress)
+            .unwrap();
+
+        let docstring_part = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::FunctionPart
+                    && chunk.source.symbol == "test_layer_global_max_pooling1d"
+                    && chunk.content.contains("Dictionary containing test state")
+            })
+            .expect("a split part should contain the docstring continuation");
+        assert!(
+            docstring_part.context.calls.is_empty(),
+            "docstring continuation must not produce calls: {:?}",
+            docstring_part.context.calls
+        );
+        assert!(
+            docstring_part.context.unresolved_calls.is_empty(),
+            "docstring continuation must not produce unresolved calls: {:?}",
+            docstring_part.context.unresolved_calls
+        );
+
+        let body_part = chunks
+            .iter()
+            .find(|chunk| {
+                chunk.kind == ChunkKind::FunctionPart
+                    && chunk.source.symbol == "test_layer_global_max_pooling1d"
+                    && chunk.content.contains("record_metric(")
+            })
+            .expect("a later part should contain a real call");
+        assert!(
+            body_part
+                .context
+                .calls
+                .contains(&"record_metric".to_owned()),
+            "real calls in the split part should remain: {:?}",
+            body_part.context.calls
+        );
+    }
+
+    #[test]
+    fn test_python_line_range_calls_ignore_docstring_continuation() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = r#"def run(system_dict):
+    """
+    Args:
+        system_dict: Dictionary containing test state (counts, logs, etc.).
+
+    Returns:
+        Updated system_dict with results of this test.
+    """
+    test_name = "run"
+    record_metric(test_name)
+"#;
+
+        let docstring_calls = chunker.extract_python_calls_in_line_range(content, 1, 3, 8);
+        let body_calls = chunker.extract_python_calls_in_line_range(content, 1, 9, 10);
+
+        assert!(
+            docstring_calls.is_empty(),
+            "docstring continuation should not be parsed as calls: {docstring_calls:?}"
+        );
+        assert_eq!(body_calls, vec!["record_metric".to_owned()]);
+    }
+
+    #[test]
     fn test_split_large_symbol_makes_progress_with_full_overlap_budget() {
         let mut lines = Vec::new();
         for index in 0..80 {
@@ -5801,6 +5978,25 @@ impl User {
         let calls = chunker.extract_local_calls(content, Some(Language::Python));
 
         assert_eq!(calls, vec!["later_call".to_owned()]);
+    }
+
+    #[test]
+    fn test_python_fragment_calls_filter_prose_and_builtins() {
+        let settings =
+            EmbedSettings { scan_secrets: false, redact_secrets: false, ..Default::default() };
+        let chunker = EmbedChunker::with_defaults(settings);
+        let content = r#"def build(values):
+    # comment_only_call(values)
+    text = "RuntimeError(fake_call())"
+    if all(check_item(value) for value in values):
+        raise ValueError("bad value")
+    if any(callable(value) for value in values):
+        return make_result(values)
+"#;
+
+        let calls = chunker.extract_local_calls(content, Some(Language::Python));
+
+        assert_eq!(calls, vec!["check_item".to_owned(), "make_result".to_owned()]);
     }
 
     #[test]
